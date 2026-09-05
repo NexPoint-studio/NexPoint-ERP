@@ -1,0 +1,40 @@
+{% macro icon(name, class_name='') -%}
+<svg class="icon {{ class_name }}" aria-hidden="true" viewBox="0 0 24 24">
+  {% if name == 'cash' %}<path d="M3 7.5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 8V5.5A2.5 2.5 0 0 1 5.5 3H18v4.5M16 14h5"/><circle cx="16" cy="14" r=".7"/>
+  {% elif name == 'customers' %}<circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5A5.5 5.5 0 0 1 9 13a5.5 5.5 0 0 1 5.5 5.5V20M16 5.5a3 3 0 0 1 0 5.8M17 14a5 5 0 0 1 4 4.9V20"/>
+  {% elif name == 'services' %}<path d="M5 5h14v14H5zM8 9h8M8 13h5M8 17h7"/>
+  {% elif name == 'admin' %}<path d="M12 3 20 6v5c0 5.2-3.4 8.5-8 10-4.6-1.5-8-4.8-8-10V6z"/><circle cx="12" cy="10" r="2.3"/><path d="M8.7 16a3.7 3.7 0 0 1 6.6 0"/>
+  {% elif name == 'search' %}<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>
+  {% elif name == 'add' %}<path d="M12 5v14M5 12h14"/>
+  {% elif name == 'check' %}<path d="m5 12 4 4L19 6"/>
+  {% elif name == 'logout' %}<path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M16 8l4 4-4 4M20 12H9"/>
+  {% elif name == 'menu' %}<path d="M4 7h16M4 12h16M4 17h16"/>
+  {% elif name == 'close' %}<path d="m6 6 12 12M18 6 6 18"/>
+  {% else %}<circle cx="12" cy="12" r="8"/><path d="M9 12h6M12 9v6"/>{% endif %}
+</svg>
+{%- endmacro %}
+
+{% macro page_header(kicker, title, description, action_label='') -%}
+<header class="page-header page-header--split"><div><p class="eyebrow">{{ kicker }}</p><h1>{{ title }}</h1><p>{{ description }}</p></div>{% if action_label %}<button class="button button--primary" disabled>{{ icon('add') }}{{ action_label }}</button>{% endif %}</header>
+{%- endmacro %}
+
+{% macro card(title='', class_name='') -%}
+<section class="panel {{ class_name }}">{% if title %}<div class="section-heading"><h2>{{ title }}</h2></div>{% endif %}{{ caller() }}</section>
+{%- endmacro %}
+
+{% macro status_badge(text, tone='neutral') -%}<span class="badge badge--{{ tone }}">{{ text }}</span>{%- endmacro %}
+
+{% macro empty_state(title, description) -%}<div class="empty-state"><span class="empty-state__icon">{{ icon('check') }}</span><strong>{{ title }}</strong><p>{{ description }}</p></div>{%- endmacro %}
+
+{% macro loading_state(text='Carregando…') -%}<div class="loading-state" role="status"><span class="spinner"></span><span>{{ text }}</span></div>{%- endmacro %}
+
+{% macro search_box(placeholder='Buscar') -%}<label class="search-box"><span class="sr-only">{{ placeholder }}</span>{{ icon('search') }}<input type="search" placeholder="{{ placeholder }}" disabled></label>{%- endmacro %}
+
+{% macro pagination() -%}<nav class="pagination" aria-label="Paginação"><button disabled>Anterior</button><span>Página 1 de 1</span><button disabled>Próxima</button></nav>{%- endmacro %}
+
+{% macro modal_shell(id, title, description='') -%}
+<div class="modal-backdrop" id="{{ id }}" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="{{ id }}-title"><header class="modal__header"><div><h2 id="{{ id }}-title">{{ title }}</h2>{% if description %}<p>{{ description }}</p>{% endif %}</div><button class="icon-button" type="button" aria-label="Fechar">{{ icon('close') }}</button></header><div class="modal__body">{{ caller() }}</div></section></div>
+{%- endmacro %}
+
+{# DONE: card, botão, campos, checkbox, modal, tabela, badge, alert, loading,
+   empty state, cabeçalho, busca e paginação possuem base visual genérica. #}

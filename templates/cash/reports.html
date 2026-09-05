@@ -1,0 +1,256 @@
+{% extends "layout/base.html" %}
+{% from "components/ui.html" import icon %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div>
+    <p class="eyebrow">CAIXA</p>
+    <h1>Relatórios</h1>
+    <p>Analise o resultado financeiro, as categorias e a evolução do período.</p>
+  </div>
+  <a class="button button--secondary" href="/caixa/historico?period={{ report.period.shortcut }}&start={{ report.period.start_date.isoformat() }}&end={{ report.period.end_date.isoformat() }}">Ver lançamentos</a>
+</header>
+
+{% if period_error %}
+  <div class="alert alert--error" role="alert">{{ period_error }}</div>
+{% endif %}
+
+<section class="panel cash-report-filters">
+  <form method="get" action="/caixa/relatorios" class="customer-filters">
+    <fieldset class="cash-period-fieldset">
+      <legend>Período do relatório</legend>
+      <div class="type-toggle cash-period-toggle" aria-label="Atalhos de período">
+        {% for item in period_shortcuts %}
+          <label>
+            <input type="radio" name="period" value="{{ item.code }}" {% if report.period.shortcut == item.code %}checked{% endif %}>
+            <span>{{ item.label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="filter-grid cash-custom-period-fields">
+      <label class="field">
+        Data inicial
+        <input type="date" name="start" value="{{ report.period.start_date.isoformat() }}">
+      </label>
+      <label class="field">
+        Data final
+        <input type="date" name="end" value="{{ report.period.end_date.isoformat() }}">
+      </label>
+      <div class="form-actions">
+        <a class="button button--secondary" href="/caixa/relatorios">Voltar ao mês atual</a>
+        <button class="button button--primary" type="submit">Gerar relatório</button>
+      </div>
+    </div>
+    <p class="form-hint">As datas são usadas quando o período <strong>Personalizado</strong> está selecionado.</p>
+  </form>
+</section>
+
+<section class="metrics-grid metrics-grid--four compact section-block" aria-label="Indicadores do período">
+  <article class="metric-card metric-card--blue">
+    <span class="metric-card__label">Saldo anterior</span>
+    <strong class="metric-card__value">{{ report.previous_balance|money }}</strong>
+    <small>Antes de {{ report.period.start_date|date_br }}</small>
+  </article>
+  <article class="metric-card metric-card--positive">
+    <span class="metric-card__label">Entradas líquidas</span>
+    <strong class="metric-card__value">{{ report.totals.entries|money }}</strong>
+    <small>Bruto: {{ report.totals.entry_gross|money }} · Taxas: {{ report.totals.fees|money }}</small>
+  </article>
+  <article class="metric-card metric-card--negative">
+    <span class="metric-card__label">Saídas</span>
+    <strong class="metric-card__value">{{ report.totals.exits|money }}</strong>
+    <small>Somente lançamentos ativos</small>
+  </article>
+  <article class="metric-card {{ 'metric-card--positive' if report.totals.result >= 0 else 'metric-card--negative' }}">
+    <span class="metric-card__label">Resultado do período</span>
+    <strong class="metric-card__value">{{ report.totals.result|money }}</strong>
+    <small>{{ report.period.start_date|date_br }} a {{ report.period.end_date|date_br }}</small>
+  </article>
+</section>
+
+<section class="primary-banner cash-report-final-balance section-block">
+  <div class="primary-banner__content">
+    <span class="primary-banner__label">Saldo final do período</span>
+    <strong class="primary-banner__value">{{ report.final_balance|money }}</strong>
+    <p class="primary-banner__description">
+      Saldo anterior {{ report.previous_balance|money }} + resultado {{ report.totals.result|money }}.
+    </p>
+  </div>
+  <span class="primary-banner__icon" aria-hidden="true">{{ icon('cash') }}</span>
+</section>
+
+{% if not report.evolution %}
+  <section class="panel empty-state cash-empty-state section-block">
+    <span class="empty-state__icon">{{ icon('cash') }}</span>
+    <strong>Nenhuma movimentação ativa neste período.</strong>
+    <p>Escolha outro intervalo ou registre um lançamento para começar a analisar o caixa.</p>
+    <a class="button button--secondary" href="/caixa/relatorios?period=year">Consultar este ano</a>
+    {% if current_user.can('cash.create') %}
+      <a class="button button--primary" href="/caixa/novo-lancamento">+ Novo lançamento</a>
+    {% endif %}
+  </section>
+{% endif %}
+
+<section class="profile-grid section-block cash-category-reports">
+  <article class="panel">
+    <div class="section-heading section-heading--split">
+      <div>
+        <span class="section-kicker">ENTRADAS</span>
+        <h2>Por categoria</h2>
+      </div>
+      <strong class="cash-value--entry">{{ report.totals.entries|money }}</strong>
+    </div>
+    {% if report.entry_categories %}
+      <div class="table-shell">
+        <table class="cash-report-table">
+          <thead>
+            <tr><th>Categoria</th><th class="cell-number">Lançamentos</th><th class="cell-number">Total líquido</th></tr>
+          </thead>
+          <tbody>
+            {% for item in report.entry_categories %}
+              <tr>
+                <td><strong>{{ item.name }}</strong></td>
+                <td class="cell-number">{{ item.count }}</td>
+                <td class="cell-number cash-value--entry"><strong>{{ item.total|money }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state cash-empty-state--compact"><strong>Nenhuma entrada no período.</strong></div>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="section-heading section-heading--split">
+      <div>
+        <span class="section-kicker">SAÍDAS</span>
+        <h2>Por categoria</h2>
+      </div>
+      <strong class="cash-value--exit">{{ report.totals.exits|money }}</strong>
+    </div>
+    {% if report.exit_categories %}
+      <div class="table-shell">
+        <table class="cash-report-table">
+          <thead>
+            <tr><th>Categoria</th><th class="cell-number">Lançamentos</th><th class="cell-number">Total</th></tr>
+          </thead>
+          <tbody>
+            {% for item in report.exit_categories %}
+              <tr>
+                <td><strong>{{ item.name }}</strong></td>
+                <td class="cell-number">{{ item.count }}</td>
+                <td class="cell-number cash-value--exit"><strong>{{ item.total|money }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state cash-empty-state--compact"><strong>Nenhuma saída no período.</strong></div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading section-heading--split">
+    <div>
+      <span class="section-kicker">FORMAS DE PAGAMENTO</span>
+      <h2>Movimento por forma</h2>
+    </div>
+    <small class="muted">O impacto líquido desconta taxas e considera saídas como negativas.</small>
+  </div>
+  {% if report.payments %}
+    <div class="table-shell">
+      <table class="cash-report-table cash-payment-report-table">
+        <thead>
+          <tr>
+            <th>Forma de pagamento</th>
+            <th class="cell-number">Lançamentos</th>
+            <th class="cell-number">Valor bruto</th>
+            <th class="cell-number">Taxas</th>
+            <th class="cell-number">Impacto líquido no caixa</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in report.payments %}
+            <tr>
+              <td><strong>{{ item.name }}</strong></td>
+              <td class="cell-number">{{ item.count }}</td>
+              <td class="cell-number">{{ item.gross|money }}</td>
+              <td class="cell-number">{{ item.fees|money }}</td>
+              <td class="cell-number {{ 'cash-value--entry' if item.net >= 0 else 'cash-value--exit' }}"><strong>{{ item.net|money }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state cash-empty-state--compact"><strong>Nenhuma forma de pagamento movimentada.</strong></div>
+  {% endif %}
+</section>
+
+<section class="panel section-block cash-evolution-panel">
+  <div class="section-heading section-heading--split">
+    <div>
+      <span class="section-kicker">EVOLUÇÃO TEMPORAL</span>
+      <h2>Entradas e saídas ao longo do período</h2>
+    </div>
+    <small class="muted">Agrupamento diário em períodos curtos e mensal nos períodos maiores.</small>
+  </div>
+
+  {% if report.evolution %}
+    <div class="cash-chart-legend" aria-hidden="true">
+      <span><i class="cash-chart-key cash-chart-key--entry"></i>Entradas</span>
+      <span><i class="cash-chart-key cash-chart-key--exit"></i>Saídas</span>
+    </div>
+    <div class="cash-evolution-chart" aria-label="Gráfico de evolução de entradas e saídas">
+      {% for item in report.evolution %}
+        {% set entry_width = (item.entries / max_evolution * 100) if max_evolution > 0 else 0 %}
+        {% set exit_width = (item.exits / max_evolution * 100) if max_evolution > 0 else 0 %}
+        <article class="cash-evolution-row">
+          <strong class="cash-evolution-row__label">{{ item.label }}</strong>
+          <div class="cash-evolution-row__bars">
+            <div class="cash-chart-track" title="Entradas: {{ item.entries|money }}">
+              <span class="cash-chart-bar cash-chart-bar--entry" style="width: {{ '%.2f'|format(entry_width) }}%"></span>
+            </div>
+            <div class="cash-chart-track" title="Saídas: {{ item.exits|money }}">
+              <span class="cash-chart-bar cash-chart-bar--exit" style="width: {{ '%.2f'|format(exit_width) }}%"></span>
+            </div>
+          </div>
+          <div class="cash-evolution-row__values">
+            <span class="cash-value--entry">{{ item.entries|money }}</span>
+            <span class="cash-value--exit">{{ item.exits|money }}</span>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+    <div class="table-shell cash-evolution-table-shell">
+      <table class="cash-report-table">
+        <thead>
+          <tr><th>Período</th><th class="cell-number">Entradas</th><th class="cell-number">Saídas</th><th class="cell-number">Resultado</th></tr>
+        </thead>
+        <tbody>
+          {% for item in report.evolution %}
+            <tr>
+              <td><strong>{{ item.label }}</strong></td>
+              <td class="cell-number cash-value--entry">{{ item.entries|money }}</td>
+              <td class="cell-number cash-value--exit">{{ item.exits|money }}</td>
+              <td class="cell-number {{ 'cash-value--entry' if item.result >= 0 else 'cash-value--exit' }}"><strong>{{ item.result|money }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state cash-empty-state--compact">
+      <strong>Sem dados para exibir a evolução.</strong>
+      <p>Não há lançamentos ativos entre {{ report.period.start_date|date_br }} e {{ report.period.end_date|date_br }}.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

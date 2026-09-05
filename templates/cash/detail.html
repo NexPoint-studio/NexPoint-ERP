@@ -1,0 +1,139 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<header class="page-header page-header--split cash-detail-header">
+  <div>
+    <p class="eyebrow">CAIXA › DETALHE</p>
+    <h1>{{ movement.description }}</h1>
+    <p>Lançamento #{{ movement.id }} realizado em {{ local_datetime(movement.occurred_at)|datetime_br }}.</p>
+    <div class="profile-badges">
+      <span class="badge badge--{{ 'success' if movement.movement_type == 'ENTRY' else 'danger' }}">
+        {{ movement_type_by_code[movement.movement_type].label }}
+      </span>
+      <span class="badge badge--{{ 'success' if movement.status == 'ACTIVE' else 'neutral' }}">
+        {{ movement_status_by_code[movement.status].label }}
+      </span>
+    </div>
+  </div>
+  <div class="header-actions">
+    <a class="button button--secondary" href="/caixa/historico">Voltar ao histórico</a>
+    {% if movement.status == 'ACTIVE' and current_user.can('cash.edit') %}
+      <a class="button button--secondary" href="/caixa/movimentos/{{ movement.id }}/editar">Editar</a>
+    {% endif %}
+    {% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+      <button class="button button--danger" type="button" data-modal-open="cancel-movement">Cancelar lançamento</button>
+    {% endif %}
+  </div>
+</header>
+
+{% if updated %}
+  <div class="alert alert--success" role="status">Lançamento atualizado com sucesso. A alteração foi registrada na auditoria.</div>
+{% endif %}
+{% if canceled %}
+  <div class="alert alert--success" role="status">Lançamento cancelado. Ele foi preservado no histórico e removido dos totais.</div>
+{% endif %}
+{% if cancel_error %}
+  <div class="alert alert--error" role="alert">{{ cancel_error }}</div>
+{% endif %}
+{% if movement.status == 'CANCELED' %}
+  <div class="alert alert--warning">Este lançamento está cancelado e não participa do saldo, dos totais ou dos relatórios.</div>
+{% endif %}
+
+<section class="metrics-grid metrics-grid--four compact" aria-label="Valores do lançamento">
+  <article class="metric-card">
+    <span class="metric-card__label">Valor bruto</span>
+    <strong class="metric-card__value">{{ movement.gross_amount|money }}</strong>
+    <small>Valor informado no lançamento</small>
+  </article>
+  <article class="metric-card">
+    <span class="metric-card__label">Taxa</span>
+    <strong class="metric-card__value">{{ movement.fee_amount|money }}</strong>
+    <small>{{ 'Descontada da entrada' if movement.fee_amount > 0 else 'Sem taxa' }}</small>
+  </article>
+  <article class="metric-card {{ 'metric-card--positive' if movement.movement_type == 'ENTRY' else 'metric-card--negative' }}">
+    <span class="metric-card__label">Valor líquido</span>
+    <strong class="metric-card__value">{{ movement.net_amount|money }}</strong>
+    <small>{{ 'Bruto menos taxa' if movement.movement_type == 'ENTRY' else 'Valor integral da saída' }}</small>
+  </article>
+  <article class="metric-card {{ 'metric-card--positive' if movement.status == 'ACTIVE' and movement.movement_type == 'ENTRY' else ('metric-card--negative' if movement.status == 'ACTIVE' else '') }}">
+    <span class="metric-card__label">Efeito no Caixa</span>
+    {% if movement.status == 'CANCELED' %}
+      <strong class="metric-card__value">{{ 0|money }}</strong>
+      <small>Sem efeito após o cancelamento</small>
+    {% else %}
+      <strong class="metric-card__value">{{ '+' if movement.movement_type == 'ENTRY' else '−' }} {{ movement.net_amount|money }}</strong>
+      <small>{{ 'Aumenta' if movement.movement_type == 'ENTRY' else 'Reduz' }} o saldo</small>
+    {% endif %}
+  </article>
+</section>
+
+<section class="profile-grid section-block">
+  <article class="panel">
+    <div class="section-heading"><h2>Dados do lançamento</h2></div>
+    <dl class="details-list">
+      <div><dt>Tipo</dt><dd>{{ movement_type_by_code[movement.movement_type].label }}</dd></div>
+      <div><dt>Descrição</dt><dd>{{ movement.description }}</dd></div>
+      <div><dt>Categoria</dt><dd>{{ movement.category.name if movement.category else 'Sem categoria' }}</dd></div>
+      <div><dt>Pagamento</dt><dd>{{ movement.payment_method.name if movement.payment_method else 'Não informado' }}</dd></div>
+      <div><dt>Data</dt><dd>{{ local_datetime(movement.occurred_at)|datetime_br }}</dd></div>
+      <div><dt>Status</dt><dd>{{ movement_status_by_code[movement.status].label }}</dd></div>
+      <div><dt>Origem</dt><dd>{{ 'Manual' if movement.origin == 'MANUAL' else 'Sistema' }}</dd></div>
+      {% if movement.source_reference %}<div><dt>Referência</dt><dd>{{ movement.source_reference }}</dd></div>{% endif %}
+    </dl>
+  </article>
+
+  <article class="panel">
+    <div class="section-heading"><h2>Observações</h2></div>
+    {% if movement.notes %}
+      <p class="cash-notes">{{ movement.notes }}</p>
+    {% else %}
+      <div class="empty-state"><strong>Nenhuma observação.</strong><p>Este lançamento não possui informações adicionais.</p></div>
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading">
+    <div>
+      <span class="section-kicker">Rastreabilidade</span>
+      <h2>Auditoria do registro</h2>
+    </div>
+  </div>
+  <dl class="details-list cash-audit-details">
+    <div><dt>Criado por</dt><dd>{{ movement.creator.display_name }}</dd></div>
+    <div><dt>Criado em</dt><dd>{{ local_datetime(movement.created_at)|datetime_br }}</dd></div>
+    <div><dt>Última alteração por</dt><dd>{{ movement.updater.display_name }}</dd></div>
+    <div><dt>Última alteração</dt><dd>{{ local_datetime(movement.updated_at)|datetime_br }}</dd></div>
+    {% if movement.status == 'CANCELED' %}
+      <div><dt>Cancelado por</dt><dd>{{ movement.canceler.display_name if movement.canceler else 'Usuário local' }}</dd></div>
+      <div><dt>Cancelado em</dt><dd>{{ local_datetime(movement.canceled_at)|datetime_br }}</dd></div>
+      <div><dt>Motivo</dt><dd>{{ movement.cancellation_reason }}</dd></div>
+    {% endif %}
+  </dl>
+</section>
+
+{% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+<div class="modal-backdrop" id="cancel-movement" {% if not cancel_modal_open %}hidden{% endif %}>
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-movement-title">
+    <div class="modal__header">
+      <div>
+        <h2 id="cancel-movement-title">Cancelar lançamento?</h2>
+        <p>{{ movement.description }} · {{ movement.net_amount|money }}</p>
+      </div>
+      <button class="icon-button" type="button" data-modal-close="cancel-movement" aria-label="Fechar">×</button>
+    </div>
+    <div class="alert alert--warning">O registro permanecerá no histórico, mas deixará de participar do saldo e dos relatórios. Não será possível reativá-lo nesta versão.</div>
+    <form method="post" action="/caixa/movimentos/{{ movement.id }}/cancelar" class="form-stack">
+      <label>
+        Motivo do cancelamento *
+        <textarea name="reason" maxlength="500" required placeholder="Informe por que este lançamento deve ser cancelado"></textarea>
+      </label>
+      <div class="modal__actions">
+        <button class="button button--secondary" type="button" data-modal-close="cancel-movement">Voltar</button>
+        <button class="button button--danger" type="submit">Cancelar lançamento</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,239 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div>
+    <p class="eyebrow">CAIXA</p>
+    <h1>{{ 'Editar lançamento' if editing else 'Novo lançamento' }}</h1>
+    <p>{{ 'Atualize os dados financeiros mantendo a trilha de auditoria.' if editing else 'Registre uma entrada ou saída realizada no livro-caixa.' }}</p>
+  </div>
+  {% if current_user.can('cash.categories.manage') and not editing %}
+    <button class="button button--secondary" type="button" data-modal-open="cash-categories-modal">Gerenciar categorias</button>
+  {% endif %}
+</header>
+
+{% if saved_type %}
+  <div class="alert alert--success" role="status">
+    <strong>{{ 'Entrada registrada com sucesso.' if saved_type == 'ENTRY' else 'Saída registrada com sucesso.' }}</strong>
+    {% if saved_amount %}
+      <span>{{ saved_amount|money }} {{ 'adicionados ao Caixa.' if saved_type == 'ENTRY' else 'descontados do Caixa.' }}</span>
+    {% endif %}
+  </div>
+{% endif %}
+{% if category_saved %}<div class="alert alert--success" role="status">Categoria salva com sucesso.</div>{% endif %}
+
+<form
+  method="post"
+  class="customer-form cash-movement-form"
+  action="{{ '/caixa/movimentos/' ~ movement.id ~ '/editar' if editing else '/caixa/novo-lancamento' }}"
+  data-cash-form
+>
+  <section class="panel form-section">
+    <div class="section-heading">
+      <h2>Tipo de lançamento</h2>
+      <p>Entradas aumentam o saldo; saídas reduzem o saldo.</p>
+    </div>
+    {% if editing %}
+      <input type="hidden" name="movement_type" value="{{ movement.movement_type }}">
+    {% endif %}
+    <div class="type-toggle cash-type-toggle" role="radiogroup" aria-label="Tipo do lançamento">
+      {% for item in movement_types %}
+        <label>
+          <input
+            type="radio"
+            name="movement_type"
+            value="{{ item.code }}"
+            {% if form.movement_type == item.code %}checked{% endif %}
+            {% if editing %}disabled{% endif %}
+            data-cash-type
+          >
+          <span class="cash-type-option cash-type-option--{{ 'entry' if item.code == 'ENTRY' else 'exit' }}">{{ item.label }}</span>
+        </label>
+      {% endfor %}
+    </div>
+    {% if errors.movement_type %}<small class="field-error">{{ errors.movement_type }}</small>{% endif %}
+  </section>
+
+  <section class="panel form-section">
+    <div class="section-heading"><h2>Dados</h2></div>
+    <div class="form-grid">
+      <label class="field">
+        Valor bruto *
+        <input name="gross_amount" value="{{ form.gross_amount or '' }}" required inputmode="decimal" autocomplete="off" placeholder="0,00" data-gross-amount>
+        {% if errors.gross_amount %}<small class="field-error">{{ errors.gross_amount }}</small>{% endif %}
+      </label>
+      <label class="field">
+        Data e hora *
+        <input type="datetime-local" name="occurred_at" value="{{ form.occurred_at or '' }}" required data-occurred-at>
+        {% if errors.occurred_at %}<small class="field-error">{{ errors.occurred_at }}</small>{% endif %}
+      </label>
+      <label class="field field--wide">
+        Descrição *
+        <input name="description" value="{{ form.description or '' }}" maxlength="180" required placeholder="Explique de forma objetiva o motivo do lançamento">
+        {% if errors.description %}<small class="field-error">{{ errors.description }}</small>{% endif %}
+      </label>
+      <label class="field">
+        Categoria
+        <select name="category_id" data-cash-category>
+          <option value="">Sem categoria</option>
+          {% for category in categories %}
+            <option
+              value="{{ category.id }}"
+              data-category-type="{{ category.movement_type }}"
+              {% if form.category_id == category.id|string %}selected{% endif %}
+            >{{ category.name }} · {{ category_type_by_code[category.movement_type].label }}{% if not category.is_active %} (inativa){% endif %}</option>
+          {% endfor %}
+        </select>
+        {% if errors.category_id %}<small class="field-error">{{ errors.category_id }}</small>{% endif %}
+      </label>
+      <label class="field">
+        Forma de pagamento
+        <select name="payment_method_id" data-payment-method>
+          <option value="">Não informada</option>
+          {% for method in payment_methods %}
+            <option value="{{ method.id }}" {% if form.payment_method_id == method.id|string %}selected{% endif %}>{{ method.name }}{% if not method.is_active %} (inativa){% endif %}</option>
+          {% endfor %}
+        </select>
+        {% if errors.payment_method_id %}<small class="field-error">{{ errors.payment_method_id }}</small>{% endif %}
+        <small class="muted" data-boleto-note>Boleto representa somente um valor já recebido.</small>
+      </label>
+      <label class="field field--wide">
+        Observações
+        <textarea name="notes" maxlength="3000" placeholder="Informações opcionais sobre o lançamento">{{ form.notes or '' }}</textarea>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel form-section cash-fee-section" data-entry-fee-section {% if form.movement_type == 'EXIT' %}hidden{% endif %}>
+    <div class="section-heading">
+      <h2>Taxa da entrada</h2>
+      <p>A taxa é opcional e será descontada do valor bruto.</p>
+    </div>
+    <label class="checkbox">
+      <input type="checkbox" name="has_fee" value="1" {% if form.has_fee == '1' %}checked{% endif %} data-fee-toggle>
+      Esta entrada possui taxa
+    </label>
+    <div class="form-grid cash-fee-fields" data-fee-fields {% if form.has_fee != '1' %}hidden{% endif %}>
+      <label class="field">
+        Valor da taxa
+        <input name="fee_amount" value="{{ form.fee_amount or '0,00' }}" inputmode="decimal" autocomplete="off" placeholder="0,00" data-fee-amount>
+        {% if errors.fee_amount %}<small class="field-error">{{ errors.fee_amount }}</small>{% endif %}
+      </label>
+      <div class="price-change-preview cash-net-preview" aria-live="polite">
+        <span>Valor líquido</span>
+        <strong data-net-amount>{{ movement.net_amount|money if editing else 'R$ 0,00' }}</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel form-section">
+    <label class="checkbox">
+      <input type="checkbox" name="confirm_future" value="1" {% if form.confirm_future == '1' %}checked{% endif %}>
+      Confirmo o lançamento caso a data selecionada esteja no futuro.
+    </label>
+    <p class="panel-note">Datas muito distantes no futuro não são aceitas.</p>
+  </section>
+
+  <div class="form-actions form-actions--sticky">
+    <a class="button button--secondary" href="{{ '/caixa/movimentos/' ~ movement.id if editing else '/caixa/resumo' }}">Cancelar</a>
+    <button class="button button--primary" type="submit">{{ 'Salvar alterações' if editing else 'Registrar lançamento' }}</button>
+  </div>
+</form>
+
+{% if current_user.can('cash.categories.manage') and not editing %}
+<div class="modal-backdrop" id="cash-categories-modal" {% if not categories_open %}hidden{% endif %}>
+  <section class="modal cash-category-modal" role="dialog" aria-modal="true" aria-labelledby="cash-categories-title">
+    <div class="modal__header">
+      <div>
+        <h2 id="cash-categories-title">Categorias do Caixa</h2>
+        <p>Crie e organize categorias de entrada, saída ou ambos.</p>
+      </div>
+      <button class="icon-button" type="button" data-modal-close="cash-categories-modal" aria-label="Fechar">×</button>
+    </div>
+
+    {% set category_action = '/caixa/categorias/' ~ editing_category.id ~ '/editar' if editing_category else '/caixa/categorias' %}
+    <form method="post" action="{{ category_action }}" class="form-stack cash-category-form">
+      <div class="section-heading"><h3>{{ 'Editar categoria' if editing_category else 'Nova categoria' }}</h3></div>
+      <label>
+        Nome *
+        <input name="name" value="{{ category_form.name or '' }}" maxlength="120" required>
+        {% if category_errors.name %}<small class="field-error">{{ category_errors.name }}</small>{% endif %}
+      </label>
+      <div class="form-grid">
+        <label>
+          Tipo *
+          <select name="movement_type" required>
+            {% for item in category_types %}<option value="{{ item.code }}" {% if category_form.movement_type == item.code %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
+          </select>
+          {% if category_errors.movement_type %}<small class="field-error">{{ category_errors.movement_type }}</small>{% endif %}
+        </label>
+        <label>
+          Ordem
+          <input type="number" name="sort_order" value="{{ category_form.sort_order or '0' }}" min="0" max="9999" step="1">
+          {% if category_errors.sort_order %}<small class="field-error">{{ category_errors.sort_order }}</small>{% endif %}
+        </label>
+      </div>
+      <label>
+        Descrição
+        <textarea name="description" maxlength="300">{{ category_form.description or '' }}</textarea>
+      </label>
+      <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if category_form.is_active == '1' %}checked{% endif %}> Categoria ativa</label>
+      <div class="modal__actions">
+        {% if editing_category %}<a class="button button--secondary" href="/caixa/novo-lancamento?categories=1">Cancelar edição</a>{% endif %}
+        <button class="button button--primary" type="submit">{{ 'Salvar alterações' if editing_category else 'Criar categoria' }}</button>
+      </div>
+    </form>
+
+    {% if category_rows %}
+      <div class="table-shell section-block">
+        <table class="customer-table">
+          <thead><tr><th>Categoria</th><th>Tipo</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>
+            {% for row in category_rows %}
+              <tr>
+                <td><strong>{{ row.category.name }}</strong><small>{{ row.movement_count }} lançamento(s)</small></td>
+                <td>{{ category_type_by_code[row.category.movement_type].label }}</td>
+                <td><span class="badge badge--{{ 'success' if row.category.is_active else 'neutral' }}">{{ 'Ativa' if row.category.is_active else 'Inativa' }}</span></td>
+                <td>
+                  <button class="link-button" type="button" data-modal-open="cash-category-edit-{{ row.category.id }}">Editar</button>
+                  <form class="inline-form" method="post" action="/caixa/categorias/{{ row.category.id }}/status" data-confirm="{{ 'Reativar' if not row.category.is_active else 'Inativar' }} esta categoria? O histórico será preservado.">
+                    <input type="hidden" name="active" value="{{ '1' if not row.category.is_active else '0' }}">
+                    <button class="link-button" type="submit">{{ 'Reativar' if not row.category.is_active else 'Inativar' }}</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state section-block"><strong>Nenhuma categoria cadastrada.</strong><p>O lançamento pode continuar sem categoria.</p></div>
+    {% endif %}
+  </section>
+</div>
+
+{% for row in category_rows %}
+<div class="modal-backdrop" id="cash-category-edit-{{ row.category.id }}" hidden>
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cash-category-edit-title-{{ row.category.id }}">
+    <div class="modal__header">
+      <div><h2 id="cash-category-edit-title-{{ row.category.id }}">Editar categoria</h2><p>{{ row.category.name }}</p></div>
+      <button class="icon-button" type="button" data-modal-close="cash-category-edit-{{ row.category.id }}" aria-label="Fechar">×</button>
+    </div>
+    <form method="post" action="/caixa/categorias/{{ row.category.id }}/editar" class="form-stack">
+      <label>Nome *<input name="name" value="{{ row.category.name }}" maxlength="120" required></label>
+      <div class="form-grid">
+        <label>Tipo *<select name="movement_type" required>{% for item in category_types %}<option value="{{ item.code }}" {% if row.category.movement_type == item.code %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select></label>
+        <label>Ordem<input type="number" name="sort_order" value="{{ row.category.sort_order }}" min="0" max="9999" step="1"></label>
+      </div>
+      <label>Descrição<textarea name="description" maxlength="300">{{ row.category.description or '' }}</textarea></label>
+      <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if row.category.is_active %}checked{% endif %}> Categoria ativa</label>
+      <div class="modal__actions">
+        <button class="button button--secondary" type="button" data-modal-close="cash-category-edit-{{ row.category.id }}">Cancelar</button>
+        <button class="button button--primary" type="submit">Salvar alterações</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

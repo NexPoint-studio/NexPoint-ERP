@@ -1,0 +1,1 @@
+"""Infraestrutura central da aplicação."""

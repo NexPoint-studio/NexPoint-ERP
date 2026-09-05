@@ -1,0 +1,150 @@
+{% extends "layout/base.html" %}
+{% from "components/ui.html" import icon %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div>
+    <p class="eyebrow">CAIXA</p>
+    <h1>Resumo</h1>
+    <p>Acompanhe o saldo e o movimento financeiro da empresa.</p>
+  </div>
+  {% if current_user.can('cash.create') %}
+    <div class="header-actions">
+      <a class="button button--success" href="/caixa/novo-lancamento?type=ENTRY">+ Registrar entrada</a>
+      <a class="button button--danger" href="/caixa/novo-lancamento?type=EXIT">− Registrar saída</a>
+    </div>
+  {% endif %}
+</header>
+
+<section class="primary-banner cash-balance-banner">
+  <div class="primary-banner__content">
+    <span class="primary-banner__label">Saldo atual</span>
+    <strong class="primary-banner__value">{{ summary.current_balance|money }}</strong>
+    <p class="primary-banner__description">
+      {% if summary.current_balance > 0 %}
+        Caixa positivo considerando todas as movimentações ativas até agora.
+      {% elif summary.current_balance < 0 %}
+        Caixa negativo considerando todas as movimentações ativas até agora.
+      {% else %}
+        O caixa está zerado neste momento.
+      {% endif %}
+    </p>
+  </div>
+  <span class="primary-banner__icon" aria-hidden="true">{{ icon('cash') }}</span>
+</section>
+
+<section class="metrics-grid metrics-grid--four compact section-block" aria-label="Resumo do mês">
+  <article class="metric-card">
+    <span class="metric-card__label">Saldo anterior</span>
+    <strong class="metric-card__value">{{ summary.month.previous_balance|money }}</strong>
+    <small>Antes de {{ summary.month.period.start_date|date_br }}</small>
+  </article>
+  <article class="metric-card metric-card--positive">
+    <span class="metric-card__label">Entradas do mês</span>
+    <strong class="metric-card__value">{{ summary.month.totals.entries|money }}</strong>
+    <small>Líquido após {{ summary.month.totals.fees|money }} em taxas</small>
+  </article>
+  <article class="metric-card metric-card--negative">
+    <span class="metric-card__label">Saídas do mês</span>
+    <strong class="metric-card__value">{{ summary.month.totals.exits|money }}</strong>
+    <small>Somente lançamentos ativos</small>
+  </article>
+  <article class="metric-card {{ 'metric-card--positive' if summary.month.totals.result >= 0 else 'metric-card--negative' }}">
+    <span class="metric-card__label">Resultado do mês</span>
+    <strong class="metric-card__value">{{ summary.month.totals.result|money }}</strong>
+    <small>Saldo ao final: {{ summary.month.final_balance|money }}</small>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="section-heading section-heading--split">
+      <div>
+        <h2>Movimentações recentes</h2>
+        <p>Últimos lançamentos ativos realizados.</p>
+      </div>
+      <a class="table-action" href="/caixa/historico">Ver histórico</a>
+    </div>
+    {% if summary.recent %}
+      <div class="table-shell">
+        <table class="customer-table cash-table">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Descrição</th>
+              <th>Categoria</th>
+              <th>Pagamento</th>
+              <th class="cell-number">Valor líquido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for movement in summary.recent %}
+              <tr class="cash-row cash-row--{{ 'entry' if movement.movement_type == 'ENTRY' else 'exit' }}">
+                <td>{{ local_datetime(movement.occurred_at)|datetime_br }}</td>
+                <td>
+                  <a class="table-action" href="/caixa/movimentos/{{ movement.id }}"><strong>{{ movement.description }}</strong></a>
+                  <small>{{ movement_type_by_code[movement.movement_type].label }}</small>
+                </td>
+                <td>{{ movement.category.name if movement.category else 'Sem categoria' }}</td>
+                <td>{{ movement.payment_method.name if movement.payment_method else 'Não informada' }}</td>
+                <td class="cell-number cash-value cash-value--{{ 'entry' if movement.movement_type == 'ENTRY' else 'exit' }}">
+                  <strong>{{ '+' if movement.movement_type == 'ENTRY' else '−' }} {{ movement.net_amount|money }}</strong>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state cash-empty-state">
+        <span class="empty-state__icon">{{ icon('cash') }}</span>
+        <strong>Nenhuma movimentação registrada ainda.</strong>
+        <p>O Caixa começa em {{ 0|money }} e será atualizado conforme os lançamentos.</p>
+        {% if current_user.can('cash.create') %}<a class="button button--primary" href="/caixa/novo-lancamento">+ Novo lançamento</a>{% endif %}
+      </div>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <div class="section-heading">
+      <h2>Entradas por pagamento</h2>
+      <p>Mês atual · valores líquidos</p>
+    </div>
+    <div class="cash-breakdown-list">
+      {% for item in summary.payment_entries %}
+        <div class="cash-breakdown-row">
+          <span>{{ item.name }}</span>
+          <strong class="cash-value--entry">{{ item.total|money }}</strong>
+        </div>
+      {% else %}
+        <div class="empty-state"><strong>Nenhuma forma disponível.</strong></div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+
+{% if summary.month.entry_categories or summary.month.exit_categories %}
+<section class="profile-grid section-block">
+  <article class="panel">
+    <div class="section-heading"><h2>Principais entradas por categoria</h2></div>
+    <div class="cash-breakdown-list">
+      {% for item in summary.month.entry_categories %}
+        <div class="cash-breakdown-row"><span>{{ item.name }} <small>({{ item.count }})</small></span><strong class="cash-value--entry">{{ item.total|money }}</strong></div>
+      {% else %}
+        <div class="empty-state"><strong>Nenhuma entrada no mês.</strong></div>
+      {% endfor %}
+    </div>
+  </article>
+  <article class="panel">
+    <div class="section-heading"><h2>Principais saídas por categoria</h2></div>
+    <div class="cash-breakdown-list">
+      {% for item in summary.month.exit_categories %}
+        <div class="cash-breakdown-row"><span>{{ item.name }} <small>({{ item.count }})</small></span><strong class="cash-value--exit">{{ item.total|money }}</strong></div>
+      {% else %}
+        <div class="empty-state"><strong>Nenhuma saída no mês.</strong></div>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endif %}
+{% endblock %}

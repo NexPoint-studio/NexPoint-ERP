@@ -1,0 +1,37 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header"><p class="eyebrow">CLIENTES</p><h1>{{ 'Editar cliente' if editing else 'Novo cliente' }}</h1><p>{{ 'Atualize os dados sem perder o histórico.' if editing else 'Cadastre uma pessoa ou empresa.' }}</p></header>
+{% if duplicate_candidates %}
+<div class="alert alert--warning duplicate-warning"><strong>Encontramos um possível cliente já cadastrado.</strong><p>Confira antes de continuar:</p>
+  {% for item in duplicate_candidates %}<div><b>{{ item.name }}</b> · {{ item.phone|phone or item.whatsapp|phone }} · {{ 'Pessoa' if item.type == 'PERSON' else 'Empresa' }} <a href="/clientes/{{ item.id }}">Ver cliente existente</a></div>{% endfor %}
+</div>
+{% endif %}
+<form method="post" class="customer-form" data-customer-form>
+  {% if duplicate_candidates %}<input type="hidden" name="force_duplicate" value="1">{% endif %}
+  <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Tipo de cliente</span><h2>Selecione o cadastro</h2></div></div>
+    <div class="type-toggle"><label><input type="radio" name="type" value="PERSON" {% if form.type != 'COMPANY' %}checked{% endif %}><span>Pessoa</span></label><label><input type="radio" name="type" value="COMPANY" {% if form.type == 'COMPANY' %}checked{% endif %}><span>Empresa</span></label></div>
+    {% if errors.type %}<small class="field-error">{{ errors.type }}</small>{% endif %}
+  </section>
+  <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Dados principais</span><h2 data-person-label="Nome e identificação" data-company-label="Empresa e identificação">Nome e identificação</h2></div></div>
+    <div class="form-grid">
+      <label class="field field--wide"><span data-person-text="Nome completo *" data-company-text="Razão social *">{{ 'Razão social *' if form.type == 'COMPANY' else 'Nome completo *' }}</span><input name="name" value="{{ form.name or '' }}" maxlength="180" required>{% if errors.name %}<small class="field-error">{{ errors.name }}</small>{% endif %}</label>
+      <label class="field" data-company-only>Nome fantasia<input name="trade_name" value="{{ form.trade_name or '' }}"></label>
+      <label class="field"><span data-person-text="CPF" data-company-text="CNPJ">{{ 'CNPJ' if form.type == 'COMPANY' else 'CPF' }}</span><input name="document" value="{{ form.document or '' }}" inputmode="numeric">{% if errors.document %}<small class="field-error">{{ errors.document }}</small>{% endif %}</label>
+      <label class="field" data-person-only>Data de nascimento<input type="date" name="birth_date" value="{{ form.birth_date or '' }}">{% if errors.birth_date %}<small class="field-error">{{ errors.birth_date }}</small>{% endif %}</label>
+      <label class="field" data-company-only>Responsável / contato principal<input name="primary_contact" value="{{ form.primary_contact or '' }}"></label>
+    </div>
+  </section>
+  <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Contato</span><h2>Como falar com o cliente</h2></div></div><div class="form-grid">
+    <label class="field">Telefone<input name="phone" value="{{ form.phone or '' }}" inputmode="tel">{% if errors.phone %}<small class="field-error">{{ errors.phone }}</small>{% endif %}</label>
+    <label class="field">WhatsApp<input name="whatsapp" value="{{ form.whatsapp or '' }}" inputmode="tel">{% if errors.whatsapp %}<small class="field-error">{{ errors.whatsapp }}</small>{% endif %}</label>
+    <label class="field field--wide">E-mail<input type="email" name="email" value="{{ form.email or '' }}">{% if errors.email %}<small class="field-error">{{ errors.email }}</small>{% endif %}</label>
+  </div></section>
+  <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Endereço</span><h2>Preenchimento manual</h2></div></div><div class="form-grid form-grid--address">
+    <label class="field">CEP<input name="cep" value="{{ form.cep or '' }}" inputmode="numeric">{% if errors.cep %}<small class="field-error">{{ errors.cep }}</small>{% endif %}</label><label class="field field--wide">Rua<input name="street" value="{{ form.street or '' }}"></label><label class="field">Número<input name="number" value="{{ form.number or '' }}"></label><label class="field">Complemento<input name="complement" value="{{ form.complement or '' }}"></label><label class="field">Bairro<input name="neighborhood" value="{{ form.neighborhood or '' }}"></label><label class="field">Cidade<input name="city" value="{{ form.city or '' }}"></label><label class="field">Estado<input name="state" value="{{ form.state or '' }}" maxlength="2">{% if errors.state %}<small class="field-error">{{ errors.state }}</small>{% endif %}</label>
+  </div></section>
+  <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Outras informações</span><h2>Observações e status</h2></div></div>
+    <label class="field">Observações<textarea name="notes">{{ form.notes or '' }}</textarea></label><label class="checkbox status-checkbox"><input type="checkbox" name="is_active" value="1" {% if form.is_active != '0' %}checked{% endif %}> Cliente ativo no cadastro</label>
+  </section>
+  <div class="form-actions form-actions--sticky"><a class="button button--secondary" href="{{ '/clientes/' ~ customer.id if editing else '/clientes/lista' }}">Cancelar</a><button class="button button--primary" type="submit">{{ 'Cadastrar mesmo assim' if duplicate_candidates else ('Salvar alterações' if editing else 'Salvar cliente') }}</button></div>
+</form>
+{% endblock %}

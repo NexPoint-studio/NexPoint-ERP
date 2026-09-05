@@ -1,0 +1,26 @@
+{% extends "layout/base.html" %}
+{% from "components/ui.html" import page_header, status_badge, icon, search_box, pagination, empty_state %}
+{% block content %}
+{{ page_header(selected_module.name, selected_tab.name, selected_tab.description) }}
+
+<section class="placeholder-card">
+  <div class="placeholder-illustration">{{ icon(selected_module.id) }}</div>
+  <div>
+    <span class="section-kicker">MÓDULO PREPARADO</span>
+    <h2>{{ selected_module.name }} · {{ selected_tab.name }}</h2>
+    <p>Esta tela existe para validar a arquitetura, a navegação e o controle de acesso. Regras de negócio e dados serão definidos somente após a aprovação da carcaça.</p>
+    <div class="placeholder-meta">
+      <span><b>Rota</b>{{ selected_tab.path }}</span>
+      <span><b>Permissão</b>{{ selected_tab.permission }}</span>
+      <span><b>Status</b>{{ selected_module.status }}</span>
+    </div>
+  </div>
+</section>
+
+<section class="component-preview">
+  <div class="toolbar">{{ search_box('Buscar nesta área') }}{{ status_badge('Sem dados', 'neutral') }}</div>
+  <div class="alert alert--info"><strong>Estrutura local pronta.</strong> Esta área não possui integração externa nem dados empresariais.</div>
+  <div class="table-shell"><table><thead><tr><th>Descrição</th><th>Status</th><th>Ação</th></tr></thead><tbody><tr><td colspan="3" class="table-empty">Nenhum dado cadastrado nesta carcaça.</td></tr></tbody></table></div>
+  {{ pagination() }}
+</section>
+{% endblock %}

@@ -1,0 +1,18 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { min-height: 100%; background: var(--color-background); }
+body { min-height: 100vh; margin: 0; color: var(--color-text); background: var(--color-background); font-family: var(--font-family); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+img, svg { display: block; }
+h1, h2, h3, p { overflow-wrap: anywhere; }
+:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+::selection { color: var(--color-primary-dark); background: var(--color-accent-selection); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.muted { color: var(--color-text-muted); }
+.icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.icon--sm { width: 17px; height: 17px; }
+.icon--lg { width: 34px; height: 34px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-scrollbar); border: 3px solid transparent; border-radius: 999px; background-clip: content-box; }

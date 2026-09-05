@@ -1,0 +1,57 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header page-header--split">
+  <div><p class="eyebrow">CLIENTES</p><h1>Lista</h1><p>Gerencie e encontre clientes cadastrados.</p></div>
+  {% if current_user.can('customers.create') %}<a class="button button--primary" href="/clientes/novo">+ Novo cliente</a>{% endif %}
+</header>
+
+<section class="metrics-grid metrics-grid--four compact" aria-label="Indicadores de clientes">
+  <article class="metric-card"><span class="metric-card__label">Total de clientes</span><strong class="metric-card__value">{{ result.indicators.total }}</strong><small>Cadastros locais</small></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Clientes ativos</span><strong class="metric-card__value">{{ result.indicators.active }}</strong><small>Status cadastral</small></article>
+  <article class="metric-card"><span class="metric-card__label">Novos neste mês</span><strong class="metric-card__value">{{ result.indicators.new_month }}</strong><small>Com base no SQLite</small></article>
+  <article class="metric-card metric-card--negative"><span class="metric-card__label">Há muito tempo</span><strong class="metric-card__value">{{ result.indicators.long_inactive }}</strong><small>Mais de 90 dias com atividade</small></article>
+</section>
+
+<section class="panel section-block">
+  <form method="get" action="/clientes/lista" class="customer-filters">
+    <label class="field field--search">Buscar cliente
+      <input type="search" name="q" value="{{ filters.q }}" placeholder="Nome, telefone, WhatsApp, CPF/CNPJ ou e-mail">
+    </label>
+    <div class="filter-grid">
+      <label class="field">Tipo<select name="type"><option value="ALL">Todos</option><option value="PERSON" {% if filters.type == 'PERSON' %}selected{% endif %}>Pessoa</option><option value="COMPANY" {% if filters.type == 'COMPANY' %}selected{% endif %}>Empresa</option></select></label>
+      <label class="field">Cadastro<select name="active"><option value="ALL">Todos</option><option value="ACTIVE" {% if filters.active == 'ACTIVE' %}selected{% endif %}>Ativos</option><option value="INACTIVE" {% if filters.active == 'INACTIVE' %}selected{% endif %}>Inativos</option></select></label>
+      <label class="field">Relacionamento<select name="relationship"><option value="ALL">Todos</option><option value="NEVER" {% if filters.relationship == 'NEVER' %}selected{% endif %}>Nunca atendidos</option><option value="RECENT" {% if filters.relationship == 'RECENT' %}selected{% endif %}>Recentes</option><option value="30_PLUS" {% if filters.relationship == '30_PLUS' %}selected{% endif %}>30+ dias</option><option value="60_PLUS" {% if filters.relationship == '60_PLUS' %}selected{% endif %}>60+ dias</option><option value="90_PLUS" {% if filters.relationship == '90_PLUS' %}selected{% endif %}>90+ dias</option></select></label>
+      <label class="field">Sem atividade há mais de<input type="number" min="0" max="9999" name="inactive_days" value="{{ filters.inactive_days if filters.inactive_days is not none else '' }}" placeholder="dias"></label>
+      <label class="field">Ordenar por<select name="sort"><option value="name">Nome</option><option value="newest" {% if filters.sort == 'newest' %}selected{% endif %}>Cadastro mais recente</option><option value="oldest" {% if filters.sort == 'oldest' %}selected{% endif %}>Cadastro mais antigo</option><option value="last_recent" {% if filters.sort == 'last_recent' %}selected{% endif %}>Última visita mais recente</option><option value="last_oldest" {% if filters.sort == 'last_oldest' %}selected{% endif %}>Última visita mais antiga</option><option value="most_inactive" {% if filters.sort == 'most_inactive' %}selected{% endif %}>Maior tempo sem atividade</option></select></label>
+      <label class="field">Por página<select name="per_page"><option value="25">25</option><option value="50" {% if filters.per_page == 50 %}selected{% endif %}>50</option><option value="100" {% if filters.per_page == 100 %}selected{% endif %}>100</option></select></label>
+    </div>
+    <div class="form-actions"><a class="button button--secondary" href="/clientes/lista">Limpar</a><button class="button button--primary" type="submit">Pesquisar e filtrar</button></div>
+  </form>
+</section>
+
+<section class="section-block">
+  <div class="section-heading"><div><span class="section-kicker">{{ result.total }} resultado(s)</span><h2>Clientes cadastrados</h2></div></div>
+  <div class="table-shell customer-table">
+    <table><thead><tr><th>Cliente</th><th>Contato</th><th>Tipo</th><th>Última visita / atividade</th><th>Tempo sem atividade</th><th>Situação</th><th>Ações</th></tr></thead>
+      <tbody>
+      {% for row in result.rows %}
+        <tr>
+          <td><strong>{{ row.customer.name }}</strong>{% if row.customer.trade_name %}<small>{{ row.customer.trade_name }}</small>{% endif %}<small class="status-text">{{ 'Ativo' if row.customer.is_active else 'Inativo' }} no cadastro</small></td>
+          <td>{{ (row.customer.phone or row.customer.whatsapp)|phone or 'Não informado' }}{% if row.customer.email %}<small>{{ row.customer.email }}</small>{% endif %}</td>
+          <td>{{ 'Pessoa' if row.customer.type == 'PERSON' else 'Empresa' }}</td>
+          <td>{{ row.last_activity|date_br if row.last_activity else 'Nunca' }}</td>
+          <td>{% if row.inactive_days is none %}Sem histórico{% elif row.inactive_days == 0 %}Hoje{% else %}{{ row.inactive_days }} dias{% endif %}</td>
+          <td><span class="badge badge--{{ row.relationship_badge }}">{{ row.relationship_label }}</span></td>
+          <td><a class="table-action" href="/clientes/{{ row.customer.id }}">Ver</a>{% if current_user.can('customers.edit') %}<a class="table-action" href="/clientes/{{ row.customer.id }}/editar">Editar</a>{% endif %}</td>
+        </tr>
+      {% else %}<tr><td colspan="7" class="table-empty">Nenhum cliente encontrado. Ajuste os filtros ou cadastre o primeiro cliente.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <nav class="pagination" aria-label="Paginação">
+    <span>Página {{ result.page }} de {{ result.pages }}</span>
+    {% if result.page > 1 %}<a class="button button--secondary button--small" href="{{ request.url.include_query_params(page=result.page - 1) }}">Anterior</a>{% endif %}
+    {% if result.page < result.pages %}<a class="button button--secondary button--small" href="{{ request.url.include_query_params(page=result.page + 1) }}">Próxima</a>{% endif %}
+  </nav>
+</section>
+{% endblock %}

@@ -1,0 +1,238 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div>
+    <p class="eyebrow">CAIXA</p>
+    <h1>Histórico</h1>
+    <p>Consulte os lançamentos, responsáveis e valores do período.</p>
+  </div>
+  {% if current_user.can('cash.create') %}
+    <a class="button button--primary" href="/caixa/novo-lancamento">+ Novo lançamento</a>
+  {% endif %}
+</header>
+
+{% if period_error %}
+  <div class="alert alert--error" role="alert">{{ period_error }}</div>
+{% endif %}
+
+<section class="panel">
+  <form method="get" action="/caixa/historico" class="customer-filters cash-history-filters">
+    <fieldset class="cash-period-fieldset">
+      <legend>Período</legend>
+      <div class="type-toggle cash-period-toggle">
+        {% for item in period_shortcuts %}
+          <label>
+            <input type="radio" name="period" value="{{ item.code }}" {% if period.shortcut == item.code %}checked{% endif %}>
+            <span>{{ item.label }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="history-filters">
+      <label class="field">
+        Data inicial
+        <input type="date" name="start" value="{{ period.start_date.isoformat() }}">
+      </label>
+      <label class="field">
+        Data final
+        <input type="date" name="end" value="{{ period.end_date.isoformat() }}">
+      </label>
+      <label class="field field--wide field--search">
+        Buscar
+        <input type="search" name="q" value="{{ filters.q }}" placeholder="Descrição, observação, categoria ou pagamento">
+      </label>
+      <label class="field">
+        Tipo
+        <select name="type">
+          <option value="ALL">Todos</option>
+          {% for item in movement_types %}
+            <option value="{{ item.code }}" {% if filters.type == item.code %}selected{% endif %}>{{ item.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        Status
+        <select name="movement_status">
+          <option value="ALL">Todos</option>
+          {% for item in movement_statuses %}
+            <option value="{{ item.code }}" {% if filters.movement_status == item.code %}selected{% endif %}>{{ item.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        Categoria
+        <select name="category">
+          <option value="ALL">Todas</option>
+          <option value="NONE" {% if filters.category == 'NONE' %}selected{% endif %}>Sem categoria</option>
+          {% for category in categories %}
+            <option value="{{ category.id }}" {% if filters.category == category.id|string %}selected{% endif %}>{{ category.name }}{% if not category.is_active %} (inativa){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        Forma de pagamento
+        <select name="payment">
+          <option value="ALL">Todas</option>
+          <option value="NONE" {% if filters.payment == 'NONE' %}selected{% endif %}>Não informada</option>
+          {% for method in payment_methods %}
+            <option value="{{ method.id }}" {% if filters.payment == method.id|string %}selected{% endif %}>{{ method.name }}{% if not method.is_active %} (inativa){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        Ordenar por
+        <select name="sort">
+          <option value="recent">Mais recentes</option>
+          <option value="oldest" {% if filters.sort == 'oldest' %}selected{% endif %}>Mais antigos</option>
+          <option value="value_desc" {% if filters.sort == 'value_desc' %}selected{% endif %}>Maior valor</option>
+          <option value="value_asc" {% if filters.sort == 'value_asc' %}selected{% endif %}>Menor valor</option>
+        </select>
+      </label>
+      <label class="field">
+        Por página
+        <select name="per_page">
+          <option value="25">25</option>
+          <option value="50" {% if result.per_page == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if result.per_page == 100 %}selected{% endif %}>100</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-actions">
+      <a class="button button--secondary" href="/caixa/historico">Limpar</a>
+      <button class="button button--primary" type="submit">Aplicar filtros</button>
+    </div>
+  </form>
+</section>
+
+<section class="metrics-grid metrics-grid--four compact section-block" aria-label="Totais ativos do período selecionado">
+  <article class="metric-card metric-card--positive">
+    <span class="metric-card__label">Entradas líquidas</span>
+    <strong class="metric-card__value">{{ result.totals.entries|money }}</strong>
+    <small>Bruto: {{ result.totals.entry_gross|money }}</small>
+  </article>
+  <article class="metric-card metric-card--negative">
+    <span class="metric-card__label">Saídas</span>
+    <strong class="metric-card__value">{{ result.totals.exits|money }}</strong>
+    <small>Movimentações ativas</small>
+  </article>
+  <article class="metric-card">
+    <span class="metric-card__label">Taxas de entrada</span>
+    <strong class="metric-card__value">{{ result.totals.fees|money }}</strong>
+    <small>Descontadas do valor bruto</small>
+  </article>
+  <article class="metric-card {{ 'metric-card--positive' if result.totals.result >= 0 else 'metric-card--negative' }}">
+    <span class="metric-card__label">Resultado do período</span>
+    <strong class="metric-card__value">{{ result.totals.result|money }}</strong>
+    <small>{{ period.start_date|date_br }} a {{ period.end_date|date_br }}</small>
+  </article>
+</section>
+
+<section class="section-block">
+  <div class="section-heading section-heading--split">
+    <div>
+      <span class="section-kicker">{{ result.total }} resultado(s)</span>
+      <h2>Lançamentos</h2>
+    </div>
+    <small class="muted">Os indicadores acima consideram todos os lançamentos ativos do período.</small>
+  </div>
+
+  {% if result.rows %}
+    <div class="table-shell">
+      <table class="customer-table cash-table cash-history-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Pagamento</th>
+            <th class="cell-number">Bruto</th>
+            <th class="cell-number">Taxa</th>
+            <th class="cell-number">Líquido</th>
+            <th>Status</th>
+            <th>Usuário</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in result.rows %}
+            <tr class="cash-row cash-row--{{ 'canceled' if movement.status == 'CANCELED' else ('entry' if movement.movement_type == 'ENTRY' else 'exit') }}">
+              <td>{{ local_datetime(movement.occurred_at)|datetime_br }}</td>
+              <td>
+                <span class="badge badge--{{ 'success' if movement.movement_type == 'ENTRY' else 'danger' }}">
+                  {{ movement_type_by_code[movement.movement_type].label }}
+                </span>
+              </td>
+              <td><strong>{{ movement.description }}</strong>{% if movement.notes %}<small>{{ movement.notes|truncate(72) }}</small>{% endif %}</td>
+              <td>{{ movement.category.name if movement.category else 'Sem categoria' }}</td>
+              <td>{{ movement.payment_method.name if movement.payment_method else 'Não informada' }}</td>
+              <td class="cell-number">{{ movement.gross_amount|money }}</td>
+              <td class="cell-number">{{ movement.fee_amount|money }}</td>
+              <td class="cell-number cash-value cash-value--{{ 'neutral' if movement.status == 'CANCELED' else ('entry' if movement.movement_type == 'ENTRY' else 'exit') }}">
+                <strong>{{ movement.net_amount|money }}</strong>
+              </td>
+              <td>
+                <span class="badge badge--{{ 'success' if movement.status == 'ACTIVE' else 'neutral' }}">
+                  {{ movement_status_by_code[movement.status].label }}
+                </span>
+              </td>
+              <td>{{ movement.creator.display_name }}</td>
+              <td>
+                <a class="table-action" href="/caixa/movimentos/{{ movement.id }}">Ver</a>
+                {% if movement.status == 'ACTIVE' and current_user.can('cash.edit') %}
+                  <a class="table-action" href="/caixa/movimentos/{{ movement.id }}/editar">Editar</a>
+                {% endif %}
+                {% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+                  <button class="link-button" type="button" data-modal-open="cancel-movement-{{ movement.id }}">Cancelar</button>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pagination" aria-label="Paginação do histórico">
+      <span>Página {{ result.page }} de {{ result.pages }}</span>
+      {% if result.page > 1 %}<a class="button button--secondary button--small" href="{{ page_url(result.page - 1) }}">Anterior</a>{% endif %}
+      {% if result.page < result.pages %}<a class="button button--secondary button--small" href="{{ page_url(result.page + 1) }}">Próxima</a>{% endif %}
+    </nav>
+  {% else %}
+    <div class="panel empty-state cash-empty-state">
+      <strong>Nenhum lançamento encontrado.</strong>
+      <p>Ajuste o período ou os filtros para consultar outras movimentações.</p>
+      <a class="button button--secondary" href="/caixa/historico">Limpar filtros</a>
+      {% if current_user.can('cash.create') %}<a class="button button--primary" href="/caixa/novo-lancamento">+ Novo lançamento</a>{% endif %}
+    </div>
+  {% endif %}
+</section>
+
+{% if current_user.can('cash.cancel') %}
+  {% for movement in result.rows if movement.status == 'ACTIVE' %}
+    <div class="modal-backdrop" id="cancel-movement-{{ movement.id }}" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-movement-title-{{ movement.id }}">
+        <div class="modal__header">
+          <div>
+            <h2 id="cancel-movement-title-{{ movement.id }}">Cancelar lançamento?</h2>
+            <p>{{ movement.description }} · {{ movement.net_amount|money }}</p>
+          </div>
+          <button class="icon-button" type="button" data-modal-close="cancel-movement-{{ movement.id }}" aria-label="Fechar">×</button>
+        </div>
+        <div class="alert alert--warning">O registro continuará no histórico, mas deixará de participar do saldo e dos relatórios.</div>
+        <form method="post" action="/caixa/movimentos/{{ movement.id }}/cancelar" class="form-stack">
+          <label>
+            Motivo do cancelamento *
+            <textarea name="reason" maxlength="500" required placeholder="Informe por que este lançamento deve ser cancelado"></textarea>
+          </label>
+          <div class="modal__actions">
+            <button class="button button--secondary" type="button" data-modal-close="cancel-movement-{{ movement.id }}">Voltar</button>
+            <button class="button button--danger" type="submit">Cancelar lançamento</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}
