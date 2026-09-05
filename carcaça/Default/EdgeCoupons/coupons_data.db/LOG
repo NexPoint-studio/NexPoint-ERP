@@ -1,0 +1,5 @@
+2026/09/01-20:37:59.139 2cac Creating DB D:\carcaça\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/09/01-20:37:59.439 2cac Reusing MANIFEST D:\carcaça\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/09/01-20:38:04.614 4978 Level-0 table #5: started
+2026/09/01-20:38:04.692 4978 Level-0 table #5: 683284 bytes OK
+2026/09/01-20:38:04.736 4978 Delete type=0 #3
