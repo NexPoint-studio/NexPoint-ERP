@@ -49,3 +49,14 @@ Os módulos continuam independentes. Cadastrar Cliente ou Serviço não gera uma
 movimentação financeira. A integração futura com Atendimento/OS e Pagamentos
 deve respeitar as mesmas camadas e o contrato idempotente documentado em
 `Docs/CAIXA.md`.
+
+## Contratos da evolução
+
+A primeira versão da Nota de Serviço segue o
+[contrato oficial](CONTRATO_NOTA_SERVICO.md), consolidado na Fase 1/4. Ele
+prevalece sobre os exemplos genéricos anteriores de Atendimento/OS.
+
+Novos valores financeiros e migrations seguem a
+[estratégia monetária e de migrations](ESTRATEGIA_MONETARIA_MIGRATIONS.md).
+O utilitário de centavos está preparado para as novas entidades; o Caixa
+existente e seu schema não foram convertidos na Fase 1.

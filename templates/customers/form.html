@@ -30,7 +30,13 @@
     <label class="field">CEP<input name="cep" value="{{ form.cep or '' }}" inputmode="numeric">{% if errors.cep %}<small class="field-error">{{ errors.cep }}</small>{% endif %}</label><label class="field field--wide">Rua<input name="street" value="{{ form.street or '' }}"></label><label class="field">Número<input name="number" value="{{ form.number or '' }}"></label><label class="field">Complemento<input name="complement" value="{{ form.complement or '' }}"></label><label class="field">Bairro<input name="neighborhood" value="{{ form.neighborhood or '' }}"></label><label class="field">Cidade<input name="city" value="{{ form.city or '' }}"></label><label class="field">Estado<input name="state" value="{{ form.state or '' }}" maxlength="2">{% if errors.state %}<small class="field-error">{{ errors.state }}</small>{% endif %}</label>
   </div></section>
   <section class="panel form-section"><div class="section-heading"><div><span class="section-kicker">Outras informações</span><h2>Observações e status</h2></div></div>
-    <label class="field">Observações<textarea name="notes">{{ form.notes or '' }}</textarea></label><label class="checkbox status-checkbox"><input type="checkbox" name="is_active" value="1" {% if form.is_active != '0' %}checked{% endif %}> Cliente ativo no cadastro</label>
+    <label class="field">Observações<textarea name="notes">{{ form.notes or '' }}</textarea></label>
+    {% if editing %}
+    <p>Status atual: <span class="badge badge--{{ 'success' if customer.is_active else 'neutral' }}">{{ 'Ativo' if customer.is_active else 'Inativo' }}</span></p>
+    <p class="muted">A edição cadastral preserva esta situação.</p>
+    {% else %}
+    <label class="checkbox status-checkbox"><input type="checkbox" name="is_active" value="1" {% if form.is_active != '0' %}checked{% endif %}> Cliente ativo no cadastro</label>
+    {% endif %}
   </section>
   <div class="form-actions form-actions--sticky"><a class="button button--secondary" href="{{ '/clientes/' ~ customer.id if editing else '/clientes/lista' }}">Cancelar</a><button class="button button--primary" type="submit">{{ 'Cadastrar mesmo assim' if duplicate_candidates else ('Salvar alterações' if editing else 'Salvar cliente') }}</button></div>
 </form>

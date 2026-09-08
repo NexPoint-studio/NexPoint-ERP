@@ -63,6 +63,18 @@ clientes por vez sem carregar toda a tabela.
 - `customers.deactivate`: inativar ou reativar;
 - `customers.activity.create`: registrar visita.
 
+Editar dados cadastrais preserva o status existente: clientes ativos permanecem
+ativos e clientes inativos permanecem inativos. O formulário de edição exibe a
+situação somente para consulta. Mesmo um envio manual de `is_active` na edição
+é ignorado pelo repositório, inclusive para administradores e chamadas diretas
+ao serviço. A atividade `CUSTOMER_UPDATED` registra somente mudanças cadastrais.
+
+As ações **Inativar cliente** e **Reativar cliente**, disponíveis no perfil,
+usam exclusivamente `POST /clientes/{customer_id}/status` e exigem
+`customers.deactivate`. Sem essa permissão, a rota retorna 403 e preserva o
+cadastro e suas atividades. As mudanças autorizadas mantêm o histórico e
+registram `CUSTOMER_DEACTIVATED` ou `CUSTOMER_REACTIVATED`.
+
 Administrador e usuário comum recebem essas permissões. O papel Entrega não
 recebe acesso ao módulo.
 

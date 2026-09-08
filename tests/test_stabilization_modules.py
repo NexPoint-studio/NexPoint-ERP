@@ -134,7 +134,9 @@ def test_customer_update_records_all_changed_fields(module_session):
     CustomerService(session).update(customer.id, data, actor, force_duplicate=True)
     activity = session.scalar(select(CustomerActivity).where(CustomerActivity.activity_type == "CUSTOMER_UPDATED"))
     changes = json.loads(activity.metadata_json)["changed_fields"]
-    assert {"tipo", "data de nascimento", "status"} <= set(changes)
+    assert {"tipo", "data de nascimento"} <= set(changes)
+    assert "status" not in changes
+    assert session.scalar(select(Customer.is_active).where(Customer.id == customer.id)) is True
     assert activity.created_by == actor
 
 

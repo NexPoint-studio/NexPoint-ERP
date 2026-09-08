@@ -143,7 +143,7 @@ class CustomerService:
     @staticmethod
     def _human_changes(customer: Customer, data: CustomerInput) -> list[str]:
         labels = {
-            "type": "tipo", "birth_date": "data de nascimento", "is_active": "status",
+            "type": "tipo", "birth_date": "data de nascimento",
             "name": "nome", "trade_name": "nome fantasia", "document": "documento",
             "phone": "telefone", "whatsapp": "WhatsApp", "email": "e-mail",
             "notes": "observações", "primary_contact": "contato principal",

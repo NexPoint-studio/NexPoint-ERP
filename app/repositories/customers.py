@@ -98,9 +98,10 @@ class CustomerRepository:
         return customer
 
     def update(self, customer: Customer, data: CustomerInput, user_id: int) -> None:
+        # A edição cadastral preserva o status, mesmo se is_active vier no payload.
         for field in (
             "type", "name", "trade_name", "document", "birth_date", "primary_contact",
-            "phone", "whatsapp", "email", "notes", "is_active",
+            "phone", "whatsapp", "email", "notes",
         ):
             setattr(customer, field, getattr(data, field))
         customer.updated_by = user_id
