@@ -50,7 +50,7 @@ def on_loaded():
         route = window.evaluate_js("location.pathname")
         if route == "/login":
             evidence["login_form_seen"] = True
-            window.evaluate_js("document.querySelector('[name=email]').value='adm'; document.querySelector('[name=password]').value='adm'; document.querySelector('form').requestSubmit();")
+            window.evaluate_js("document.querySelector('[name=email]').value='adm'; document.querySelector('[name=password]').value='senha-local-exclusiva-de-validacao'; document.querySelector('form').requestSubmit();")
         elif route == "/clientes/lista":
             window.load_url("http://127.0.0.1:8877/caixa/resumo")
         elif route == "/caixa/resumo":

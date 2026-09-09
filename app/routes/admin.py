@@ -485,20 +485,3 @@ async def company_update(request: Request):
 def legacy_settings(request: Request):
     require_permission(request, "admin.settings")
     return RedirectResponse("/admin/empresa", status_code=303)
-
-
-@router.get("/sistema")
-def system_info(request: Request):
-    require_permission(request, "admin.settings")
-    with request.app.state.session_factory() as session:
-        return templates.TemplateResponse(
-            request,
-            "admin/system.html",
-            _context(
-                request,
-                session,
-                "empresa",
-                version=request.app.state.settings.version,
-                page_title="Sistema local",
-            ),
-        )

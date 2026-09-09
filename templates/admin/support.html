@@ -1,0 +1,85 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">ADMINISTRAÇÃO › SEGURANÇA</p>
+  <h1>Suporte temporário</h1>
+  <p>Autorize um usuário visível por até 24 horas. Não existe conta oculta, senha mestre ou acesso sem autenticação.</p>
+</header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}" role="status">{{ flash.message }}</div>{% endif %}
+{% if errors.form %}<div class="alert alert--error" role="alert">{{ errors.form }}</div>{% endif %}
+
+<section class="panel form-section">
+  <div class="section-heading">
+    <div><h2>Nova concessão</h2><p>Somente usuários ativos que possuam exclusivamente o papel Suporte podem ser selecionados.</p></div>
+  </div>
+  {% if support_users %}
+  <form method="post" action="/admin/suporte/concessoes" class="form-stack">
+    <div class="form-grid">
+      <label class="field">Usuário de suporte *
+        <select name="support_user_id" required>
+          <option value="">Selecione</option>
+          {% for user in support_users %}<option value="{{ user.id }}" {% if form.get('support_user_id')|string == user.id|string %}selected{% endif %}>{{ user.display_name }} · {{ user.email }}</option>{% endfor %}
+        </select>
+        {% if errors.support_user_id %}<small class="field-error">{{ errors.support_user_id }}</small>{% endif %}
+      </label>
+      <label class="field">Início *
+        <input type="datetime-local" name="starts_at" required value="{{ form.get('starts_at', default_starts_at) }}">
+        {% if errors.starts_at %}<small class="field-error">{{ errors.starts_at }}</small>{% endif %}
+      </label>
+      <label class="field">Término *
+        <input type="datetime-local" name="expires_at" required value="{{ form.get('expires_at', default_expires_at) }}">
+        {% if errors.expires_at %}<small class="field-error">{{ errors.expires_at }}</small>{% endif %}
+      </label>
+      <label class="field">Senha atual do Proprietário *
+        <input type="password" name="current_password" maxlength="256" required autocomplete="current-password">
+      </label>
+      <label class="field field--wide">Finalidade *
+        <textarea name="purpose" maxlength="500" required>{{ form.get('purpose', '') }}</textarea>
+        <small class="form-hint">Descreva o atendimento. Não informe senhas, tokens ou credenciais.</small>
+        {% if errors.purpose %}<small class="field-error">{{ errors.purpose }}</small>{% endif %}
+      </label>
+    </div>
+    <div class="form-actions"><button class="button button--primary" type="submit">Autorizar suporte temporário</button></div>
+  </form>
+  {% else %}
+  <div class="alert alert--info">Nenhum usuário ativo possui exclusivamente o papel Suporte. Crie esse acesso na gestão de usuários antes de autorizar uma janela.</div>
+  {% endif %}
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading"><div><h2>Histórico de concessões</h2><p>Horários exibidos no fuso {{ timezone_name }}.</p></div></div>
+  <div class="table-shell"><table>
+    <thead><tr><th>Identificação</th><th>Usuário</th><th>Janela</th><th>Finalidade</th><th>Autorização</th><th>Status</th><th>Ações</th></tr></thead>
+    <tbody>
+      {% for grant in grants %}
+      {% set grant_status = grant.effective_status(now_utc) %}
+      <tr>
+        <td><strong>#{{ grant.id }}</strong><small>{{ grant.grant_uid }}</small></td>
+        <td><strong>{{ grant.support_user.display_name }}</strong><small>{{ grant.support_user.email }}</small></td>
+        <td>{{ grant.starts_at|datetime_br }}<small>até {{ grant.expires_at|datetime_br }}</small></td>
+        <td>{{ grant.purpose }}</td>
+        <td>{{ grant.authorizer.display_name }}<small>{{ grant.created_at|datetime_br }}</small></td>
+        <td><span class="badge badge--{{ status_badges[grant_status] }}">{{ status_labels[grant_status] }}</span>{% if grant.revoker %}<small>por {{ grant.revoker.display_name }} · {{ grant.revoked_at|datetime_br }}</small>{% endif %}</td>
+        <td>{% if grant_status in ('SCHEDULED', 'ACTIVE') %}<button class="link-button" type="button" data-modal-open="revoke-support-{{ grant.id }}">Revogar</button>{% else %}<span class="muted">Encerrada</span>{% endif %}</td>
+      </tr>
+      {% else %}<tr><td colspan="7" class="table-empty">Nenhuma concessão de suporte registrada.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+{% for grant in grants %}
+{% set grant_status = grant.effective_status(now_utc) %}
+{% if grant_status in ('SCHEDULED', 'ACTIVE') %}
+<div class="modal-backdrop" id="revoke-support-{{ grant.id }}" hidden>
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="revoke-support-title-{{ grant.id }}">
+    <div class="modal__header"><div><h2 id="revoke-support-title-{{ grant.id }}">Revogar suporte</h2><p>{{ grant.support_user.display_name }}</p></div><button class="icon-button" type="button" data-modal-close="revoke-support-{{ grant.id }}">×</button></div>
+    <form method="post" action="/admin/suporte/concessoes/{{ grant.id }}/revogar" class="form-stack">
+      <label class="field">Motivo *<textarea name="revocation_reason" maxlength="500" required></textarea></label>
+      <label class="field">Senha atual do Proprietário *<input type="password" name="current_password" maxlength="256" required autocomplete="current-password"></label>
+      <div class="modal__actions"><button class="button button--secondary" type="button" data-modal-close="revoke-support-{{ grant.id }}">Cancelar</button><button class="button button--danger" type="submit">Revogar imediatamente</button></div>
+    </form>
+  </section>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

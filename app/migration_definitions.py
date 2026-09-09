@@ -521,3 +521,46 @@ CUSTOMER_ACTIVITIES_0011_CREATE_STATEMENTS = (
     "CREATE INDEX ix_customer_activities_occurred_at ON customer_activities (occurred_at)",
     "CREATE UNIQUE INDEX uq_customer_activities_source ON customer_activities (customer_id, activity_type, source_type, source_id) WHERE source_type IS NOT NULL AND source_id IS NOT NULL",
 )
+
+
+# Fase 4. O campo de versao invalida sessoes ja emitidas quando credenciais ou
+# acesso mudam. O DEFAULT literal preserva todos os usuarios existentes.
+USERS_AUTH_VERSION_0012_STATEMENT = (
+    "ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1 "
+    "CONSTRAINT ck_users_auth_version "
+    "CHECK (typeof(auth_version) = 'integer' and auth_version >= 1)"
+)
+
+SUPPORT_GRANTS_0012_STATEMENTS = (
+    """CREATE TABLE support_grants (
+        id INTEGER NOT NULL,
+        grant_uid VARCHAR(36) NOT NULL,
+        support_user_id INTEGER NOT NULL,
+        authorized_by INTEGER NOT NULL,
+        starts_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        purpose VARCHAR(500) NOT NULL,
+        revoked_at DATETIME,
+        revoked_by INTEGER,
+        revocation_reason VARCHAR(500),
+        created_at DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        CONSTRAINT uq_support_grants_uid UNIQUE (grant_uid),
+        CONSTRAINT ck_support_grants_uid CHECK (length(grant_uid) = 36 and grant_uid glob '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'),
+        CONSTRAINT ck_support_grants_window CHECK (expires_at > starts_at),
+        CONSTRAINT ck_support_grants_purpose CHECK (length(trim(purpose)) between 1 and 500),
+        CONSTRAINT ck_support_grants_revocation CHECK ((revoked_at is null and revoked_by is null and revocation_reason is null) or (revoked_at is not null and revoked_by is not null and revocation_reason is not null and length(trim(revocation_reason)) between 1 and 500)),
+        FOREIGN KEY(support_user_id) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(authorized_by) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(revoked_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_support_grants_support_user_id ON support_grants (support_user_id)",
+    "CREATE INDEX ix_support_grants_authorized_by ON support_grants (authorized_by)",
+    "CREATE INDEX ix_support_grants_revoked_by ON support_grants (revoked_by)",
+    "CREATE INDEX ix_support_grants_window ON support_grants (starts_at, expires_at)",
+)
+
+AUDIT_INDEXES_0012_STATEMENTS = (
+    "CREATE INDEX ix_audit_events_created_at ON audit_events (created_at)",
+    "CREATE INDEX ix_audit_events_user_created_at ON audit_events (user_id, created_at)",
+)

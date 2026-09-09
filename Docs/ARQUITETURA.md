@@ -33,7 +33,7 @@ versão.
 
 - registro declarativo de módulos e abas;
 - autenticação local com hash de senha;
-- papéis `admin`, `user` e `delivery` e permissões por ação;
+- papéis `admin`, `user`, `delivery` e `support` e permissões por ação;
 - exibição do papel técnico `admin` como Proprietário da empresa;
 - feature flags locais;
 - eventos de auditoria;
@@ -54,6 +54,8 @@ versão.
 - **Financeiro administrativo**: saldo, histórico completo, relatórios e
   agregações;
 - **Administração**: indicadores, usuários, permissões e dados da empresa.
+- **Manutenção administrativa**: suporte temporário, auditoria, informações do
+  sistema, backup consistente e restauração aplicada somente no startup.
 
 O fluxo integrado é:
 
@@ -98,13 +100,26 @@ Segredo de sessão, host, porta e caminho do SQLite continuam sob configuração
 local de inicialização. Logos aceitos precisam estar em `/static/`, e um fuso
 persistido inválido não substitui o fallback seguro.
 
+Sessões assinadas também dependem de `users.auth_version` e da configuração
+`security.session_generation`. O middleware relê esses valores e as permissões
+efetivas a cada requisição. Assim, logout e alterações de acesso invalidam
+cookies copiados; a revogação ou expiração de suporte remove o alcance sem
+depender do conteúdo anterior do cookie.
+
+Backups usam a API de snapshot do SQLite, manifesto com SHA-256 e validações de
+integridade. A requisição de restauração apenas prepara um candidato isolado. A
+troca atômica e o rollback ocorrem antes da criação do engine normal no próximo
+início. O contrato completo está em
+[Backup, restauração e atualização](BACKUP_RESTAURACAO_ATUALIZACAO.md).
+
 ## Contratos e migrations
 
 A Nota segue o [contrato oficial](CONTRATO_NOTA_SERVICO.md) e sua
 [documentação operacional](NOTAS_SERVICO.md). Dinheiro novo segue a
 [estratégia monetária e de migrations](ESTRATEGIA_MONETARIA_MIGRATIONS.md).
 
-As migrations `0009_payment_configuration`, `0010_payments` e
-`0011_customer_activity_sources` adicionam a integração sem converter o histórico
-manual do Caixa ou recriar atividades antigas. As definições já versionadas
-permanecem congeladas, e novas mudanças devem usar outra versão aditiva.
+As migrations `0009_payment_configuration`, `0010_payments`,
+`0011_customer_activity_sources` e `0012_administration_security` adicionam a
+integração e a segurança administrativa sem converter o histórico manual do
+Caixa ou recriar atividades antigas. As definições já versionadas permanecem
+congeladas, e novas mudanças devem usar outra versão aditiva.

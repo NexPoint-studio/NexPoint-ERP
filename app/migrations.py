@@ -19,6 +19,7 @@ from sqlalchemy.engine import Connection, Engine
 from app.core.cash_config import PAYMENT_METHOD_DEFAULTS
 from app.core.database import Base
 from app.migration_definitions import (
+    AUDIT_INDEXES_0012_STATEMENTS,
     BILLING_UNIT_DEFAULTS_0007,
     BILLING_UNITS_0007_STATEMENTS,
     CASH_PAYMENT_METHOD_KIND_0009_STATEMENT,
@@ -31,7 +32,26 @@ from app.migration_definitions import (
     PAYMENT_CONFIGURATION_0009_STATEMENTS,
     SERVICE_CATALOG_0003_STATEMENTS,
     SERVICE_NOTES_0008_STATEMENTS,
+    SUPPORT_GRANTS_0012_STATEMENTS,
+    USERS_AUTH_VERSION_0012_STATEMENT,
 )
+
+
+SUPPORTED_SCHEMA_VERSIONS = (
+    "0001_customers",
+    "0002_enable_customers",
+    "0003_services_catalog",
+    "0004_enable_services",
+    "0005_cash_book",
+    "0006_enable_cash",
+    "0007_billing_units",
+    "0008_service_notes",
+    "0009_payment_configuration",
+    "0010_payments",
+    "0011_customer_activity_sources",
+    "0012_administration_security",
+)
+LATEST_SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSIONS[-1]
 
 
 class MigrationInvariantError(RuntimeError):
@@ -650,6 +670,49 @@ def _migrate_customer_activity_sources(connection: Connection) -> None:
         )
 
 
+def _create_missing_named_indexes(
+    connection: Connection,
+    table_name: str,
+    statements: tuple[str, ...],
+) -> None:
+    existing = _index_definitions(connection, table_name)
+    for statement in statements:
+        parts = statement.split()
+        index_name = parts[2] if len(parts) >= 3 else ""
+        if not index_name:
+            raise MigrationInvariantError("A migration possui uma definicao de indice invalida.")
+        if index_name not in existing:
+            connection.exec_driver_sql(statement)
+
+
+def _migrate_administration_security(connection: Connection) -> None:
+    user_columns = _table_columns(connection, "users")
+    if not user_columns:
+        raise MigrationInvariantError(
+            "A migration administrativa exige a tabela users existente."
+        )
+    if "auth_version" not in user_columns:
+        connection.exec_driver_sql(USERS_AUTH_VERSION_0012_STATEMENT)
+
+    if not _table_exists(connection, "support_grants"):
+        connection.exec_driver_sql(SUPPORT_GRANTS_0012_STATEMENTS[0])
+    _create_missing_named_indexes(
+        connection,
+        "support_grants",
+        SUPPORT_GRANTS_0012_STATEMENTS[1:],
+    )
+    # Alguns bancos historicos de testes executam apenas migrations de dominio
+    # antes de o bootstrap criar a infraestrutura. Nesse caso, os indices serao
+    # criados junto da tabela pelo model; uma tabela de auditoria ja existente
+    # recebe os indices versionados aqui.
+    if _table_exists(connection, "audit_events"):
+        _create_missing_named_indexes(
+            connection,
+            "audit_events",
+            AUDIT_INDEXES_0012_STATEMENTS,
+        )
+
+
 def _assert_phase_two_schema(connection: Connection, applied: set[str]) -> None:
     if "0007_billing_units" in applied:
         _require_model_columns(connection, "billing_units")
@@ -972,6 +1035,55 @@ def _assert_phase_three_schema(connection: Connection, applied: set[str]) -> Non
         })
 
 
+def _assert_phase_four_schema(connection: Connection, applied: set[str]) -> None:
+    if "0012_administration_security" not in applied:
+        return
+
+    auth_version_rows = [
+        row
+        for row in connection.exec_driver_sql('pragma table_info("users")')
+        if str(row[1]) == "auth_version"
+    ]
+    if len(auth_version_rows) != 1:
+        raise MigrationInvariantError("users.auth_version nao possui a assinatura esperada.")
+    auth_version = auth_version_rows[0]
+    default_value = str(auth_version[4] or "").strip("'\"() ")
+    if (
+        str(auth_version[2]).upper().replace(" ", "") != "INTEGER"
+        or not bool(auth_version[3])
+        or bool(auth_version[5])
+        or default_value != "1"
+    ):
+        raise MigrationInvariantError("users.auth_version nao possui a assinatura esperada.")
+    _require_named_checks(connection, "users", {"ck_users_auth_version"})
+
+    _require_model_columns(connection, "support_grants")
+    _require_foreign_keys(connection, "support_grants", {
+        ("support_user_id", "users", "id", "RESTRICT"),
+        ("authorized_by", "users", "id", "RESTRICT"),
+        ("revoked_by", "users", "id", "RESTRICT"),
+    })
+    _require_unique_columns(connection, "support_grants", {("grant_uid",)})
+    _require_named_checks(connection, "support_grants", {
+        "ck_support_grants_uid",
+        "ck_support_grants_window",
+        "ck_support_grants_purpose",
+        "ck_support_grants_revocation",
+    })
+    _require_named_indexes(connection, "support_grants", {
+        "ix_support_grants_support_user_id": ("support_user_id",),
+        "ix_support_grants_authorized_by": ("authorized_by",),
+        "ix_support_grants_revoked_by": ("revoked_by",),
+        "ix_support_grants_window": ("starts_at", "expires_at"),
+    })
+    if _table_exists(connection, "audit_events"):
+        _require_named_indexes(connection, "audit_events", {
+            "ix_audit_events_action": ("action",),
+            "ix_audit_events_created_at": ("created_at",),
+            "ix_audit_events_user_created_at": ("user_id", "created_at"),
+        })
+
+
 def _apply_pending_migrations(connection: Connection, versions: Table) -> set[str]:
     applied = set(connection.scalars(select(versions.c.version)))
     now = lambda: datetime.now(timezone.utc)
@@ -1048,9 +1160,18 @@ def _apply_pending_migrations(connection: Connection, versions: Table) -> set[st
             )
         )
         applied.add("0011_customer_activity_sources")
+    if "0012_administration_security" not in applied:
+        _migrate_administration_security(connection)
+        connection.execute(
+            insert(versions).values(
+                version="0012_administration_security", applied_at=now()
+            )
+        )
+        applied.add("0012_administration_security")
 
     _assert_phase_two_schema(connection, applied)
     _assert_phase_three_schema(connection, applied)
+    _assert_phase_four_schema(connection, applied)
     return applied
 
 

@@ -38,6 +38,8 @@ def login(request: Request, email: str = Form("", max_length=180), password: str
             )
         request.session.clear()
         request.session["user_id"] = user.id
+        request.session["auth_version"] = user.auth_version
+        request.session["session_generation"] = repository.session_generation()
         repository.audit(user.id, "auth.login", "session")
     return RedirectResponse("/clientes/lista", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -47,6 +49,6 @@ def logout(request: Request):
     user = request.state.current_user
     if user:
         with request.app.state.session_factory() as session:
-            AuthRepository(session).audit(user.id, "auth.logout", "session")
+            AuthRepository(session).invalidate_user_sessions(user.id, "auth.logout")
     request.session.clear()
     return RedirectResponse("/login", status_code=status.HTTP_303_SEE_OTHER)

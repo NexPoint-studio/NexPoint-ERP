@@ -54,7 +54,9 @@ class Settings:
     app_name: str = "ERP"
     company_name: str = "Sua Empresa"
     logo_path: str = "/static/img/logo-placeholder.svg"
-    version: str = "dev"
+    version: str = "1.0.0"
+    build: str = "local"
+    environment: str = "local"
     host: str = "127.0.0.1"
     port: int = 8765
     database_url: str = ""
@@ -71,7 +73,7 @@ def get_settings() -> Settings:
     if host != "127.0.0.1":
         raise RuntimeError("O ERP local permite somente o host 127.0.0.1.")
     secret = os.getenv("ERP_SESSION_SECRET", "").strip()
-    if len(secret) < 32:
+    if len(secret) < 32 or secret.startswith("SUBSTITUA_"):
         raise RuntimeError("Configure ERP_SESSION_SECRET com pelo menos 32 caracteres.")
     return Settings(
         app_name=os.getenv("ERP_APP_NAME", "ERP").strip() or "ERP",
@@ -79,7 +81,9 @@ def get_settings() -> Settings:
         logo_path=_local_asset_path(
             os.getenv("ERP_LOGO_PATH", "/static/img/logo-placeholder.svg")
         ),
-        version=os.getenv("ERP_VERSION", "dev").strip() or "dev",
+        version=os.getenv("ERP_VERSION", "1.0.0").strip() or "1.0.0",
+        build=os.getenv("ERP_BUILD", "local").strip() or "local",
+        environment=os.getenv("ERP_ENVIRONMENT", "local").strip().lower() or "local",
         host=host,
         port=_local_port(os.getenv("ERP_PORT", "8765")),
         database_url=f"sqlite+pysqlite:///{database.as_posix()}",
@@ -90,8 +94,8 @@ def get_settings() -> Settings:
 def development_credentials() -> dict[str, str]:
     _load_local_env()
     mapping = {"adm": os.getenv("ERP_ADMIN_PASSWORD", "")}
-    if any(len(password) < 3 for password in mapping.values()):
-        raise RuntimeError("Configure a senha local com pelo menos 3 caracteres.")
+    if any(len(password) < 8 or password.startswith("SUBSTITUA_") for password in mapping.values()):
+        raise RuntimeError("Configure a senha local com pelo menos 8 caracteres.")
     return mapping
 
 

@@ -64,7 +64,7 @@ def test_expected_contextual_tabs():
     ]
     assert [tab.name for tab in MODULE_BY_ID["admin"].tabs] == [
         "Visão geral", "Serviços", "Financeiro", "Pagamentos e taxas",
-        "Usuários e permissões", "Empresa",
+        "Usuários e permissões", "Empresa", "Suporte", "Auditoria", "Sistema",
     ]
 
 
@@ -117,7 +117,7 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
         "schema_migrations", "service_categories", "service_prices", "services",
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "settings", "user_roles", "users",
-        "payments", "payment_terminals", "payment_fee_rules",
+        "payments", "payment_terminals", "payment_fee_rules", "support_grants",
     }
 
 

@@ -5,17 +5,20 @@ from pathlib import Path
 from urllib.parse import urlsplit
 import logging
 import mimetypes
+import secrets
 
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from sqlalchemy.engine import make_url
 
 from app.core.config import ROOT_DIR, Settings, development_credentials, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.repositories import AuthRepository
 from app.routes import (
+    audit_router,
     admin_router,
     auth_router,
     cash_router,
@@ -26,15 +29,26 @@ from app.routes import (
     payment_configuration_router,
     services_admin_router,
     services_router,
+    support_router,
+    system_router,
 )
 from app.routes.helpers import branding_context, navigation_context, templates
 from app.services.auth import AuthService
+from app.services.authorization import ActorAuthorizationError
 from app.services.bootstrap import initialize_database
+from app.services.system_maintenance import apply_pending_restore
 
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
 UNSAFE_HTTP_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 LOCAL_ALLOWED_HOSTS = ("127.0.0.1", "localhost", "testserver")
+
+
+def _sqlite_database_path(database_url: str) -> Path:
+    parsed = make_url(database_url)
+    if parsed.get_backend_name() != "sqlite" or not parsed.database or parsed.database == ":memory:":
+        raise ValueError("A manutenção exige um arquivo SQLite local.")
+    return Path(parsed.database).resolve()
 
 
 def _same_origin(request: Request) -> bool:
@@ -68,9 +82,24 @@ def create_app(
         database_url=database_url,
         session_secret=session_secret or "test-session-secret-with-at-least-32-chars",
     )
-    engine = build_engine(database_url or base_settings.database_url)
+    effective_database_url = database_url or base_settings.database_url
+    database_path = _sqlite_database_path(effective_database_url)
+    backup_root = (ROOT_DIR / "backups") if database_url is None else (database_path.parent / "backups")
+    restore_result = apply_pending_restore(
+        database_path=database_path,
+        backup_root=backup_root,
+        settings=base_settings,
+    )
+    engine = build_engine(effective_database_url)
     factory = build_session_factory(engine)
-    seed_credentials = credentials or development_credentials()
+    if credentials is not None:
+        seed_credentials = credentials
+    elif database_path.is_file() and database_path.stat().st_size >= 100:
+        # Uma instalação existente conserva usuários e hashes como dados. A
+        # senha do ambiente serve somente para criar a primeira conta local.
+        seed_credentials = {}
+    else:
+        seed_credentials = development_credentials()
     initialize_database(engine, factory, seed_credentials, base_settings)
 
     @asynccontextmanager
@@ -89,15 +118,36 @@ def create_app(
     app.state.settings = base_settings
     app.state.engine = engine
     app.state.session_factory = factory
+    app.state.database_path = database_path
+    app.state.backup_root = backup_root
+    app.state.restore_result = restore_result
     @app.middleware("http")
     async def load_current_user(request: Request, call_next):
         request.state.current_user = None
         user_id = request.session.get("user_id")
-        if type(user_id) is int and 0 < user_id < 2**63:
+        auth_version = request.session.get("auth_version")
+        session_generation = request.session.get("session_generation")
+        if (
+            type(user_id) is int and 0 < user_id < 2**63
+            and type(auth_version) is int and auth_version >= 1
+            and isinstance(session_generation, str)
+        ):
             with factory() as session:
-                request.state.current_user = AuthService(AuthRepository(session)).load(user_id)
-                if request.state.current_user is None:
+                repository = AuthRepository(session)
+                current_user = AuthService(repository).load(user_id)
+                current_generation = repository.session_generation()
+                valid_session = (
+                    current_user is not None
+                    and current_user.auth_version == auth_version
+                    and current_generation is not None
+                    and secrets.compare_digest(current_generation, session_generation)
+                )
+                if valid_session:
+                    request.state.current_user = current_user
+                else:
                     request.session.clear()
+        elif request.session:
+            request.session.clear()
         public = request.url.path in {"/login", "/health"} or request.url.path.startswith("/static/")
         if not public and request.state.current_user is None:
             return RedirectResponse("/login", status_code=303)
@@ -148,6 +198,9 @@ def create_app(
     # Pagamentos usa caminhos mais específicos sob /servicos/notas.
     app.include_router(payments_router)
     app.include_router(admin_router)
+    app.include_router(support_router)
+    app.include_router(audit_router)
+    app.include_router(system_router)
     app.include_router(payment_configuration_router)
     app.include_router(services_admin_router)
     app.include_router(services_router)
@@ -160,6 +213,10 @@ def create_app(
         with factory() as session:
             context = navigation_context(request, session, page_title="Acesso restrito")
             return templates.TemplateResponse(request, "errors/403.html", context, status_code=403)
+
+    @app.exception_handler(ActorAuthorizationError)
+    async def domain_forbidden(request: Request, _exception):
+        return await forbidden(request, _exception)
 
     @app.exception_handler(404)
     async def not_found(request: Request, _exception):

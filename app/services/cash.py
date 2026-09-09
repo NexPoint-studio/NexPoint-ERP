@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditEvent, CashCategory, CashMovement
 from app.services.transactions import atomic_write
+from app.services.authorization import require_active_actor_permission
 from app.repositories.cash import (
     CashCategoryListItem,
     CashCategoryRepository,
@@ -320,6 +321,7 @@ class CashService:
 
     @atomic_write
     def create(self, data: CashMovementInput, user_id: int) -> CashMovement:
+        require_active_actor_permission(self.session, user_id, "cash.create")
         self._validate_refs(data)
         movement = CashMovement(
             movement_type=data.movement_type,
@@ -366,6 +368,7 @@ class CashService:
         *,
         operator_scope: bool = False,
     ) -> CashMovement:
+        require_active_actor_permission(self.session, user_id, "cash.edit")
         movement = (
             self.detail_for_operator(movement_id, user_id)
             if operator_scope
@@ -425,6 +428,7 @@ class CashService:
         *,
         operator_scope: bool = False,
     ) -> CashMovement:
+        require_active_actor_permission(self.session, user_id, "cash.cancel")
         movement = (
             self.detail_for_operator(movement_id, user_id)
             if operator_scope
@@ -531,6 +535,7 @@ class CashService:
 
     @atomic_write
     def category_create(self, data: CashCategoryInput, user_id: int) -> CashCategory:
+        require_active_actor_permission(self.session, user_id, "cash.categories.manage")
         if data.errors:
             raise CashValidationError(data)
         self.session.execute(update(CashCategory).where(CashCategory.id == -1).values(sort_order=0))
@@ -559,6 +564,7 @@ class CashService:
 
     @atomic_write
     def category_update(self, category_id: int, data: CashCategoryInput, user_id: int) -> CashCategory:
+        require_active_actor_permission(self.session, user_id, "cash.categories.manage")
         self.session.execute(update(CashCategory).where(CashCategory.id == -1).values(sort_order=0))
         category = self.categories.get(category_id)
         if category is None:
@@ -601,6 +607,7 @@ class CashService:
 
     @atomic_write
     def category_set_active(self, category_id: int, active: bool, user_id: int) -> CashCategory:
+        require_active_actor_permission(self.session, user_id, "cash.categories.manage")
         category = self.categories.get(category_id)
         if category is None:
             raise CashCategoryNotFoundError()

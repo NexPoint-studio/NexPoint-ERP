@@ -28,7 +28,7 @@
         {% endfor %}
       </nav>
       <div class="sidebar__footer">
-        <div class="user-chip"><span class="user-chip__avatar">{{ current_user.display_name[0] }}</span><div><strong>{{ current_user.display_name }}</strong><small>{{ current_user.roles|join(', ') }}</small></div></div>
+        <div class="user-chip"><span class="user-chip__avatar">{{ current_user.display_name[0] }}</span><div><strong>{{ current_user.display_name }}</strong><small>{{ current_user.role_labels|join(', ') }}</small></div></div>
         <form action="/logout" method="post"><button class="icon-button" type="submit" title="Sair" aria-label="Sair">{{ icon('logout') }}</button></form>
       </div>
     </aside>

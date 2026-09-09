@@ -13,12 +13,34 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import ROOT_DIR
 from app.core.security import hash_password
 from app.models import AuditEvent, BillingUnit, Permission, Role, Service, Setting, User
+from app.services.authorization import (
+    ActorAuthorizationError,
+    require_active_actor_permission,
+)
 from app.services.cash_validation import project_zone
+from app.services.customer_validation import (
+    digits,
+    normalize_cep,
+    normalize_phone,
+    valid_cnpj,
+    valid_cpf,
+)
 
 
 OWNER_ROLE_CODE = "admin"
+SUPPORT_ROLE_CODE = "support"
 OWNER_ESSENTIAL_PERMISSIONS = frozenset(
-    {"admin.overview.view", "admin.users", "admin.permissions", "admin.settings"}
+    {
+        "admin.overview.view",
+        "admin.users",
+        "admin.permissions",
+        "admin.settings",
+        "admin.support.manage",
+        "admin.audit.view",
+        "admin.system.view",
+        "admin.backups.manage",
+        "admin.restore",
+    }
 )
 COMPANY_SETTING_KEYS = (
     "company.name",
@@ -36,6 +58,11 @@ COMPANY_SETTING_KEYS = (
     "company.logo",
     "company.timezone",
 )
+BRAZILIAN_STATES = frozenset({
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+    "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+    "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+})
 
 
 class AdminValidationError(ValueError):
@@ -108,11 +135,15 @@ class AdminService:
     @staticmethod
     def _user_fields(raw: dict[str, object], *, require_password: bool) -> tuple[str, str, str | None]:
         errors: dict[str, str] = {}
-        email = _text(raw.get("email"), 180).lower()
-        display_name = _text(raw.get("display_name"), 120)
+        email = str(raw.get("email") or "").strip().lower()
+        display_name = str(raw.get("display_name") or "").strip()
         password = str(raw.get("password") or "")
+        if len(email) > 180:
+            errors["email"] = "O login ou e-mail deve ter no máximo 180 caracteres."
+        if len(display_name) > 120:
+            errors["display_name"] = "O nome deve ter no máximo 120 caracteres."
         if not re.fullmatch(r"[^\s]{3,180}", email):
-            errors["email"] = "Informe um login ou e-mail válido, sem espaços."
+            errors.setdefault("email", "Informe um login ou e-mail válido, sem espaços.")
         if len(display_name) < 2:
             errors["display_name"] = "Informe um nome com pelo menos 2 caracteres."
         if require_password and len(password) < 8:
@@ -133,23 +164,25 @@ class AdminService:
         ))
         if {role.code for role in roles} != role_codes:
             raise AdminValidationError("Um dos papéis informados não existe.")
+        if SUPPORT_ROLE_CODE in role_codes and role_codes != {SUPPORT_ROLE_CODE}:
+            raise AdminValidationError(
+                "O papel Suporte deve ser usado sozinho.",
+                errors={"roles": "O papel Suporte deve ser usado sozinho."},
+            )
         return roles
 
-    def _actor_access(self, actor_id: int) -> tuple[bool, frozenset[str]]:
-        actor = self.session.scalar(
-            select(User)
-            .where(User.id == actor_id, User.active.is_(True))
-            .options(selectinload(User.roles).selectinload(Role.permissions))
-        )
-        if actor is None:
-            raise AdminConflictError("O autor da operação não possui um acesso ativo.")
-        role_codes = {role.code for role in actor.roles}
-        permissions = frozenset(
-            permission.code
-            for role in actor.roles
-            for permission in role.permissions
-        )
-        return OWNER_ROLE_CODE in role_codes, permissions
+    def _actor_access(
+        self, actor_id: int, required_permission: str
+    ) -> tuple[bool, frozenset[str]]:
+        try:
+            access = require_active_actor_permission(
+                self.session,
+                actor_id,
+                required_permission,
+            )
+        except ActorAuthorizationError as exc:
+            raise AdminConflictError(str(exc)) from None
+        return access.is_owner, access.permissions
 
     @staticmethod
     def _role_permissions(roles: list[Role]) -> frozenset[str]:
@@ -210,7 +243,7 @@ class AdminService:
     ) -> User:
         self._begin_immediate()
         try:
-            actor_is_owner, actor_permissions = self._actor_access(actor_id)
+            actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             email, display_name, password = self._user_fields(raw, require_password=True)
             roles = self._resolve_roles(role_codes)
             self._authorize_role_assignment(
@@ -241,7 +274,7 @@ class AdminService:
     ) -> User:
         self._begin_immediate()
         try:
-            actor_is_owner, actor_permissions = self._actor_access(actor_id)
+            actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
             self._authorize_user_target(
                 user,
@@ -260,6 +293,7 @@ class AdminService:
             )
             if duplicate is not None:
                 raise AdminConflictError("Já existe um usuário com este login ou e-mail.")
+            email_changed = user.email != email
             before_roles = {role.code for role in user.roles}
             after_roles = {role.code for role in roles}
             removing_owner = OWNER_ROLE_CODE in before_roles and OWNER_ROLE_CODE not in after_roles
@@ -273,6 +307,8 @@ class AdminService:
             user.email = email
             user.display_name = display_name
             user.roles = roles
+            if before_roles != after_roles or email_changed:
+                user.auth_version += 1
             self._audit(actor_id, "admin.user_updated", f"users/{user.id}", changes)
             self.session.commit()
             return user
@@ -283,7 +319,7 @@ class AdminService:
     def set_user_active(self, user_id: int, active: bool, actor_id: int) -> User:
         self._begin_immediate()
         try:
-            actor_is_owner, actor_permissions = self._actor_access(actor_id)
+            actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
             self._authorize_user_target(
                 user,
@@ -296,7 +332,9 @@ class AdminService:
                     raise AdminConflictError("Você não pode inativar o próprio acesso de Proprietário.")
                 if self._active_owner_count() <= 1:
                     raise AdminConflictError("O último Proprietário ativo não pode ser inativado.")
-            user.active = active
+            if user.active != active:
+                user.active = active
+                user.auth_version += 1
             self._audit(
                 actor_id,
                 "admin.user_reactivated" if active else "admin.user_deactivated",
@@ -311,7 +349,7 @@ class AdminService:
     def reset_password(self, user_id: int, password: str, actor_id: int) -> None:
         self._begin_immediate()
         try:
-            actor_is_owner, actor_permissions = self._actor_access(actor_id)
+            actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
             self._authorize_user_target(
                 user,
@@ -321,6 +359,7 @@ class AdminService:
             if not 8 <= len(password) <= 256:
                 raise AdminValidationError("A nova senha deve ter entre 8 e 256 caracteres.")
             user.password_hash = hash_password(password)
+            user.auth_version += 1
             self._audit(actor_id, "admin.user_password_reset", f"users/{user.id}")
             self.session.commit()
         except Exception:
@@ -332,7 +371,7 @@ class AdminService:
     ) -> Role:
         self._begin_immediate()
         try:
-            actor_is_owner, actor_permissions = self._actor_access(actor_id)
+            actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.permissions")
             role = self.session.scalar(
                 select(Role).where(Role.id == role_id).options(selectinload(Role.permissions))
             )
@@ -361,8 +400,15 @@ class AdminService:
                 raise AdminConflictError(
                     "O papel Proprietário deve manter as permissões administrativas essenciais."
                 )
+            if role.code == SUPPORT_ROLE_CODE and permission_codes:
+                raise AdminConflictError(
+                    "O papel Suporte não aceita permissões permanentes."
+                )
             before = sorted(item.code for item in role.permissions)
             role.permissions = permissions
+            if set(before) != permission_codes:
+                for user in role.users:
+                    user.auth_version += 1
             self._audit(
                 actor_id,
                 "admin.role_permissions_updated",
@@ -429,6 +475,7 @@ class AdminService:
         fields = self._billing_unit_fields(raw, creating=True)
         self._begin_immediate()
         try:
+            self._actor_access(actor_id, "admin.services.units.manage")
             if self.session.scalar(select(BillingUnit.id).where(BillingUnit.code == fields["code"])):
                 raise AdminConflictError("Já existe uma unidade com este código.")
             unit = BillingUnit(**fields)
@@ -451,6 +498,7 @@ class AdminService:
         fields.pop("code")
         self._begin_immediate()
         try:
+            self._actor_access(actor_id, "admin.services.units.manage")
             unit = self.session.get(BillingUnit, unit_id)
             if unit is None:
                 raise AdminNotFoundError("Unidade de cobrança não encontrada.")
@@ -473,6 +521,7 @@ class AdminService:
     def set_billing_unit_active(self, unit_id: int, active: bool, actor_id: int) -> BillingUnit:
         self._begin_immediate()
         try:
+            self._actor_access(actor_id, "admin.services.units.manage")
             unit = self.session.get(BillingUnit, unit_id)
             if unit is None:
                 raise AdminNotFoundError("Unidade de cobrança não encontrada.")
@@ -515,20 +564,48 @@ class AdminService:
             "company.logo": 240,
             "company.timezone": 80,
         }
-        values = {key: _text(raw.get(key), limit) for key, limit in limits.items()}
         errors: dict[str, str] = {}
+        values: dict[str, str] = {}
+        for key, limit in limits.items():
+            value = str(raw.get(key) or "").strip()
+            values[key] = value
+            if len(value) > limit:
+                errors[key] = f"Use no máximo {limit} caracteres."
         if not values["company.name"]:
             errors["company.name"] = "Informe a razão social ou nome da empresa."
-        document = re.sub(r"\D", "", values["company.document"])
-        if document and len(document) not in {11, 14}:
-            errors["company.document"] = "Informe CPF ou CNPJ com 11 ou 14 dígitos."
+        document_source = values["company.document"]
+        document = digits(document_source)
+        if document_source and not re.fullmatch(r"[\d.\-/\s]+", document_source):
+            errors.setdefault("company.document", "Informe um CPF ou CNPJ válido.")
+        elif document and not (
+            (len(document) == 11 and valid_cpf(document))
+            or (len(document) == 14 and valid_cnpj(document))
+        ):
+            errors.setdefault("company.document", "Informe um CPF ou CNPJ válido.")
         values["company.document"] = document
-        email = values["company.email"]
+        phone_source = values["company.phone"]
+        if phone_source and not re.fullmatch(r"[\d+().\-\s]+", phone_source):
+            errors.setdefault("company.phone", "Informe um telefone válido.")
+        else:
+            try:
+                values["company.phone"] = normalize_phone(phone_source) or ""
+            except ValueError as exc:
+                errors.setdefault("company.phone", str(exc))
+        email = values["company.email"].lower()
         if email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-            errors["company.email"] = "Informe um e-mail válido."
+            errors.setdefault("company.email", "Informe um e-mail válido.")
+        values["company.email"] = email
+        cep_source = values["company.address.cep"]
+        if cep_source and not re.fullmatch(r"[\d.\-\s]+", cep_source):
+            errors.setdefault("company.address.cep", "Informe um CEP válido.")
+        else:
+            try:
+                values["company.address.cep"] = normalize_cep(cep_source) or ""
+            except ValueError as exc:
+                errors.setdefault("company.address.cep", str(exc))
         state = values["company.address.state"].upper()
-        if state and not re.fullmatch(r"[A-Z]{2}", state):
-            errors["company.address.state"] = "Use a sigla da UF com duas letras."
+        if state and state not in BRAZILIAN_STATES:
+            errors.setdefault("company.address.state", "Informe uma UF brasileira válida.")
         values["company.address.state"] = state
         logo = values["company.logo"] or "/static/img/logo-placeholder.svg"
         logo_parts = Path(logo).parts
@@ -540,27 +617,28 @@ class AdminService:
             or "#" in logo
             or ".." in logo_parts
         ):
-            errors["company.logo"] = "O logo deve apontar para um arquivo local em /static/."
+            errors.setdefault("company.logo", "O logo deve apontar para um arquivo local em /static/.")
         else:
             target = (ROOT_DIR / logo.lstrip("/")).resolve()
             static_root = (ROOT_DIR / "static").resolve()
             if static_root not in target.parents or not target.is_file():
-                errors["company.logo"] = "O arquivo de logo local não foi encontrado."
+                errors.setdefault("company.logo", "O arquivo de logo local não foi encontrado.")
         values["company.logo"] = logo
         timezone_name = values["company.timezone"] or "America/Sao_Paulo"
         try:
             project_zone(timezone_name)
         except (RuntimeError, ValueError):
-            errors["company.timezone"] = "Informe um fuso horário IANA válido."
+            errors.setdefault("company.timezone", "Informe um fuso horário IANA válido.")
         values["company.timezone"] = timezone_name
         if errors:
             raise AdminValidationError("Revise os dados da empresa.", errors=errors)
         return values
 
     def update_company(self, raw: dict[str, object], actor_id: int) -> dict[str, str]:
-        fields = self._company_fields(raw)
         self._begin_immediate()
         try:
+            self._actor_access(actor_id, "admin.settings")
+            fields = self._company_fields(raw)
             before = {}
             for key, value in fields.items():
                 setting = self.session.get(Setting, key)

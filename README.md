@@ -22,7 +22,9 @@ A área Administração oferece ao Proprietário:
 - visão financeira global, histórico e relatórios;
 - formas de pagamento, terminais e regras de taxa;
 - usuários, papéis e permissões;
-- dados institucionais da empresa.
+- dados institucionais da empresa;
+- autorizações temporárias de suporte e consulta de auditoria;
+- informações do sistema, backup e restauração local controlada.
 
 O Caixa operacional mostra ao operador apenas os lançamentos que ele próprio
 registrou nos últimos sete dias. Saldos, totais, relatórios e agregações globais
@@ -36,9 +38,10 @@ py -3.13 -m venv .venv
 Copy-Item .env.example .env.local
 ```
 
-No ambiente de teste atual, o acesso rápido usa usuário `adm` e senha `adm`.
-Antes de distribuir uma cópia real, troque a chave de sessão e a senha no
-arquivo `.env.local`. Esse arquivo é ignorado pelo Git.
+O projeto não distribui uma senha padrão. Antes da primeira execução, substitua
+os dois marcadores de `ERP_SESSION_SECRET` e `ERP_ADMIN_PASSWORD` no arquivo
+`.env.local` por valores locais exclusivos. A senha precisa ter pelo menos oito
+caracteres; o segredo da sessão, pelo menos 32. Esse arquivo é ignorado pelo Git.
 
 Na primeira inicialização, os valores do ambiente preenchem configurações ainda
 ausentes. Depois disso, nome da empresa, nome do aplicativo, versão, logo e fuso
@@ -66,5 +69,6 @@ Para desenvolvimento local no navegador, sempre restrito a `127.0.0.1`:
 Consulte a [arquitetura](Docs/ARQUITETURA.md), os módulos
 [Clientes](Docs/CLIENTES.md), [Serviços](Docs/SERVICOS.md),
 [Notas de Serviço](Docs/NOTAS_SERVICO.md) e [Caixa](Docs/CAIXA.md), além do guia
-de [Administração e Pagamentos](Docs/PAGAMENTOS_ADMINISTRACAO.md). Para reutilizar
+de [Administração e Pagamentos](Docs/PAGAMENTOS_ADMINISTRACAO.md) e do guia de
+[Backup, restauração e atualização](Docs/BACKUP_RESTAURACAO_ATUALIZACAO.md). Para reutilizar
 a base em outro produto, leia também [Como criar um novo ERP](Docs/COMO_CRIAR_NOVO_ERP.md).

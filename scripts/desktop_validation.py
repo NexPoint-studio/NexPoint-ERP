@@ -43,7 +43,7 @@ def main():
         shutil.copy2(ROOT / "scripts" / "desktop_validation_child.py", target / "validation_child.py")
         assert not (target / ".env.local").exists() and not (target / "data").exists()
         environment = {key: value for key, value in os.environ.items() if not key.startswith("ERP_")}
-        environment.update(ERP_SESSION_SECRET=secrets.token_urlsafe(40), ERP_ADMIN_PASSWORD="adm", ERP_HOST="127.0.0.1", ERP_PORT="8877", PYTHONUTF8="1")
+        environment.update(ERP_SESSION_SECRET=secrets.token_urlsafe(40), ERP_ADMIN_PASSWORD="senha-local-exclusiva-de-validacao", ERP_HOST="127.0.0.1", ERP_PORT="8877", PYTHONUTF8="1")
         results = {"copy_without_operational_data": True, "cycles": []}
         crash = subprocess.Popen([sys.executable, str(target / "validation_child.py"), "crash"], cwd=target, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:

@@ -2,7 +2,7 @@
 
 ## Administração 2.0
 
-A Administração é a área de gestão do Proprietário da empresa e possui seis
+A Administração é a área de gestão do Proprietário da empresa e possui nove
 áreas funcionais:
 
 1. **Visão geral**: indicadores de produção, clientes sem retorno e, somente com
@@ -15,11 +15,18 @@ A Administração é a área de gestão do Proprietário da empresa e possui sei
 5. **Usuários e permissões**: usuários locais, papéis, status, senhas e matriz de
    permissões.
 6. **Empresa**: dados institucionais, logo local e fuso horário.
+7. **Suporte**: concessões explícitas, temporárias e revogáveis para um usuário
+   visível com papel exclusivo de Suporte.
+8. **Auditoria**: consulta paginada e filtrável dos eventos, com ocultação de
+   campos sensíveis estruturados.
+9. **Sistema**: versão, build, ambiente, schema, backup, restauração preparada e
+   estado local de atualização.
 
 O papel técnico legado `admin` é preservado para evitar uma migração destrutiva,
 mas aparece na interface como **Proprietário**. Ele representa o gestor da
-empresa. Não existe conta de suporte, acesso permanente do desenvolvedor,
-backdoor ou senha secreta.
+empresa. O papel `support` não recebe permissões permanentes nem cria uma conta
+automaticamente. Não existe acesso permanente do desenvolvedor, backdoor ou
+senha secreta.
 
 O dashboard consulta os indicadores financeiros apenas quando o usuário possui
 `finance.overview.view`. Os cartões de serviços atrasados e clientes inativos
@@ -47,6 +54,27 @@ As regras de proteção impedem:
 As operações administrativas são autorizadas no backend e geram auditoria. A
 interface apenas reflete essas decisões; acessar uma URL ou enviar um POST
 diretamente não contorna as permissões.
+
+Cookies de sessão carregam a versão de autenticação do usuário e uma geração
+global persistida. Logout, redefinição de senha, mudança de login, status, papel
+ou permissões invalidam as sessões afetadas. Uma restauração concluída gira a
+geração global antes de o ERP voltar a aceitar requisições.
+
+## Suporte temporário e auditoria
+
+Somente um Proprietário ativo com `admin.support.manage`, após informar a senha
+atual, pode autorizar ou revogar suporte. A janela dura no máximo 24 horas e
+registra responsável, finalidade, início, término e eventual revogação. O alvo
+precisa ser um usuário ativo com exclusivamente o papel `support`.
+
+Durante uma concessão ativa, o escopo é recalculado no banco em cada requisição
+e contém apenas `admin.overview.view`, `admin.audit.view` e
+`admin.system.view`. Ele não inclui Empresa, usuários, permissões, financeiro,
+Caixa, pagamentos, backup, restauração ou gestão do próprio suporte.
+
+A página de Auditoria permite filtrar por ação, responsável, recurso e período.
+Senhas, tokens, secrets, cookies e credenciais presentes em detalhes JSON são
+substituídos por um marcador antes da renderização.
 
 ## Empresa e precedência de configuração
 
@@ -196,6 +224,12 @@ adquirentes não faz parte desta versão.
 - `admin.users`: gerir usuários;
 - `admin.permissions`: gerir a matriz de permissões;
 - `admin.settings`: gerir dados da empresa.
+- `admin.support.manage`: autorizar e revogar suporte temporário;
+- `admin.audit.view`: consultar eventos de auditoria;
+- `admin.system.view`: consultar metadados locais do sistema;
+- `admin.backups.manage`: criar, listar e baixar backups locais;
+- `admin.restore`: preparar ou cancelar restauração, sempre limitada ao papel
+  Proprietário.
 
 As permissões antigas recebem sucessoras apenas de forma aditiva. Papéis e
 concessões personalizadas existentes são preservados.
@@ -209,6 +243,8 @@ As migrations aditivas desta integração são:
 - `0010_payments`: entidade Pagamento, snapshots e garantias de unicidade;
 - `0011_customer_activity_sources`: origem idempotente das atividades automáticas
   de Clientes.
+- `0012_administration_security`: versão de autenticação dos usuários, concessões
+  temporárias de suporte e índices de consulta da auditoria.
 
 Nenhuma migration converte movimentações manuais antigas em Pagamentos. Dados
 históricos permanecem com sua origem original.

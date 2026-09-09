@@ -7,9 +7,13 @@ from app.routes.services import admin_router as services_admin_router, router as
 from app.routes.pages import router as pages_router
 from app.routes.payments import router as payments_router
 from app.routes.payment_configuration import router as payment_configuration_router
+from app.routes.audit import router as audit_router
+from app.routes.support import router as support_router
+from app.routes.system import router as system_router
 
 __all__ = [
     "auth_router", "admin_router", "cash_router", "customers_router", "notes_router",
     "services_router", "services_admin_router", "payments_router",
     "payment_configuration_router", "pages_router",
+    "audit_router", "support_router", "system_router",
 ]

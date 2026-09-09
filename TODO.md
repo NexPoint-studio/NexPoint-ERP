@@ -1,6 +1,6 @@
 # ERP — Tarefa Atual
 
-> Fase 3/4 — Administração, Pagamentos e integração dos módulos.
+> Fase 4/4 — Fechamento administrativo, configurações e robustez.
 
 ## A Fazer
 
@@ -8,22 +8,20 @@
 
 ## Concluídas
 
-- [x] Implementar Fase 3 {sector:SETOR_COORDENACAO}
-  - [x] Criar models e migrations de Pagamento {weight:5} {sector:SETOR_BANCO_DADOS}
-  - [x] Criar Administração do proprietário {weight:5} {sector:SETOR_BACKEND}
-  - [x] Mover gestão de Serviços para Administração {weight:3} {sector:SETOR_INTERFACE_UX}
-  - [x] Criar formas, terminais e regras de taxa {weight:5} {sector:SETOR_BANCO_DADOS}
-  - [x] Separar Caixa operacional e Financeiro {weight:5} {sector:SETOR_SEGURANCA}
-  - [x] Implementar fluxo Nota → Pagamento → Caixa {weight:7} {sector:SETOR_BACKEND}
-  - [x] Garantir atomicidade e idempotência financeira {weight:5} {sector:SETOR_SEGURANCA}
-  - [x] Integrar Notas ao histórico de Clientes {weight:4} {sector:SETOR_BACKEND}
-  - [x] Criar alertas administrativos {weight:3} {sector:SETOR_INTERFACE_UX}
-  - [x] Criar gestão de usuários e permissões {weight:5} {sector:SETOR_SEGURANCA}
-  - [x] Centralizar dados institucionais da Empresa {weight:3} {sector:SETOR_BACKEND}
-  - [x] Criar interfaces de pagamento e financeiro {weight:5} {sector:SETOR_INTERFACE_UX}
-  - [x] Validar migrations e preservação {weight:4} {sector:SETOR_QA_TESTES}
-  - [x] Criar testes financeiros, de segurança e concorrência {weight:6} {sector:SETOR_QA_TESTES}
-  - [x] Executar teste operacional ponta a ponta {weight:4} {sector:SETOR_QA_TESTES}
-  - [x] Atualizar documentação operacional {weight:2} {sector:SETOR_COORDENACAO}
-  - [x] Executar regressão completa {weight:3} {sector:SETOR_QA_TESTES}
-  - [x] Revisar integração final {weight:2} {sector:SETOR_COORDENACAO}
+- [x] Implementar Fase 4 {sector:SETOR_COORDENACAO}
+  - [x] Auditar implementação existente das Fases 1 a 3 {weight:3} {sector:SETOR_COORDENACAO}
+  - [x] Finalizar validações e auditoria dos dados da Empresa {weight:3} {sector:SETOR_BACKEND}
+  - [x] Revisar proteção de usuários, papéis e permissões {weight:4} {sector:SETOR_SEGURANCA}
+  - [x] Criar model e migration de autorização temporária de suporte {weight:5} {sector:SETOR_BANCO_DADOS}
+  - [x] Implementar gestão segura e auditável de suporte {weight:5} {sector:SETOR_SEGURANCA}
+  - [x] Criar consulta administrativa da auditoria {weight:4} {sector:SETOR_BACKEND}
+  - [x] Implementar backup SQLite local consistente {weight:6} {sector:SETOR_BANCO_DADOS}
+  - [x] Implementar restauração validada com rollback de segurança {weight:8} {sector:SETOR_SEGURANCA}
+  - [x] Finalizar informações locais de sistema, versão e atualização {weight:4} {sector:SETOR_BACKEND}
+  - [x] Integrar as novas áreas à interface administrativa {weight:5} {sector:SETOR_INTERFACE_UX}
+  - [x] Revisar configurações financeiras e integridade histórica {weight:3} {sector:SETOR_SEGURANCA}
+  - [x] Criar testes de unidade, integração, permissões e falhas {weight:8} {sector:SETOR_QA_TESTES}
+  - [x] Validar migration e preservação do banco operacional {weight:5} {sector:SETOR_QA_TESTES}
+  - [x] Atualizar documentação técnica e operacional {weight:3} {sector:SETOR_COORDENACAO}
+  - [x] Executar regressão completa e validações finais {weight:4} {sector:SETOR_QA_TESTES}
+  - [x] Revisar Git e criar o commit local da Fase 4 {weight:2} {sector:SETOR_COORDENACAO}

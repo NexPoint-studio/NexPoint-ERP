@@ -27,7 +27,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="stress_", dir=artifacts) as temporary:
         database = Path(temporary) / "stress.sqlite3"
         started = time.perf_counter()
-        app = create_app(database_url=f"sqlite+pysqlite:///{database.as_posix()}", credentials={"adm": "adm"})
+        app = create_app(database_url=f"sqlite+pysqlite:///{database.as_posix()}", credentials={"adm": "senha-local-exclusiva-de-validacao"})
         startup_ms = (time.perf_counter() - started) * 1000
         now = datetime(2026, 1, 1, 12)
         with app.state.session_factory() as session:
@@ -67,7 +67,7 @@ def main():
                      "customer_document": [list(row) for row in session.execute(text("EXPLAIN QUERY PLAN SELECT id FROM customers WHERE document='00000000000'"))]}
         measurements = {}
         with TestClient(app) as client:
-            assert client.post("/login", data={"email": "adm", "password": "adm"}, follow_redirects=False).status_code == 303
+            assert client.post("/login", data={"email": "adm", "password": "senha-local-exclusiva-de-validacao"}, follow_redirects=False).status_code == 303
             routes = {"customers_list": "/clientes/lista", "customers_search": "/clientes/lista?q=0123",
                       "customers_filter": "/clientes/lista?type=PERSON&active=ACTIVE&relationship=NEVER",
                       "customers_page": "/clientes/lista?page=150", "services_list": "/servicos/catalogo",

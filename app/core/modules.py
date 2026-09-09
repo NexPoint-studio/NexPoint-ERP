@@ -50,6 +50,9 @@ MODULES = (
         tab("pagamentos", "Pagamentos e taxas", "/admin/pagamentos", "finance.config.manage", "Formas, terminais e regras de taxa."),
         tab("usuarios", "Usuários e permissões", "/admin/usuarios", "admin.users", "Gestão local de acesso e papéis."),
         tab("empresa", "Empresa", "/admin/empresa", "admin.settings", "Dados institucionais usados pelo ERP."),
+        tab("suporte", "Suporte", "/admin/suporte", "admin.support.manage", "Autorizações temporárias e auditáveis de suporte."),
+        tab("auditoria", "Auditoria", "/admin/auditoria", "admin.audit.view", "Consulta protegida dos eventos administrativos."),
+        tab("sistema", "Sistema", "/admin/sistema", "admin.system.view", "Versão, banco, backups e restauração local."),
     )),
 )
 

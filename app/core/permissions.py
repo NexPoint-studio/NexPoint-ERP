@@ -18,7 +18,17 @@ ALL_PERMISSIONS = (
     "admin.services.deactivate", "admin.services.prices.manage",
     "admin.services.categories.manage", "admin.services.units.manage",
     "admin.users", "admin.permissions", "admin.settings",
+    "admin.support.manage", "admin.audit.view", "admin.system.view",
+    "admin.backups.manage", "admin.restore",
 )
+
+# Uma concessao de suporte nunca replica o papel do proprietario. O alcance
+# temporario e deliberadamente pequeno e somente de leitura.
+SUPPORT_SCOPED_PERMISSIONS = frozenset({
+    "admin.overview.view",
+    "admin.audit.view",
+    "admin.system.view",
+})
 
 @dataclass(frozen=True, slots=True)
 class CurrentUser:
@@ -27,6 +37,9 @@ class CurrentUser:
     display_name: str
     roles: frozenset[str]
     permissions: frozenset[str]
+    auth_version: int = 1
+    role_labels: tuple[str, ...] = ()
+    support_grant_uid: str | None = None
     def can(self, permission: str) -> bool:
         return permission in self.permissions
 

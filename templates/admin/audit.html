@@ -1,0 +1,39 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">ADMINISTRAÇÃO › AUDITORIA</p>
+  <h1>Eventos do sistema</h1>
+  <p>Histórico local das ações administrativas e operacionais. Conteúdo sensível é ocultado.</p>
+</header>
+
+<section class="panel">
+  <form method="get" class="filter-bar">
+    <label>Buscar<input name="q" value="{{ filters.q }}" maxlength="160" placeholder="Ação ou recurso"></label>
+    <label>Ação<select name="action"><option value="">Todas</option>{% for item in result.actions %}<option value="{{ item }}" {% if filters.action == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Usuário<input name="user_id" value="{{ filters.user_id }}" inputmode="numeric" placeholder="ID"></label>
+    <label>De<input type="date" name="date_from" value="{{ filters.date_from }}"></label>
+    <label>Até<input type="date" name="date_to" value="{{ filters.date_to }}"></label>
+    <button class="button button--secondary" type="submit">Filtrar</button>
+  </form>
+</section>
+
+<section class="panel">
+  {% if result.rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Data</th><th>Responsável</th><th>Ação</th><th>Recurso</th><th>Detalhes</th></tr></thead>
+    <tbody>{% for row in result.rows %}<tr>
+      <td>{{ row.event.created_at|datetime_br }}</td>
+      <td><strong>{{ row.actor_name }}</strong>{% if row.actor_email %}<small>{{ row.actor_email }}</small>{% endif %}</td>
+      <td><span class="badge badge--info">{{ row.event.action }}</span></td>
+      <td>{{ row.event.resource }}</td>
+      <td>{% if row.safe_details %}<code>{{ row.safe_details }}</code>{% else %}<span class="muted">Sem detalhes</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="empty-state"><h2>Nenhum evento encontrado</h2><p>Ajuste os filtros para consultar outro período.</p></div>{% endif %}
+  {% if result.pages > 1 %}<nav class="pagination" aria-label="Páginas da auditoria">
+    {% if result.page > 1 %}<a class="button button--secondary button--small" href="{{ request.url.include_query_params(page=result.page-1) }}">Anterior</a>{% endif %}
+    <span>Página {{ result.page }} de {{ result.pages }} · {{ result.total }} eventos</span>
+    {% if result.page < result.pages %}<a class="button button--secondary button--small" href="{{ request.url.include_query_params(page=result.page+1) }}">Próxima</a>{% endif %}
+  </nav>{% endif %}
+</section>
+{% endblock %}

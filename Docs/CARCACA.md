@@ -9,10 +9,13 @@
 - design system centralizado em `static/css/tokens.css`;
 - sidebar responsiva e abas contextuais definidas por módulo;
 - autenticação local com hash scrypt;
-- papéis genéricos `admin`, `user` e `delivery`;
+- papéis genéricos `admin`, `user`, `delivery` e `support`;
 - permissões por ação e proteção de rotas;
 - feature flags locais por módulo;
 - eventos de login, logout e navegação administrativa auditados.
+- invalidação de sessão por usuário e por geração global;
+- backup SQLite consistente e restauração offline com rollback;
+- suporte temporário sem conta oculta ou permissão permanente.
 
 ## Estado inicial
 

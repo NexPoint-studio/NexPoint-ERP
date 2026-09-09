@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+import secrets
 
 from app.core.config import Settings
 from app.core.database import Base
@@ -21,6 +22,7 @@ ROLE_PERMISSIONS = {
         "notes.view", "notes.create", "notes.edit", "notes.change_status",
     },
     "delivery": set(),
+    "support": set(),
 }
 
 # Converte autorizações legadas em equivalentes da Fase 3 sem conceder
@@ -36,7 +38,7 @@ LEGACY_PERMISSION_SUCCESSORS = {
     "services.categories.manage": {"admin.services.view", "admin.services.categories.manage"},
     "admin.users": {"admin.overview.view"},
     "admin.permissions": {"admin.overview.view"},
-    "admin.settings": {"admin.overview.view"},
+    "admin.settings": {"admin.overview.view", "admin.system.view"},
 }
 
 FEATURE_DEFAULTS = {"cash": True, "customers": True, "services": True}
@@ -54,6 +56,7 @@ def initialize_database(
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "cash_categories", "cash_payment_methods", "cash_movements",
         "payment_terminals", "payment_fee_rules", "payments",
+        "support_grants",
     }
     infrastructure = [table for name, table in Base.metadata.tables.items() if name not in domain_tables]
     # Infraestrutura e domínio compartilham o mesmo lock SQLite de inicialização;
@@ -91,7 +94,12 @@ def initialize_database(
             )
 
         roles = {}
-        for code, label in {"admin": "Proprietário", "user": "Usuário", "delivery": "Entrega"}.items():
+        for code, label in {
+            "admin": "Proprietário",
+            "user": "Usuário",
+            "delivery": "Entrega",
+            "support": "Suporte",
+        }.items():
             role = session.scalar(select(Role).where(Role.code == code))
             role_is_new = role is None
             if role is None:
@@ -155,6 +163,7 @@ def initialize_database(
             "customers.inactivity.recent_days": "30",
             "customers.inactivity.attention_days": "60",
             "customers.inactivity.distant_days": "90",
+            "security.session_generation": secrets.token_urlsafe(32),
         }
         for key, value in defaults.items():
             if session.get(Setting, key) is None:

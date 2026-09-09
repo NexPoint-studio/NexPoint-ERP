@@ -108,13 +108,13 @@ def test_concurrent_database_initialization_is_serialized(tmp_path):
     with engine.connect() as connection:
         assert connection.exec_driver_sql(
             "select count(*), count(distinct version) from schema_migrations"
-        ).one() == (11, 11)
+        ).one() == (12, 12)
         assert connection.exec_driver_sql(
             "select count(*), count(distinct code) from permissions"
         ).one() == (len(ALL_PERMISSIONS), len(ALL_PERMISSIONS))
         assert connection.exec_driver_sql(
             "select count(*), count(distinct code) from roles"
-        ).one() == (3, 3)
+        ).one() == (4, 4)
         assert connection.exec_driver_sql(
             "select count(*), count(distinct code) from billing_units"
         ).one() == (len(BILLING_UNIT_DEFAULTS), len(BILLING_UNIT_DEFAULTS))

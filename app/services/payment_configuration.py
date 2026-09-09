@@ -22,6 +22,7 @@ from app.services.cash_validation import (
     parse_money,
     utc_naive_to_local,
 )
+from app.services.authorization import require_active_actor_permission
 
 
 METHOD_KINDS = (
@@ -188,6 +189,14 @@ class PaymentConfigurationService:
             raise RuntimeError("A configuração financeira deve iniciar uma transação exclusiva.")
         self.session.connection().exec_driver_sql("begin immediate")
 
+    def _begin_authorized_write(self, actor_id: int) -> None:
+        self._begin_immediate()
+        try:
+            require_active_actor_permission(self.session, actor_id, "finance.config.manage")
+        except Exception:
+            self.session.rollback()
+            raise
+
     def _audit(self, actor_id: int, action: str, resource: str, details: dict | None = None) -> None:
         self.session.add(
             AuditEvent(
@@ -277,7 +286,7 @@ class PaymentConfigurationService:
         return self.session.scalar(query) is not None
 
     def create_payment_method(self, raw: dict[str, object], actor_id: int) -> CashPaymentMethod:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             name, method_kind, sort_order, active = self._method_values(raw)
             if self._method_name_conflict(name):
@@ -304,7 +313,7 @@ class PaymentConfigurationService:
             raise
 
     def update_payment_method(self, method_id: int, raw: dict[str, object], actor_id: int) -> CashPaymentMethod:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             row = self.payment_method(method_id)
             name, method_kind, sort_order, active = self._method_values(raw)
@@ -337,7 +346,7 @@ class PaymentConfigurationService:
             raise
 
     def set_payment_method_active(self, method_id: int, active: bool, actor_id: int) -> CashPaymentMethod:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             row = self.payment_method(method_id)
             if row.is_active != active:
@@ -381,7 +390,7 @@ class PaymentConfigurationService:
         return self.session.scalar(query) is not None
 
     def create_terminal(self, raw: dict[str, object], actor_id: int) -> PaymentTerminal:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             code, name, description, sort_order, active = self._terminal_values(raw)
             if self._terminal_code_conflict(code):
@@ -410,7 +419,7 @@ class PaymentConfigurationService:
             raise
 
     def update_terminal(self, terminal_id: int, raw: dict[str, object], actor_id: int) -> PaymentTerminal:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             row = self.terminal(terminal_id)
             code, name, description, sort_order, active = self._terminal_values(raw)
@@ -443,7 +452,7 @@ class PaymentConfigurationService:
             raise
 
     def set_terminal_active(self, terminal_id: int, active: bool, actor_id: int) -> PaymentTerminal:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             row = self.terminal(terminal_id)
             if row.is_active != active:
@@ -582,7 +591,7 @@ class PaymentConfigurationService:
         )
 
     def create_fee_rule(self, raw: dict[str, object], actor_id: int) -> PaymentFeeRule:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             values = self._fee_rule_values(raw)
             if self._active_overlap(values) is not None:
@@ -613,7 +622,7 @@ class PaymentConfigurationService:
             raise
 
     def replace_fee_rule(self, rule_id: int, raw: dict[str, object], actor_id: int) -> PaymentFeeRule:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             previous = self.fee_rule(rule_id)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -658,7 +667,7 @@ class PaymentConfigurationService:
             raise
 
     def set_fee_rule_active(self, rule_id: int, active: bool, actor_id: int) -> PaymentFeeRule:
-        self._begin_immediate()
+        self._begin_authorized_write(actor_id)
         try:
             previous = self.fee_rule(rule_id)
             if previous.is_active == active:

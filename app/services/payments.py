@@ -16,6 +16,7 @@ from app.models import AuditEvent, CashMovement, Payment, ServiceNote, ServiceNo
 from app.repositories.payments import PaymentRepository
 from app.services.payment_validation import PaymentInput
 from app.services.transactions import atomic_write
+from app.services.authorization import require_active_actor_permission
 
 
 MAX_CASH_CENTS = 99_999_999_999_999
@@ -192,13 +193,15 @@ class PaymentService:
         *,
         deliver: bool = False,
     ) -> PaymentResult:
+        self._begin_immediate()
+        require_active_actor_permission(self.session, actor_id, "payments.receive")
+        if deliver:
+            require_active_actor_permission(self.session, actor_id, "notes.change_status")
         if data.errors:
             raise PaymentValidationError("Revise os dados do pagamento.", errors=data.errors)
         if not isinstance(deliver, bool):
             raise PaymentValidationError("A ação de entrega é inválida.")
         fingerprint = self._fingerprint(note_id, data, deliver)
-        self._begin_immediate()
-
         existing = self.repository.by_request_uid(data.request_uid)
         if existing is not None:
             return self._existing_result(existing, fingerprint)
