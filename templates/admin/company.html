@@ -1,0 +1,20 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › EMPRESA</p><h1>Dados da Empresa</h1><p>O banco local é a fonte operacional; o ambiente fornece apenas valores iniciais ausentes.</p></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+{% if errors.form %}<div class="alert alert--error">{{ errors.form }}</div>{% endif %}
+<form method="post" class="customer-form">
+  <section class="panel form-section"><div class="section-heading"><h2>Identificação</h2></div><div class="form-grid">
+    <label class="field">Razão social ou nome *<input name="company.name" maxlength="180" required value="{{ form.get('company.name','') }}">{% if errors.get('company.name') %}<small class="field-error">{{ errors.get('company.name') }}</small>{% endif %}</label>
+    <label class="field">Nome fantasia<input name="company.trade_name" maxlength="180" value="{{ form.get('company.trade_name','') }}"></label>
+    <label class="field">CPF/CNPJ opcional<input name="company.document" maxlength="18" value="{{ form.get('company.document','') }}">{% if errors.get('company.document') %}<small class="field-error">{{ errors.get('company.document') }}</small>{% endif %}</label>
+    <label class="field">Telefone<input name="company.phone" maxlength="20" value="{{ form.get('company.phone','') }}"></label>
+    <label class="field">E-mail<input type="email" name="company.email" maxlength="180" value="{{ form.get('company.email','') }}">{% if errors.get('company.email') %}<small class="field-error">{{ errors.get('company.email') }}</small>{% endif %}</label>
+  </div></section>
+  <section class="panel form-section"><div class="section-heading"><h2>Endereço</h2></div><div class="form-grid">
+    <label class="field field--wide">Logradouro<input name="company.address.street" maxlength="180" value="{{ form.get('company.address.street','') }}"></label><label class="field">Número<input name="company.address.number" maxlength="30" value="{{ form.get('company.address.number','') }}"></label><label class="field">Complemento<input name="company.address.complement" maxlength="100" value="{{ form.get('company.address.complement','') }}"></label><label class="field">Bairro<input name="company.address.neighborhood" maxlength="100" value="{{ form.get('company.address.neighborhood','') }}"></label><label class="field">Cidade<input name="company.address.city" maxlength="100" value="{{ form.get('company.address.city','') }}"></label><label class="field">UF<input name="company.address.state" maxlength="2" value="{{ form.get('company.address.state','') }}">{% if errors.get('company.address.state') %}<small class="field-error">{{ errors.get('company.address.state') }}</small>{% endif %}</label><label class="field">CEP<input name="company.address.cep" maxlength="9" value="{{ form.get('company.address.cep','') }}"></label>
+  </div></section>
+  <section class="panel form-section"><div class="section-heading"><h2>Identidade local</h2></div><div class="form-grid"><label class="field field--wide">Caminho do logo<input name="company.logo" maxlength="240" value="{{ form.get('company.logo','') }}"><small class="form-hint">Somente arquivo existente em /static/.</small>{% if errors.get('company.logo') %}<small class="field-error">{{ errors.get('company.logo') }}</small>{% endif %}</label><label class="field">Fuso horário IANA<input name="company.timezone" maxlength="80" value="{{ form.get('company.timezone','America/Sao_Paulo') }}">{% if errors.get('company.timezone') %}<small class="field-error">{{ errors.get('company.timezone') }}</small>{% endif %}</label></div></section>
+  <div class="form-actions form-actions--sticky"><button class="button button--primary" type="submit">Salvar dados da Empresa</button></div>
+</form>
+{% endblock %}

@@ -10,7 +10,7 @@ requires-python = ">=3.13"
 dependencies = [
   "fastapi>=0.116,<1", "jinja2>=3.1,<4", "itsdangerous>=2.2,<3",
   "python-multipart>=0.0.20,<1", "sqlalchemy>=2.0,<3",
-  "uvicorn>=0.35,<1", "pywebview>=6.0,<7",
+  "tzdata>=2025.2,<2027", "uvicorn>=0.35,<1", "pywebview>=6.0,<7",
 ]
 
 [project.optional-dependencies]

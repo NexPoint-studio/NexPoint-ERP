@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO</p><h1>Visão geral</h1><p>Acompanhe operação, prazos e relacionamento com clientes.</p></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+<section class="panel section-block"><div class="section-heading"><div><span class="section-kicker">Operação</span><h2>Notas de Serviço</h2></div></div>
+  <div class="metrics-grid metrics-grid--four compact">
+    <a class="metric-card" href="/servicos/notas?operational_status=EM_ANDAMENTO"><span class="metric-card__label">Em andamento</span><strong class="metric-card__value">{{ note_counts.in_progress }}</strong><small>Abrir fila de produção</small></a>
+    <a class="metric-card metric-card--warning" href="/servicos/notas?deadline=TODAY"><span class="metric-card__label">Vencem hoje</span><strong class="metric-card__value">{{ note_counts.due_today }}</strong><small>Somente produção ativa</small></a>
+    <a class="metric-card metric-card--negative" href="/servicos/notas?deadline=OVERDUE"><span class="metric-card__label">Atrasadas</span><strong class="metric-card__value">{{ note_counts.overdue }}</strong><small>Recebidas ou em andamento</small></a>
+    <a class="metric-card metric-card--positive" href="/servicos/notas?operational_status=PRONTO"><span class="metric-card__label">Prontas</span><strong class="metric-card__value">{{ note_counts.ready }}</strong><small>Aguardando entrega</small></a>
+  </div>
+</section>
+<section class="panel section-block"><div class="section-heading"><div><span class="section-kicker">Relacionamento</span><h2>Inatividade de clientes</h2></div></div>
+  <div class="metrics-grid metrics-grid--four compact">
+    <a class="metric-card" href="/clientes/lista?relationship=30_PLUS"><span class="metric-card__label">Mais de {{ thresholds.recent_days }} dias</span><strong class="metric-card__value">{{ customer_counts['30_plus'] }}</strong><small>Requer atenção</small></a>
+    <a class="metric-card metric-card--warning" href="/clientes/lista?relationship=60_PLUS"><span class="metric-card__label">Mais de {{ thresholds.attention_days }} dias</span><strong class="metric-card__value">{{ customer_counts['60_plus'] }}</strong><small>Contato recomendado</small></a>
+    <a class="metric-card metric-card--negative" href="/clientes/lista?relationship=90_PLUS"><span class="metric-card__label">Mais de {{ thresholds.distant_days }} dias</span><strong class="metric-card__value">{{ customer_counts['90_plus'] }}</strong><small>Relacionamento distante</small></a>
+    <a class="metric-card" href="/clientes/lista?relationship=NEVER"><span class="metric-card__label">Sem atendimento</span><strong class="metric-card__value">{{ customer_counts.never }}</strong><small>Nenhuma visita ou Nota</small></a>
+  </div>
+</section>
+{% if finance %}
+<section class="panel section-block"><div class="section-heading section-heading--split"><div><span class="section-kicker">Acesso financeiro</span><h2>Resumo do mês</h2></div><a class="button button--secondary" href="/admin/financeiro">Abrir Financeiro</a></div>
+  <div class="metrics-grid metrics-grid--four compact">
+    <article class="metric-card metric-card--positive"><span class="metric-card__label">Entradas líquidas</span><strong class="metric-card__value">{{ finance.month.totals.entries|money }}</strong></article>
+    <article class="metric-card metric-card--negative"><span class="metric-card__label">Saídas</span><strong class="metric-card__value">{{ finance.month.totals.exits|money }}</strong></article>
+    <article class="metric-card"><span class="metric-card__label">Taxas</span><strong class="metric-card__value">{{ finance.month.totals.fees|money }}</strong></article>
+    <article class="metric-card"><span class="metric-card__label">Resultado</span><strong class="metric-card__value">{{ finance.month.totals.result|money }}</strong></article>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

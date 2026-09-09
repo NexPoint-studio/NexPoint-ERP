@@ -21,6 +21,14 @@ from app.core.database import Base
 from app.migration_definitions import (
     BILLING_UNIT_DEFAULTS_0007,
     BILLING_UNITS_0007_STATEMENTS,
+    CASH_PAYMENT_METHOD_KIND_0009_STATEMENT,
+    CASH_PAYMENT_METHOD_KIND_INDEX_0009_STATEMENT,
+    CASH_PAYMENT_METHODS_0009_CREATE_STATEMENTS,
+    CUSTOMER_ACTIVITIES_0011_CREATE_STATEMENTS,
+    CUSTOMER_ACTIVITY_SOURCES_0011_STATEMENTS,
+    PAYMENT_METHOD_DEFAULTS_0009,
+    PAYMENTS_0010_STATEMENTS,
+    PAYMENT_CONFIGURATION_0009_STATEMENTS,
     SERVICE_CATALOG_0003_STATEMENTS,
     SERVICE_NOTES_0008_STATEMENTS,
 )
@@ -154,6 +162,49 @@ def _require_unique_columns(
         raise MigrationInvariantError(
             f"A tabela {table_name} diverge nas unicidades globais esperadas: {sorted(actual)!r}."
         )
+
+
+def _require_unique_index_definitions(
+    connection: Connection,
+    table_name: str,
+    *,
+    global_columns: set[tuple[str, ...]],
+    partial_indexes: dict[str, tuple[tuple[str, ...], str]],
+) -> None:
+    """Valida unicidades globais e parciais, incluindo o predicado SQLite."""
+
+    definitions = _index_definitions(connection, table_name)
+    actual_global: set[tuple[str, ...]] = set()
+    actual_partial: dict[str, tuple[str, ...]] = {}
+    for name, (columns, unique, partial) in definitions.items():
+        if not unique:
+            continue
+        if _index_collations(connection, name) != tuple("BINARY" for _column in columns):
+            raise MigrationInvariantError(
+                f"O indice unico {name} de {table_name} usa collation inesperada."
+            )
+        if partial:
+            actual_partial[name] = columns
+        else:
+            actual_global.add(columns)
+
+    expected_partial_columns = {
+        name: definition[0] for name, definition in partial_indexes.items()
+    }
+    if actual_global != global_columns or actual_partial != expected_partial_columns:
+        raise MigrationInvariantError(
+            f"A tabela {table_name} diverge nas unicidades esperadas."
+        )
+
+    for name, (_columns, predicate) in partial_indexes.items():
+        sql = connection.exec_driver_sql(
+            "select sql from sqlite_master where type = 'index' and name = ?",
+            (name,),
+        ).scalar_one_or_none()
+        if sql is None or f"where {_normalize_sql(predicate)}" not in _normalize_sql(sql):
+            raise MigrationInvariantError(
+                f"O indice parcial {name} de {table_name} possui predicado inesperado."
+            )
 
 
 def _require_named_indexes(
@@ -455,6 +506,150 @@ def _migrate_service_notes(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
+def _require_legacy_payment_methods_schema(connection: Connection) -> None:
+    rows = list(connection.exec_driver_sql('pragma table_info("cash_payment_methods")'))
+    actual_columns = {
+        str(row[1]): {
+            "type": str(row[2]).upper().replace(" ", ""),
+            "nullable": not bool(row[3]),
+            "primary_key": bool(row[5]),
+        }
+        for row in rows
+    }
+    expected_columns = {
+        "id": {"type": "INTEGER", "nullable": False, "primary_key": True},
+        "name": {"type": "VARCHAR(80)", "nullable": False, "primary_key": False},
+        "sort_order": {"type": "INTEGER", "nullable": False, "primary_key": False},
+        "is_active": {"type": "BOOLEAN", "nullable": False, "primary_key": False},
+        "created_at": {"type": "DATETIME", "nullable": False, "primary_key": False},
+        "updated_at": {"type": "DATETIME", "nullable": False, "primary_key": False},
+    }
+    if actual_columns != expected_columns:
+        raise MigrationInvariantError(
+            "A tabela cash_payment_methods legada diverge do schema seguro esperado."
+        )
+    if _foreign_keys(connection, "cash_payment_methods"):
+        raise MigrationInvariantError(
+            "A tabela cash_payment_methods legada possui FKs inesperadas."
+        )
+    _require_unique_columns(connection, "cash_payment_methods", {("name",)})
+    _require_named_indexes(connection, "cash_payment_methods", {
+        "ix_cash_payment_methods_name": ("name",),
+        "ix_cash_payment_methods_sort_order": ("sort_order",),
+        "ix_cash_payment_methods_is_active": ("is_active",),
+    })
+
+
+def _migrate_payment_configuration(connection: Connection) -> None:
+    payment_method_columns = _table_columns(connection, "cash_payment_methods")
+    if not payment_method_columns:
+        for statement in CASH_PAYMENT_METHODS_0009_CREATE_STATEMENTS:
+            connection.exec_driver_sql(statement)
+        moment = datetime.now(timezone.utc).replace(tzinfo=None)
+        connection.exec_driver_sql(
+            "insert into cash_payment_methods "
+            "(name, method_kind, sort_order, is_active, created_at, updated_at) "
+            "values (?, ?, ?, 1, ?, ?)",
+            [
+                (name, kind, order, moment, moment)
+                for name, kind, order in PAYMENT_METHOD_DEFAULTS_0009
+            ],
+        )
+    elif "method_kind" not in payment_method_columns:
+        _require_legacy_payment_methods_schema(connection)
+        before = list(connection.exec_driver_sql(
+            "select id, name, sort_order, is_active, created_at, updated_at "
+            "from cash_payment_methods order by id"
+        ))
+        connection.exec_driver_sql(CASH_PAYMENT_METHOD_KIND_0009_STATEMENT)
+        connection.exec_driver_sql(CASH_PAYMENT_METHOD_KIND_INDEX_0009_STATEMENT)
+        after = list(connection.exec_driver_sql(
+            "select id, name, sort_order, is_active, created_at, updated_at "
+            "from cash_payment_methods order by id"
+        ))
+        if after != before:
+            raise MigrationInvariantError(
+                "A inclusao de method_kind alterou dados das formas de pagamento."
+            )
+    elif "ix_cash_payment_methods_method_kind" not in _index_definitions(
+        connection, "cash_payment_methods"
+    ):
+        # Schema parcialmente evoluido nao e reparado silenciosamente.
+        raise MigrationInvariantError(
+            "cash_payment_methods possui method_kind sem o indice congelado da Fase 3."
+        )
+
+    recognized_kinds = {
+        "dinheiro": "CASH",
+        "pix": "PIX",
+        "cartão": "CARD",
+        "cartao": "CARD",
+        "cartão de crédito": "CARD",
+        "cartao de credito": "CARD",
+        "cartão de débito": "CARD",
+        "cartao de debito": "CARD",
+        "boleto": "BOLETO",
+        "outro": "OTHER",
+    }
+    for method_id, method_name, current_kind in connection.exec_driver_sql(
+        "select id, name, method_kind from cash_payment_methods"
+    ):
+        expected_kind = recognized_kinds.get(str(method_name).strip().casefold(), str(current_kind))
+        if expected_kind != current_kind:
+            connection.exec_driver_sql(
+                "update cash_payment_methods set method_kind = ? where id = ?",
+                (expected_kind, int(method_id)),
+            )
+
+    if not _table_exists(connection, "payment_terminals"):
+        for statement in PAYMENT_CONFIGURATION_0009_STATEMENTS[:5]:
+            connection.exec_driver_sql(statement)
+    if not _table_exists(connection, "payment_fee_rules"):
+        for statement in PAYMENT_CONFIGURATION_0009_STATEMENTS[5:]:
+            connection.exec_driver_sql(statement)
+
+
+def _migrate_payments(connection: Connection) -> None:
+    if not _table_exists(connection, "payments"):
+        for statement in PAYMENTS_0010_STATEMENTS:
+            connection.exec_driver_sql(statement)
+
+
+def _migrate_customer_activity_sources(connection: Connection) -> None:
+    columns = _table_columns(connection, "customer_activities")
+    if not columns:
+        for statement in CUSTOMER_ACTIVITIES_0011_CREATE_STATEMENTS:
+            connection.exec_driver_sql(statement)
+        return
+    source_columns = {"source_type", "source_id", "source_reference"}
+    present = source_columns & columns
+    if present and present != source_columns:
+        raise MigrationInvariantError(
+            "customer_activities possui apenas parte dos vinculos de origem da Fase 3."
+        )
+    if not present:
+        before = list(connection.exec_driver_sql(
+            "select id, customer_id, activity_type, occurred_at, description, "
+            "metadata_json, created_by, created_at from customer_activities order by id"
+        ))
+        for statement in CUSTOMER_ACTIVITY_SOURCES_0011_STATEMENTS:
+            connection.exec_driver_sql(statement)
+        after = list(connection.exec_driver_sql(
+            "select id, customer_id, activity_type, occurred_at, description, "
+            "metadata_json, created_by, created_at from customer_activities order by id"
+        ))
+        if after != before:
+            raise MigrationInvariantError(
+                "A inclusao da origem alterou o historico de clientes."
+            )
+    elif "uq_customer_activities_source" not in _index_definitions(
+        connection, "customer_activities"
+    ):
+        raise MigrationInvariantError(
+            "customer_activities possui origem sem o indice idempotente congelado."
+        )
+
+
 def _assert_phase_two_schema(connection: Connection, applied: set[str]) -> None:
     if "0007_billing_units" in applied:
         _require_model_columns(connection, "billing_units")
@@ -620,6 +815,163 @@ def _assert_phase_two_schema(connection: Connection, applied: set[str]) -> None:
         })
 
 
+def _assert_phase_three_schema(connection: Connection, applied: set[str]) -> None:
+    if "0009_payment_configuration" in applied:
+        for table_name in (
+            "cash_payment_methods",
+            "payment_terminals",
+            "payment_fee_rules",
+        ):
+            _require_model_columns(connection, table_name)
+
+        _require_foreign_keys(connection, "cash_payment_methods", set())
+        _require_unique_columns(connection, "cash_payment_methods", {("name",)})
+        _require_named_checks(connection, "cash_payment_methods", {
+            "ck_cash_payment_methods_kind",
+        })
+        _require_named_indexes(connection, "cash_payment_methods", {
+            "ix_cash_payment_methods_name": ("name",),
+            "ix_cash_payment_methods_method_kind": ("method_kind",),
+            "ix_cash_payment_methods_sort_order": ("sort_order",),
+            "ix_cash_payment_methods_is_active": ("is_active",),
+        })
+
+        _require_foreign_keys(connection, "payment_terminals", {
+            ("created_by", "users", "id", "RESTRICT"),
+            ("updated_by", "users", "id", "RESTRICT"),
+        })
+        _require_unique_columns(connection, "payment_terminals", {("code",)})
+        _require_named_checks(connection, "payment_terminals", {
+            "ck_payment_terminals_code",
+            "ck_payment_terminals_name",
+            "ck_payment_terminals_sort_order",
+            "ck_payment_terminals_is_active",
+        })
+        _require_named_indexes(connection, "payment_terminals", {
+            "ix_payment_terminals_active_order": ("is_active", "sort_order"),
+            "ix_payment_terminals_created_by": ("created_by",),
+            "ix_payment_terminals_name": ("name",),
+            "ix_payment_terminals_updated_by": ("updated_by",),
+        })
+
+        _require_foreign_keys(connection, "payment_fee_rules", {
+            ("payment_method_id", "cash_payment_methods", "id", "RESTRICT"),
+            ("terminal_id", "payment_terminals", "id", "RESTRICT"),
+            ("created_by", "users", "id", "RESTRICT"),
+            ("updated_by", "users", "id", "RESTRICT"),
+        })
+        _require_unique_columns(connection, "payment_fee_rules", set())
+        _require_named_checks(connection, "payment_fee_rules", {
+            "ck_payment_fee_rules_card_mode",
+            "ck_payment_fee_rules_installments",
+            "ck_payment_fee_rules_percentage",
+            "ck_payment_fee_rules_fixed_fee",
+            "ck_payment_fee_rules_validity",
+            "ck_payment_fee_rules_is_active",
+        })
+        _require_named_indexes(connection, "payment_fee_rules", {
+            "ix_payment_fee_rules_active_method": ("payment_method_id", "is_active"),
+            "ix_payment_fee_rules_created_by": ("created_by",),
+            "ix_payment_fee_rules_resolution": (
+                "payment_method_id", "terminal_id", "card_mode", "installments", "valid_from"
+            ),
+            "ix_payment_fee_rules_updated_by": ("updated_by",),
+        })
+
+        if _table_exists(connection, "cash_movements"):
+            cash_types = {
+                str(row[1]): str(row[2]).upper().replace(" ", "")
+                for row in connection.exec_driver_sql('pragma table_info("cash_movements")')
+            }
+            if {
+                cash_types.get("gross_amount"),
+                cash_types.get("fee_amount"),
+                cash_types.get("net_amount"),
+            } != {"NUMERIC(14,2)"}:
+                raise MigrationInvariantError(
+                    "A migration da Fase 3 alterou indevidamente a persistencia legada do Caixa."
+                )
+            _require_unique_columns(
+                connection,
+                "cash_movements",
+                {("source_type", "source_id")},
+            )
+            _require_named_checks(connection, "cash_movements", {
+                "ck_cash_movements_type",
+                "ck_cash_movements_status",
+                "ck_cash_movements_origin",
+                "ck_cash_movements_gross_positive",
+                "ck_cash_movements_fee_range",
+                "ck_cash_movements_net_formula",
+            })
+
+    if "0010_payments" in applied:
+        _require_model_columns(connection, "payments")
+        _require_foreign_keys(connection, "payments", {
+            ("service_note_id", "service_notes", "id", "RESTRICT"),
+            ("customer_id", "customers", "id", "RESTRICT"),
+            ("payment_method_id", "cash_payment_methods", "id", "RESTRICT"),
+            ("terminal_id", "payment_terminals", "id", "RESTRICT"),
+            ("fee_rule_id", "payment_fee_rules", "id", "RESTRICT"),
+            ("created_by", "users", "id", "RESTRICT"),
+            ("reversed_by", "users", "id", "RESTRICT"),
+        })
+        _require_unique_index_definitions(
+            connection,
+            "payments",
+            global_columns={("request_uid",)},
+            partial_indexes={
+                "uq_payments_confirmed_service_note": (
+                    ("service_note_id",),
+                    "status = 'CONFIRMED'",
+                ),
+            },
+        )
+        _require_named_checks(connection, "payments", {
+            "ck_payments_request_uid",
+            "ck_payments_status",
+            "ck_payments_method_snapshot",
+            "ck_payments_terminal_snapshot",
+            "ck_payments_card_details",
+            "ck_payments_money",
+            "ck_payments_reversal",
+        })
+        _require_named_indexes(connection, "payments", {
+            "ix_payments_created_by": ("created_by",),
+            "ix_payments_customer_paid": ("customer_id", "paid_at"),
+            "ix_payments_method_paid": ("payment_method_id", "paid_at"),
+            "ix_payments_status_paid": ("status", "paid_at"),
+        })
+
+    if "0011_customer_activity_sources" in applied:
+        _require_model_columns(connection, "customer_activities")
+        _require_foreign_keys(connection, "customer_activities", {
+            ("customer_id", "customers", "id", "CASCADE"),
+            ("created_by", "users", "id", "RESTRICT"),
+        })
+        _require_unique_index_definitions(
+            connection,
+            "customer_activities",
+            global_columns=set(),
+            partial_indexes={
+                "uq_customer_activities_source": (
+                    ("customer_id", "activity_type", "source_type", "source_id"),
+                    "source_type IS NOT NULL AND source_id IS NOT NULL",
+                ),
+            },
+        )
+        _require_named_checks(connection, "customer_activities", {
+            "ck_customer_activities_type",
+            "ck_customer_activities_source",
+        })
+        _require_named_indexes(connection, "customer_activities", {
+            "ix_customer_activities_activity_type": ("activity_type",),
+            "ix_customer_activities_created_by": ("created_by",),
+            "ix_customer_activities_customer_id": ("customer_id",),
+            "ix_customer_activities_occurred_at": ("occurred_at",),
+        })
+
+
 def _apply_pending_migrations(connection: Connection, versions: Table) -> set[str]:
     applied = set(connection.scalars(select(versions.c.version)))
     now = lambda: datetime.now(timezone.utc)
@@ -678,8 +1030,27 @@ def _apply_pending_migrations(connection: Connection, versions: Table) -> set[st
         _migrate_service_notes(connection)
         connection.execute(insert(versions).values(version="0008_service_notes", applied_at=now()))
         applied.add("0008_service_notes")
+    if "0009_payment_configuration" not in applied:
+        _migrate_payment_configuration(connection)
+        connection.execute(
+            insert(versions).values(version="0009_payment_configuration", applied_at=now())
+        )
+        applied.add("0009_payment_configuration")
+    if "0010_payments" not in applied:
+        _migrate_payments(connection)
+        connection.execute(insert(versions).values(version="0010_payments", applied_at=now()))
+        applied.add("0010_payments")
+    if "0011_customer_activity_sources" not in applied:
+        _migrate_customer_activity_sources(connection)
+        connection.execute(
+            insert(versions).values(
+                version="0011_customer_activity_sources", applied_at=now()
+            )
+        )
+        applied.add("0011_customer_activity_sources")
 
     _assert_phase_two_schema(connection, applied)
+    _assert_phase_three_schema(connection, applied)
     return applied
 
 

@@ -123,6 +123,53 @@ class CashMovementRepository:
             return None
         return self.session.scalar(self._with_relations(select(CashMovement).where(CashMovement.id == movement_id)))
 
+    def get_for_creator(
+        self,
+        movement_id: int,
+        *,
+        creator_id: int,
+        start_utc: datetime,
+        end_utc: datetime,
+    ) -> CashMovement | None:
+        """Busca um lançamento somente dentro do histórico operacional do autor."""
+        if not 0 < movement_id < 2**63 or not 0 < creator_id < 2**63:
+            return None
+        query = select(CashMovement).where(
+            CashMovement.id == movement_id,
+            CashMovement.created_by == creator_id,
+            CashMovement.occurred_at >= start_utc,
+            CashMovement.occurred_at < end_utc,
+        )
+        return self.session.scalar(self._with_relations(query))
+
+    def list_for_creator(
+        self,
+        *,
+        creator_id: int,
+        start_utc: datetime,
+        end_utc: datetime,
+        page: int = 1,
+        per_page: int = 25,
+    ) -> tuple[list[CashMovement], int, int]:
+        """Lista paginada sem projeções ou agregados financeiros globais."""
+        base_query = select(CashMovement).where(
+            CashMovement.created_by == creator_id,
+            CashMovement.occurred_at >= start_utc,
+            CashMovement.occurred_at < end_utc,
+        )
+        total = int(self.session.scalar(
+            select(func.count()).select_from(base_query.order_by(None).subquery())
+        ) or 0)
+        pages = max(1, math.ceil(total / per_page))
+        effective_page = min(max(1, page), pages)
+        rows = list(self.session.scalars(
+            self._with_relations(base_query)
+            .order_by(CashMovement.occurred_at.desc(), CashMovement.id.desc())
+            .offset((effective_page - 1) * per_page)
+            .limit(per_page)
+        ).unique())
+        return rows, total, effective_page
+
     def list(
         self,
         *,

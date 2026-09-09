@@ -1,0 +1,120 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div>
+    <p class="eyebrow">CAIXA</p>
+    <h1>Minhas operações</h1>
+    <p>Seus lançamentos dos últimos 7 dias, do mais recente para o mais antigo.</p>
+  </div>
+  {% if current_user.can('cash.create') %}
+    <div class="header-actions">
+      <a class="button button--success" href="/caixa/novo-lancamento?type=ENTRY">+ Registrar entrada</a>
+      <a class="button button--danger" href="/caixa/novo-lancamento?type=EXIT">− Registrar saída</a>
+    </div>
+  {% endif %}
+</header>
+
+<section class="panel">
+  <div class="section-heading section-heading--split">
+    <div>
+      <span class="section-kicker">HISTÓRICO OPERACIONAL</span>
+      <h2>Lançamentos recentes</h2>
+    </div>
+    <small class="muted">De {{ result.start_utc|datetime_br }} até {{ result.end_utc|datetime_br }}</small>
+  </div>
+
+  {% if result.rows %}
+    <div class="table-shell">
+      <table class="customer-table cash-table">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>Descrição</th>
+            <th>Categoria</th>
+            <th>Pagamento</th>
+            <th class="cell-number">Valor</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for movement in result.rows %}
+            <tr class="cash-row cash-row--{{ 'canceled' if movement.status == 'CANCELED' else ('entry' if movement.movement_type == 'ENTRY' else 'exit') }}">
+              <td>{{ local_datetime(movement.occurred_at)|datetime_br }}</td>
+              <td>
+                <span class="badge badge--{{ 'success' if movement.movement_type == 'ENTRY' else 'danger' }}">
+                  {{ movement_type_by_code[movement.movement_type].label }}
+                </span>
+              </td>
+              <td>
+                <strong>{{ movement.description }}</strong>
+                <small>{{ 'Manual' if movement.origin == 'MANUAL' else 'Gerado pelo sistema' }}</small>
+              </td>
+              <td>{{ movement.category.name if movement.category else 'Sem categoria' }}</td>
+              <td>{{ movement.payment_method.name if movement.payment_method else 'Não informada' }}</td>
+              <td class="cell-number cash-value cash-value--{{ 'neutral' if movement.status == 'CANCELED' else ('entry' if movement.movement_type == 'ENTRY' else 'exit') }}">
+                <strong>{{ movement.net_amount|money }}</strong>
+              </td>
+              <td>
+                <span class="badge badge--{{ 'success' if movement.status == 'ACTIVE' else 'neutral' }}">
+                  {{ movement_status_by_code[movement.status].label }}
+                </span>
+              </td>
+              <td>
+                <a class="table-action" href="/caixa/movimentos/{{ movement.id }}">Ver</a>
+                {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.edit') %}
+                  <a class="table-action" href="/caixa/movimentos/{{ movement.id }}/editar">Editar</a>
+                {% endif %}
+                {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.cancel') %}
+                  <button class="link-button" type="button" data-modal-open="cancel-operation-{{ movement.id }}">Cancelar</button>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pagination" aria-label="Paginação das operações">
+      <span>Página {{ result.page }} de {{ result.pages }} · {{ result.total }} lançamento(s)</span>
+      {% if result.page > 1 %}<a class="button button--secondary button--small" href="{{ page_url(result.page - 1) }}">Anterior</a>{% endif %}
+      {% if result.page < result.pages %}<a class="button button--secondary button--small" href="{{ page_url(result.page + 1) }}">Próxima</a>{% endif %}
+    </nav>
+  {% else %}
+    <div class="empty-state cash-empty-state">
+      <strong>Nenhum lançamento seu nos últimos 7 dias.</strong>
+      <p>Novas entradas e saídas manuais aparecerão aqui depois do registro.</p>
+      {% if current_user.can('cash.create') %}<a class="button button--primary" href="/caixa/novo-lancamento">+ Novo lançamento</a>{% endif %}
+    </div>
+  {% endif %}
+</section>
+
+{% if current_user.can('cash.cancel') %}
+  {% for movement in result.rows if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' %}
+    <div class="modal-backdrop" id="cancel-operation-{{ movement.id }}" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-operation-title-{{ movement.id }}">
+        <div class="modal__header">
+          <div>
+            <h2 id="cancel-operation-title-{{ movement.id }}">Cancelar lançamento?</h2>
+            <p>{{ movement.description }} · {{ movement.net_amount|money }}</p>
+          </div>
+          <button class="icon-button" type="button" data-modal-close="cancel-operation-{{ movement.id }}" aria-label="Fechar">×</button>
+        </div>
+        <div class="alert alert--warning">O lançamento continuará preservado no histórico.</div>
+        <form method="post" action="/caixa/movimentos/{{ movement.id }}/cancelar" class="form-stack">
+          <label>
+            Motivo do cancelamento *
+            <textarea name="reason" maxlength="500" required></textarea>
+          </label>
+          <div class="modal__actions">
+            <button class="button button--secondary" type="button" data-modal-close="cancel-operation-{{ movement.id }}">Voltar</button>
+            <button class="button button--danger" type="submit">Cancelar lançamento</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

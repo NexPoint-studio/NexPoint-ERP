@@ -21,9 +21,13 @@
         <form method="post" action="/servicos/notas/{{ note.id }}/status" class="inline-form" data-confirm="{{ 'Iniciar a produção desta Nota?' if target_status == 'EM_ANDAMENTO' else ('Marcar esta Nota como pronta?' if target_status == 'PRONTO' else 'Confirmar a entrega desta Nota?') }}">
           <input type="hidden" name="target_status" value="{{ target_status }}">
           <input type="hidden" name="revision" value="{{ note.revision }}">
-          <button class="button {{ 'button--success' if target_status == 'ENTREGUE' else 'button--primary' }}" type="submit">{{ 'Iniciar produção' if target_status == 'EM_ANDAMENTO' else ('Marcar como pronta' if target_status == 'PRONTO' else 'Entregar') }}</button>
+          <button class="button {{ 'button--success' if target_status == 'ENTREGUE' else 'button--primary' }}" type="submit">{{ 'Iniciar produção' if target_status == 'EM_ANDAMENTO' else ('Marcar como pronta' if target_status == 'PRONTO' else ('Entregar sem receber' if note.financial_status == 'PENDENTE' else 'Entregar')) }}</button>
         </form>
       {% endfor %}
+    {% endif %}
+    {% if note.total_cents > 0 and note.financial_status == 'PENDENTE' and note.operational_status != 'CANCELADO' and current_user.can('payments.receive') %}
+      <a class="button button--primary" href="/servicos/notas/{{ note.id }}/pagamento">Registrar pagamento</a>
+      {% if note.operational_status == 'PRONTO' and current_user.can('notes.change_status') %}<a class="button button--success" href="/servicos/notas/{{ note.id }}/pagamento?deliver=1">Entregar e receber</a>{% endif %}
     {% endif %}
     {% if note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}<button class="button button--danger" type="button" data-modal-open="cancel-note">Cancelar Nota</button>{% endif %}
   </div>
@@ -33,6 +37,7 @@
 {% if updated %}<div class="alert alert--success" role="status">Nota atualizada e valores recalculados pelo sistema.</div>{% endif %}
 {% if status_changed %}<div class="alert alert--success" role="status">Status da Nota atualizado com sucesso.</div>{% endif %}
 {% if canceled %}<div class="alert alert--success" role="status">Nota cancelada e preservada no histórico.</div>{% endif %}
+{% if payment_saved %}<div class="alert alert--success" role="status">Pagamento confirmado e entrada correspondente registrada no Caixa.</div>{% endif %}
 {% if action_error %}<div class="alert alert--error" role="alert">{{ action_error }}</div>{% endif %}
 {% if cancel_error %}<div class="alert alert--error" role="alert">{{ cancel_error }}</div>{% endif %}
 {% if note.operational_status == 'CANCELADO' %}
@@ -47,6 +52,22 @@
   <article class="metric-card"><span class="metric-card__label">Entrega</span><strong class="metric-card__value">{{ note.delivery_amount_cents|money_cents }}</strong><small>{{ 'Sem entrega' if not note.delivery_enabled else ('Entrega gratuita' if note.delivery_amount_cents == 0 else 'Entrega incluída') }}</small></article>
   <article class="metric-card metric-card--positive"><span class="metric-card__label">Total</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>{{ 'Quitada por total zero' if note.total_cents == 0 else financial_status_labels.get(note.financial_status, note.financial_status|title) }}</small></article>
 </section>
+
+{% if payment %}
+<section class="panel section-block">
+  <div class="section-heading section-heading--split"><div><span class="section-kicker">Quitação integral</span><h2>Pagamento confirmado</h2><p>Valores e identificações congelados no momento do recebimento.</p></div>{% if payment_cash and current_user.can('finance.overview.view') %}<a class="button button--secondary" href="/caixa/movimentos/{{ payment_cash.id }}">Ver entrada no Caixa</a>{% endif %}</div>
+  <dl class="details-list">
+    <div><dt>Forma</dt><dd>{{ payment.method_name_snapshot }}</dd></div>
+    {% if payment.card_mode_snapshot %}<div><dt>Modalidade</dt><dd>{{ 'Débito' if payment.card_mode_snapshot == 'DEBIT' else 'Crédito' }}</dd></div>{% endif %}
+    {% if payment.installments %}<div><dt>Parcelas</dt><dd>{{ payment.installments }}x</dd></div>{% endif %}
+    {% if payment.terminal_name_snapshot %}<div><dt>Terminal</dt><dd>{{ payment.terminal_name_snapshot }}</dd></div>{% endif %}
+    <div><dt>Recebido em</dt><dd>{{ payment.paid_at|datetime_br }}</dd></div>
+    <div><dt>Valor bruto</dt><dd>{{ payment.gross_amount_cents|money_cents }}</dd></div>
+    <div><dt>Taxa</dt><dd>{{ payment.fee_amount_cents|money_cents }}</dd></div>
+    <div><dt>Impacto líquido</dt><dd>{{ payment.net_amount_cents|money_cents }}</dd></div>
+  </dl>
+</section>
+{% endif %}
 
 <section class="profile-grid section-block note-overview-grid">
   <article class="panel">
@@ -126,7 +147,7 @@
     {% for event in note.events %}
       <article class="timeline-item">
         <time>{{ event.occurred_at|datetime_br }}</time>
-        <div><strong>{{ event_type_labels.get(event.event_type, event.event_type|replace('_', ' ')|title) }}</strong><p>{{ 'Mudança registrada no atendimento.' if event.event_type == 'STATUS_CHANGED' else ('Nota cancelada e preservada.' if event.event_type == 'NOTE_CANCELLED' else ('Dados da Nota atualizados.' if event.event_type == 'NOTE_UPDATED' else 'Nota registrada no sistema.')) }}</p><small>por {{ profile.actor_names.get(event.created_by, 'Usuário local') }}</small></div>
+        <div><strong>{{ event_type_labels.get(event.event_type, event.event_type|replace('_', ' ')|title) }}</strong><p>{{ 'Pagamento integral confirmado e vinculado ao Caixa.' if event.event_type == 'PAYMENT_RECEIVED' else ('Mudança registrada no atendimento.' if event.event_type == 'STATUS_CHANGED' else ('Nota cancelada e preservada.' if event.event_type == 'NOTE_CANCELLED' else ('Dados da Nota atualizados.' if event.event_type == 'NOTE_UPDATED' else 'Nota registrada no sistema.'))) }}</p><small>por {{ profile.actor_names.get(event.created_by, 'Usuário local') }}</small></div>
       </article>
     {% else %}<p class="muted">Nenhum evento registrado.</p>{% endfor %}
   </div>

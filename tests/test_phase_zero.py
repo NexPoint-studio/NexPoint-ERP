@@ -57,12 +57,15 @@ def test_registry_contains_only_four_approved_modules():
 
 
 def test_expected_contextual_tabs():
-    assert [tab.name for tab in MODULE_BY_ID["cash"].tabs] == ["Resumo", "Novo lançamento", "Histórico", "Relatórios"]
+    assert [tab.name for tab in MODULE_BY_ID["cash"].tabs] == ["Operações", "Novo lançamento"]
     assert [tab.name for tab in MODULE_BY_ID["customers"].tabs] == ["Lista", "Novo cliente", "Histórico"]
     assert [tab.name for tab in MODULE_BY_ID["services"].tabs] == [
-        "Catálogo", "Nova Nota", "Notas de Serviço", "Novo serviço", "Categorias", "Preços"
+        "Catálogo", "Nova Nota", "Notas de Serviço"
     ]
-    assert [tab.name for tab in MODULE_BY_ID["admin"].tabs] == ["Usuários", "Permissões", "Configurações", "Sistema"]
+    assert [tab.name for tab in MODULE_BY_ID["admin"].tabs] == [
+        "Visão geral", "Serviços", "Financeiro", "Pagamentos e taxas",
+        "Usuários e permissões", "Empresa",
+    ]
 
 
 def test_admin_can_open_every_screen(client):
@@ -83,23 +86,23 @@ def test_sidebar_is_neutral_and_has_only_allowed_modules(client):
 
 def test_contextual_tabs_change_with_module(client):
     login(client, "admin@local")
-    cash = client.get("/caixa/resumo").text
+    cash = client.get("/caixa/operacoes").text
     customers = client.get("/clientes/lista").text
     services = client.get("/servicos/catalogo").text
     assert "Novo lançamento" in cash and "Novo cliente" not in cash
     assert "Novo cliente" in customers and "Novo serviço" not in customers
-    assert "Novo serviço" in services and "Novo lançamento" not in services
+    assert "Nova Nota" in services and "Novo serviço" not in services
 
 
 def test_user_cannot_access_administration(client):
     login(client, "usuario@local")
     assert client.get("/admin/usuarios").status_code == 403
-    assert ">Administração<" not in client.get("/caixa/resumo").text
+    assert ">Administração<" not in client.get("/caixa/operacoes").text
 
 
 def test_user_can_access_business_placeholders(client):
     login(client, "usuario@local")
-    for path in ("/caixa/resumo", "/clientes/lista", "/servicos/catalogo"):
+    for path in ("/caixa/operacoes", "/clientes/lista", "/servicos/catalogo"):
         assert client.get(path).status_code == 200
 
 
@@ -114,6 +117,7 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
         "schema_migrations", "service_categories", "service_prices", "services",
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "settings", "user_roles", "users",
+        "payments", "payment_terminals", "payment_fee_rules",
     }
 
 

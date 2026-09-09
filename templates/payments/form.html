@@ -1,0 +1,42 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header page-header--split">
+  <div><p class="eyebrow">SERVIÇOS › NOTA {{ note.number_original }}</p><h1>{{ 'Entregar e receber' if deliver else 'Registrar pagamento' }}</h1><p>{{ note.customer.name }} · quitação integral</p></div>
+  <a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Voltar à Nota</a>
+</header>
+{% if errors.form %}<div class="alert alert--error" role="alert">{{ errors.form }}</div>{% endif %}
+<section class="metrics-grid metrics-grid--four compact" aria-label="Resumo da Nota">
+  <article class="metric-card"><span class="metric-card__label">Nota</span><strong class="metric-card__value note-metric-text">{{ note.number_original }}</strong><small>{{ note.series_original or 'Sem série' }}</small></article>
+  <article class="metric-card"><span class="metric-card__label">Operacional</span><strong class="metric-card__value note-metric-text">{{ operational_status_labels.get(note.operational_status, note.operational_status) }}</strong></article>
+  <article class="metric-card"><span class="metric-card__label">Financeiro</span><strong class="metric-card__value note-metric-text">{{ financial_status_labels.get(note.financial_status, note.financial_status) }}</strong></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Valor a quitar</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>A taxa não vira pendência do cliente</small></article>
+</section>
+<form method="post" class="customer-form" data-payment-form>
+  <input type="hidden" name="request_uid" value="{{ form.request_uid }}">
+  <input type="hidden" name="revision" value="{{ form.revision }}">
+  <input type="hidden" name="deliver" value="{{ '1' if deliver else '0' }}">
+  <section class="panel form-section">
+    <div class="section-heading"><div><span class="section-kicker">Recebimento confirmado</span><h2>Forma de pagamento</h2><p>Boleto nesta tela significa que o valor já foi recebido.</p></div></div>
+    <div class="form-grid">
+      <label class="field">Forma de pagamento *
+        <select name="payment_method_id" required data-payment-method>
+          <option value="">Selecione</option>
+          {% for method in payment_methods %}<option value="{{ method.id }}" data-method-kind="{{ method.method_kind }}" {% if form.payment_method_id|string == method.id|string %}selected{% endif %}>{{ method.name }}</option>{% endfor %}
+        </select>
+        {% if errors.payment_method_id %}<small class="field-error">{{ errors.payment_method_id }}</small>{% endif %}
+      </label>
+      <label class="field">Data e hora do pagamento *<input type="datetime-local" name="paid_at" required value="{{ form.paid_at }}">{% if errors.paid_at %}<small class="field-error">{{ errors.paid_at }}</small>{% endif %}</label>
+    </div>
+    <div class="note-conditional-field" data-card-payment-fields hidden>
+      <div class="form-grid">
+        <label class="field">Terminal *<select name="terminal_id" data-card-payment-input><option value="">Selecione</option>{% for terminal in terminals %}<option value="{{ terminal.id }}" {% if form.terminal_id|string == terminal.id|string %}selected{% endif %}>{{ terminal.name }} · {{ terminal.code }}</option>{% endfor %}</select>{% if errors.terminal_id %}<small class="field-error">{{ errors.terminal_id }}</small>{% endif %}</label>
+        <label class="field">Modalidade *<select name="card_mode" data-card-mode data-card-payment-input><option value="">Selecione</option><option value="DEBIT" {% if form.card_mode == 'DEBIT' %}selected{% endif %}>Débito</option><option value="CREDIT" {% if form.card_mode == 'CREDIT' %}selected{% endif %}>Crédito</option></select>{% if errors.card_mode %}<small class="field-error">{{ errors.card_mode }}</small>{% endif %}</label>
+        <label class="field">Parcelas *<input type="number" name="installments" min="1" max="999" value="{{ form.installments or '1' }}" data-card-payment-input>{% if errors.installments %}<small class="field-error">{{ errors.installments }}</small>{% endif %}</label>
+      </div>
+      <p class="panel-note">A taxa é escolhida e calculada pelo servidor conforme terminal, modalidade, parcelas e vigência.</p>
+    </div>
+  </section>
+  {% if deliver %}<div class="alert alert--warning"><strong>Operação única.</strong> A Nota será entregue e paga na mesma transação. Se qualquer etapa falhar, nenhuma alteração será salva.</div>{% endif %}
+  <div class="form-actions form-actions--sticky"><a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Cancelar</a><button class="button button--primary" type="submit">{{ 'Confirmar entrega e recebimento' if deliver else 'Confirmar pagamento' }}</button></div>
+</form>
+{% endblock %}

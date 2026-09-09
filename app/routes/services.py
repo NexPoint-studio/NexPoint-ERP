@@ -15,11 +15,13 @@ from app.services.services import (
 
 
 router = APIRouter(prefix="/servicos")
+admin_router = APIRouter(prefix="/admin/servicos")
 
 
 def _context(request: Request, session, tab_id: str, **extra):
-    module = MODULE_BY_ID["services"]
-    tab = next(item for item in module.tabs if item.id == tab_id)
+    admin_mode = request.url.path.startswith("/admin/") or tab_id in {"novo", "categorias", "precos"}
+    module = MODULE_BY_ID["admin" if admin_mode else "services"]
+    tab = next(item for item in module.tabs if item.id == ("servicos" if admin_mode else tab_id))
     billing_units = extra.pop("billing_units", None)
     if billing_units is None:
         billing_units = BillingUnitRepository(session).all()
@@ -28,6 +30,9 @@ def _context(request: Request, session, tab_id: str, **extra):
         page_title=extra.pop("page_title", tab.name), implemented=True,
         billing_units=billing_units,
         billing_unit_by_code={unit.code: unit for unit in billing_units},
+        admin_catalog=admin_mode,
+        management_base="/admin/servicos",
+        catalog_path="/admin/servicos/catalogo" if admin_mode else "/servicos/catalogo",
         **extra,
     )
 
@@ -36,9 +41,10 @@ def _not_found(message="Serviço não encontrado"):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
 
 
+@admin_router.get("/catalogo")
 @router.get("/catalogo")
 def catalog(request: Request, q: str = "", category: str = "ALL", billing_unit: str = "ALL", active: str = "ACTIVE", sort: str = "name", page: int = 1):
-    require_permission(request, "services.view")
+    require_permission(request, "admin.services.view" if request.url.path.startswith("/admin/") else "services.view")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
         result = service.list(search=q, category=category, billing_unit=billing_unit, active=active, sort=sort, page=page)
@@ -49,9 +55,10 @@ def catalog(request: Request, q: str = "", category: str = "ALL", billing_unit: 
         ))
 
 
+@admin_router.get("/novo")
 @router.get("/novo")
 def new_service(request: Request):
-    require_permission(request, "services.create")
+    require_permission(request, "admin.services.create")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
         billing_units = service.billing_units.all(active_only=True)
@@ -63,9 +70,10 @@ def new_service(request: Request):
         ))
 
 
+@admin_router.post("/novo")
 @router.post("/novo")
 async def create_service(request: Request):
-    user = require_permission(request, "services.create")
+    user = require_permission(request, "admin.services.create")
     raw = {key: str(value) for key, value in (await request.form()).items()}
     data = ServiceInput.from_form(raw, require_price=True)
     with request.app.state.session_factory() as session:
@@ -88,12 +96,13 @@ async def create_service(request: Request):
         if isinstance(result, ServiceInput):
             context["duplicates"] = []
             return templates.TemplateResponse(request, "services/form.html", context, status_code=422)
-        return RedirectResponse(f"/servicos/{result.id}?saved=1", status_code=303)
+        return RedirectResponse(f"/admin/servicos/{result.id}?saved=1", status_code=303)
 
 
+@admin_router.get("/categorias")
 @router.get("/categorias")
 def categories(request: Request, edit: int | None = None):
-    require_permission(request, "services.categories.manage")
+    require_permission(request, "admin.services.categories.manage")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
         editing = service.categories.get(edit) if edit else None
@@ -103,9 +112,10 @@ def categories(request: Request, edit: int | None = None):
         ))
 
 
+@admin_router.post("/categorias")
 @router.post("/categorias")
 async def category_create(request: Request):
-    user = require_permission(request, "services.categories.manage")
+    user = require_permission(request, "admin.services.categories.manage")
     raw = {key: str(value) for key, value in (await request.form()).items()}
     data = CategoryInput.from_form(raw)
     with request.app.state.session_factory() as session:
@@ -121,12 +131,13 @@ async def category_create(request: Request):
                 request, session, "categorias", rows=service.categories.list_with_counts(), editing_category=None,
                 category_form=raw, errors=data.errors, page_title="Categorias de serviços",
             ), status_code=422)
-    return RedirectResponse("/servicos/categorias?saved=1", status_code=303)
+    return RedirectResponse("/admin/servicos/categorias?saved=1", status_code=303)
 
 
+@admin_router.post("/categorias/{category_id}/editar")
 @router.post("/categorias/{category_id}/editar")
 async def category_update(request: Request, category_id: int):
-    user = require_permission(request, "services.categories.manage")
+    user = require_permission(request, "admin.services.categories.manage")
     raw = {key: str(value) for key, value in (await request.form()).items()}
     data = CategoryInput.from_form(raw)
     with request.app.state.session_factory() as session:
@@ -144,24 +155,26 @@ async def category_update(request: Request, category_id: int):
                 request, session, "categorias", rows=service.categories.list_with_counts(), editing_category=service.categories.get(category_id),
                 category_form=raw, errors=data.errors, page_title="Categorias de serviços",
             ), status_code=422)
-    return RedirectResponse("/servicos/categorias?saved=1", status_code=303)
+    return RedirectResponse("/admin/servicos/categorias?saved=1", status_code=303)
 
 
+@admin_router.post("/categorias/{category_id}/status")
 @router.post("/categorias/{category_id}/status")
 async def category_status(request: Request, category_id: int):
-    user = require_permission(request, "services.categories.manage")
+    user = require_permission(request, "admin.services.categories.manage")
     form = await request.form()
     with request.app.state.session_factory() as session:
         try:
             CatalogService(session).category_set_active(category_id, str(form.get("active")) == "1", user.id)
         except CategoryNotFoundError:
             _not_found("Categoria não encontrada")
-    return RedirectResponse("/servicos/categorias", status_code=303)
+    return RedirectResponse("/admin/servicos/categorias", status_code=303)
 
 
+@admin_router.get("/precos")
 @router.get("/precos")
 def prices(request: Request, q: str = "", category: str = "ALL", billing_unit: str = "ALL", active: str = "ALL", history: int | None = None, page: int = 1):
-    require_permission(request, "services.prices.manage")
+    require_permission(request, "admin.services.prices.manage")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
         result = service.list(search=q, category=category, billing_unit=billing_unit, active=active, sort="name", page=page)
@@ -175,9 +188,10 @@ def prices(request: Request, q: str = "", category: str = "ALL", billing_unit: s
         ))
 
 
+@admin_router.post("/{service_id}/preco")
 @router.post("/{service_id}/preco")
 async def change_price(request: Request, service_id: int):
-    user = require_permission(request, "services.prices.manage")
+    user = require_permission(request, "admin.services.prices.manage")
     form = await request.form()
     with request.app.state.session_factory() as session:
         try:
@@ -185,13 +199,14 @@ async def change_price(request: Request, service_id: int):
         except ServiceNotFoundError:
             _not_found()
         except ValueError as exc:
-            return RedirectResponse(f"/servicos/{service_id}?price_error={str(exc)}", status_code=303)
-    return RedirectResponse(f"/servicos/{service_id}?price_saved=1", status_code=303)
+            return RedirectResponse(f"/admin/servicos/{service_id}?price_error={str(exc)}", status_code=303)
+    return RedirectResponse(f"/admin/servicos/{service_id}?price_saved=1", status_code=303)
 
 
+@admin_router.get("/{service_id}")
 @router.get("/{service_id}")
 def detail(request: Request, service_id: int, saved: int = 0, price_saved: int = 0, price_error: str = ""):
-    require_permission(request, "services.view")
+    require_permission(request, "admin.services.view" if request.url.path.startswith("/admin/") else "services.view")
     with request.app.state.session_factory() as session:
         try:
             profile = CatalogService(session).profile(service_id)
@@ -203,9 +218,10 @@ def detail(request: Request, service_id: int, saved: int = 0, price_saved: int =
         ))
 
 
+@admin_router.get("/{service_id}/editar")
 @router.get("/{service_id}/editar")
 def edit_service(request: Request, service_id: int):
-    require_permission(request, "services.edit")
+    require_permission(request, "admin.services.edit")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
         item = service.repository.get(service_id)
@@ -222,9 +238,10 @@ def edit_service(request: Request, service_id: int):
         ))
 
 
+@admin_router.post("/{service_id}/editar")
 @router.post("/{service_id}/editar")
 async def update_service(request: Request, service_id: int):
-    user = require_permission(request, "services.edit")
+    user = require_permission(request, "admin.services.edit")
     raw = {key: str(value) for key, value in (await request.form()).items()}
     data = ServiceInput.from_form(raw, require_price=False)
     with request.app.state.session_factory() as session:
@@ -254,16 +271,17 @@ async def update_service(request: Request, service_id: int):
         if isinstance(result, ServiceInput):
             context["duplicates"] = []
             return templates.TemplateResponse(request, "services/form.html", context, status_code=422)
-    return RedirectResponse(f"/servicos/{service_id}?saved=1", status_code=303)
+    return RedirectResponse(f"/admin/servicos/{service_id}?saved=1", status_code=303)
 
 
+@admin_router.post("/{service_id}/status")
 @router.post("/{service_id}/status")
 async def service_status(request: Request, service_id: int):
-    user = require_permission(request, "services.deactivate")
+    user = require_permission(request, "admin.services.deactivate")
     form = await request.form()
     with request.app.state.session_factory() as session:
         try:
             CatalogService(session).set_active(service_id, str(form.get("active")) == "1", user.id)
         except ServiceNotFoundError:
             _not_found()
-    return RedirectResponse(f"/servicos/{service_id}", status_code=303)
+    return RedirectResponse(f"/admin/servicos/{service_id}", status_code=303)

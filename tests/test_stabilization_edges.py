@@ -21,7 +21,9 @@ def test_inactivity_sql_boundaries_match_30_60_90_plus(app):
             service.register_visit(customer.id, now - timedelta(days=days), "Visita controlada", actor)
         for threshold in (30, 60, 90):
             result = service.list(relationship=f"{threshold}_PLUS", now=now)
-            assert {row.customer.id for row in result.rows} == {value for days, value in ids.items() if days >= threshold}
+            assert {row.customer.id for row in result.rows} == {
+                value for days, value in ids.items() if days > threshold
+            }
         assert service.list(page=10**30).page == 1
 
 

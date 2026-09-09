@@ -41,7 +41,7 @@ def module_page(request: Request):
 
 
 for path, (module, _tab) in ROUTE_INDEX.items():
-    if module.id in {"cash", "customers", "services"}:
+    if module.id in {"cash", "customers", "services", "admin"}:
         continue
     router.add_api_route(path, module_page, methods=["GET"], name="page_" + path.strip("/").replace("/", "_"))
 

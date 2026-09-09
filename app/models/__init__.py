@@ -2,6 +2,7 @@ from app.models.auth import AuditEvent, FeatureFlag, Permission, Role, Setting, 
 from app.models.cash import CashCategory, CashMovement, CashPaymentMethod
 from app.models.customers import Customer, CustomerActivity, CustomerAddress
 from app.models.notes import ServiceNote, ServiceNoteEvent, ServiceNoteItem
+from app.models.payments import Payment, PaymentFeeRule, PaymentTerminal
 from app.models.services import BillingUnit, Service, ServiceCategory, ServicePrice
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "Customer", "CustomerActivity", "CustomerAddress",
     "BillingUnit", "Service", "ServiceCategory", "ServicePrice",
     "ServiceNote", "ServiceNoteItem", "ServiceNoteEvent",
+    "Payment", "PaymentFeeRule", "PaymentTerminal",
 ]

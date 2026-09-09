@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -8,7 +8,8 @@ from fastapi.responses import RedirectResponse
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
 from app.repositories import CustomerActivityRepository
-from app.routes.helpers import navigation_context, templates
+from app.routes.helpers import navigation_context, runtime_timezone, templates
+from app.services.cash_validation import local_now, project_zone
 from app.services.customer_validation import CustomerInput
 from app.services.customers import (
     ACTIVITY_LABELS, CustomerNotFoundError, CustomerService, CustomerValidationError,
@@ -17,7 +18,6 @@ from app.services.customers import (
 
 
 router = APIRouter(prefix="/clientes")
-LOCAL_TZ = timezone(timedelta(hours=-3), "America/Sao_Paulo")
 
 
 def _context(request: Request, session, tab_id: str, **extra):
@@ -42,9 +42,15 @@ def customer_list(
 ):
     require_permission(request, "customers.view")
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
+        current_local = local_now(timezone_name)
         result = CustomerService(session).list(
             search=q, customer_type=type, active=active, relationship=relationship,
             inactive_days=inactive_days, sort=sort, page=page, per_page=per_page,
+            now=current_local.astimezone(timezone.utc),
+            month_start=current_local.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            ).astimezone(timezone.utc),
         )
         context = _context(
             request, session, "lista", result=result,
@@ -99,24 +105,30 @@ async def customer_create(request: Request):
 def customer_history(
     request: Request, q: str = "", customer_id: int | None = None,
     activity_type: str = "ALL", user_id: int | None = None,
-    date_from: str = "", date_to: str = "",
+    date_from: str = "", date_to: str = "", page: int = 1, per_page: int = 25,
 ):
     require_permission(request, "customers.view")
     for value in (customer_id, user_id):
         if value is not None and not 0 < value < 2**63:
             raise HTTPException(status_code=422, detail="Identificador fora do intervalo permitido.")
-    try:
-        start = datetime.combine(datetime.fromisoformat(date_from).date(), time.min, LOCAL_TZ).astimezone(timezone.utc) if date_from else None
-        end = datetime.combine(datetime.fromisoformat(date_to).date(), time.max, LOCAL_TZ).astimezone(timezone.utc) if date_to else None
-        if start and end and start > end:
-            raise ValueError()
-    except (ValueError, OverflowError):
-        raise HTTPException(status_code=422, detail="Informe um período válido.") from None
     with request.app.state.session_factory() as session:
+        zone = project_zone(runtime_timezone(request, session))
+        try:
+            start = datetime.combine(
+                datetime.fromisoformat(date_from).date(), time.min, zone
+            ).astimezone(timezone.utc) if date_from else None
+            end = datetime.combine(
+                datetime.fromisoformat(date_to).date(), time.max, zone
+            ).astimezone(timezone.utc) if date_to else None
+            if start and end and start > end:
+                raise ValueError()
+        except (ValueError, OverflowError):
+            raise HTTPException(status_code=422, detail="Informe um período válido.") from None
         service = CustomerService(session)
-        history = service.general_history(
+        history = service.general_history_page(
             search=q, customer_id=customer_id, activity_type=activity_type,
             user_id=user_id, date_from=start, date_to=end,
+            page=page, per_page=per_page,
         )
         activity_repository = CustomerActivityRepository(session)
         context = _context(
@@ -124,23 +136,35 @@ def customer_history(
             customers_filter=activity_repository.customers_for_filter(),
             users_filter=activity_repository.users_for_filter(),
             filters={"q": q, "customer_id": customer_id, "activity_type": activity_type,
-                     "user_id": user_id, "date_from": date_from, "date_to": date_to},
+                     "user_id": user_id, "date_from": date_from, "date_to": date_to,
+                     "per_page": history.per_page},
             page_title="Histórico de clientes",
         )
         return templates.TemplateResponse(request, "customers/history.html", context)
 
 
 @router.get("/{customer_id}", name="customer_profile")
-def customer_profile(request: Request, customer_id: int, saved: int = 0):
+def customer_profile(
+    request: Request,
+    customer_id: int,
+    saved: int = 0,
+    page: int = 1,
+    per_page: int = 25,
+):
     require_permission(request, "customers.view")
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
         try:
-            profile = CustomerService(session).profile(customer_id)
+            profile = CustomerService(session).profile(
+                customer_id,
+                page=page,
+                per_page=per_page,
+            )
         except CustomerNotFoundError:
             _not_found()
         context = _context(
             request, session, "lista", profile=profile, saved=bool(saved),
-            visit_default=datetime.now(LOCAL_TZ).strftime("%Y-%m-%dT%H:%M"),
+            visit_default=local_now(timezone_name).strftime("%Y-%m-%dT%H:%M"),
             page_title=profile.customer.name,
         )
         return templates.TemplateResponse(request, "customers/profile.html", context)
@@ -199,14 +223,19 @@ async def customer_update(request: Request, customer_id: int):
 async def customer_visit(request: Request, customer_id: int):
     user = require_permission(request, "customers.activity.create")
     form = await request.form()
-    try:
-        occurred = datetime.fromisoformat(str(form.get("occurred_at")))
-        if occurred.tzinfo is None:
-            occurred = occurred.replace(tzinfo=LOCAL_TZ)
-        occurred = occurred.astimezone(timezone.utc)
-    except (TypeError, ValueError, OverflowError):
-        raise HTTPException(status_code=422, detail="Informe uma data e hora válidas para a visita.") from None
     with request.app.state.session_factory() as session:
+        try:
+            occurred = datetime.fromisoformat(str(form.get("occurred_at")))
+            if occurred.tzinfo is None:
+                occurred = occurred.replace(
+                    tzinfo=project_zone(runtime_timezone(request, session))
+                )
+            occurred = occurred.astimezone(timezone.utc)
+        except (TypeError, ValueError, OverflowError):
+            raise HTTPException(
+                status_code=422,
+                detail="Informe uma data e hora válidas para a visita.",
+            ) from None
         try:
             CustomerService(session).register_visit(customer_id, occurred, str(form.get("note") or ""), user.id)
         except CustomerNotFoundError:

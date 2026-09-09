@@ -16,14 +16,18 @@ from app.core.config import ROOT_DIR, Settings, development_credentials, get_set
 from app.core.database import build_engine, build_session_factory
 from app.repositories import AuthRepository
 from app.routes import (
+    admin_router,
     auth_router,
     cash_router,
     customers_router,
     notes_router,
     pages_router,
+    payments_router,
+    payment_configuration_router,
+    services_admin_router,
     services_router,
 )
-from app.routes.helpers import navigation_context, templates
+from app.routes.helpers import branding_context, navigation_context, templates
 from app.services.auth import AuthService
 from app.services.bootstrap import initialize_database
 
@@ -141,6 +145,11 @@ def create_app(
     app.include_router(customers_router)
     # As rotas literais de Notas precisam preceder /servicos/{service_id}.
     app.include_router(notes_router)
+    # Pagamentos usa caminhos mais específicos sob /servicos/notas.
+    app.include_router(payments_router)
+    app.include_router(admin_router)
+    app.include_router(payment_configuration_router)
+    app.include_router(services_admin_router)
     app.include_router(services_router)
     app.include_router(pages_router)
 
@@ -154,15 +163,21 @@ def create_app(
 
     @app.exception_handler(404)
     async def not_found(request: Request, _exception):
-        settings = request.app.state.settings
+        try:
+            with factory() as session:
+                context = branding_context(request, session)
+        except Exception:
+            settings = request.app.state.settings
+            context = {
+                "app_name": settings.app_name,
+                "company_name": settings.company_name,
+                "app_version": settings.version,
+                "logo_path": settings.logo_path,
+            }
         return templates.TemplateResponse(
             request,
             "errors/404.html",
-            {
-                "app_name": settings.app_name,
-                "app_version": settings.version,
-                "logo_path": settings.logo_path,
-            },
+            context,
             status_code=404,
         )
 
@@ -170,15 +185,21 @@ def create_app(
     async def unexpected_error(request: Request, _exception):
         # Não registrar payloads, SQL, cookies, senhas ou mensagens de exceção.
         logging.getLogger("erp.errors").error("Falha interna (%s)", type(_exception).__name__)
-        settings = request.app.state.settings
+        try:
+            with factory() as session:
+                context = branding_context(request, session)
+        except Exception:
+            settings = request.app.state.settings
+            context = {
+                "app_name": settings.app_name,
+                "company_name": settings.company_name,
+                "app_version": settings.version,
+                "logo_path": settings.logo_path,
+            }
         return templates.TemplateResponse(
             request,
             "errors/500.html",
-            {
-                "app_name": settings.app_name,
-                "app_version": settings.version,
-                "logo_path": settings.logo_path,
-            },
+            context,
             status_code=500,
         )
 

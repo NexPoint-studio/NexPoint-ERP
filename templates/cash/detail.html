@@ -16,11 +16,11 @@
     </div>
   </div>
   <div class="header-actions">
-    <a class="button button--secondary" href="/caixa/historico">Voltar ao histórico</a>
-    {% if movement.status == 'ACTIVE' and current_user.can('cash.edit') %}
+    <a class="button button--secondary" href="{{ return_path }}">Voltar</a>
+    {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.edit') %}
       <a class="button button--secondary" href="/caixa/movimentos/{{ movement.id }}/editar">Editar</a>
     {% endif %}
-    {% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+    {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.cancel') %}
       <button class="button button--danger" type="button" data-modal-open="cancel-movement">Cancelar lançamento</button>
     {% endif %}
   </div>
@@ -37,6 +37,9 @@
 {% endif %}
 {% if movement.status == 'CANCELED' %}
   <div class="alert alert--warning">Este lançamento está cancelado e não participa do saldo, dos totais ou dos relatórios.</div>
+{% endif %}
+{% if movement.origin == 'SYSTEM' %}
+  <div class="alert alert--info">Este lançamento foi gerado automaticamente e só pode ser alterado pelo fluxo que o originou.</div>
 {% endif %}
 
 <section class="metrics-grid metrics-grid--four compact" aria-label="Valores do lançamento">
@@ -112,7 +115,7 @@
   </dl>
 </section>
 
-{% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+{% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.cancel') %}
 <div class="modal-backdrop" id="cancel-movement" {% if not cancel_modal_open %}hidden{% endif %}>
   <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-movement-title">
     <div class="modal__header">

@@ -185,6 +185,7 @@ class ServiceNote(Base):
         order_by=lambda: (ServiceNoteEvent.occurred_at, ServiceNoteEvent.id),
         lazy="selectin",
     )
+    payments = relationship("Payment", back_populates="service_note")
 
 
 class ServiceNoteItem(Base):

@@ -225,7 +225,7 @@ São combinações válidas, entre outras:
 - `ENTREGUE + PENDENTE`;
 - `ENTREGUE + PAGO`.
 
-| Fluxo | Operacional | Financeiro | Caixa futuro |
+| Fluxo | Operacional | Financeiro | Caixa |
 |---|---|---|---|
 | Já pago / receber antecipadamente | Mantém estado operacional | Pagamento confirmado torna PAGO | Uma entrada ligada ao pagamento |
 | Concluir/entregar e receber | Passa a ENTREGUE | Confirma pagamento e torna PAGO | Entrada na mesma transação |
@@ -234,14 +234,14 @@ São combinações válidas, entre outras:
 
 A exceção de total zero segue a seção 5, sem pagamento nem entrada.
 
-Na integração futura, confirmar pagamento, gerar movimento, registrar auditoria
-e atualizar situação financeira deve constituir uma única transação. Em
-entregar e receber, incluir a transição operacional na mesma unidade de trabalho.
+Na integração implementada, confirmar pagamento, gerar movimento, registrar
+auditoria e atualizar situação financeira constitui uma única transação. Em
+entregar e receber, a transição operacional participa da mesma unidade de trabalho.
 Falha intermediária não pode deixar pagamento confirmado sem Caixa ou entrega
 confirmada parcialmente nessa ação composta.
 
-Idempotência deve impedir duplicidade por repetição de requisição ou concorrência.
-A origem do movimento usará o ID técnico do pagamento, com referência à Nota;
+Idempotência impede duplicidade por repetição de requisição ou concorrência.
+A origem do movimento usa o ID técnico do pagamento, com referência à Nota;
 o número manual é somente apresentação. Usar unicidade persistida, não apenas
 bloqueio de duplo clique na interface. Esta versão admite um pagamento integral
 válido por Nota; o histórico de correções não será apagado.
@@ -278,9 +278,11 @@ continua fora do escopo.
 
 ## 11. Integração com Clientes e responsabilidades
 
-Eventos da Nota poderão alimentar as atividades do cliente futuramente. Devem
-ter referência técnica à Nota/evento e proteção de duplicidade, ser produzidos
-na mesma transação da operação e preservar visitas e atividades anteriores.
+Os eventos `SERVICE_CREATED` e `SERVICE_COMPLETED` da Nota alimentam as
+atividades do cliente. Eles possuem referência técnica à Nota, proteção de
+duplicidade, participam da mesma transação da operação e preservam visitas e
+atividades anteriores. Somente visita e criação do serviço contam como retorno;
+a conclusão posterior da produção não altera artificialmente essa data.
 Cadastro ou edição de item do catálogo não representa atendimento ao cliente.
 
 Permissões devem ser verificadas no servidor. A existência de botão oculto,

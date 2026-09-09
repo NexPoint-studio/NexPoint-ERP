@@ -807,11 +807,20 @@ def test_anonymous_and_standard_user_cash_permissions(client, app):
         assert client.get(path, follow_redirects=False).status_code == 303
 
     login(client, "usuario@local")
-    assert client.get("/caixa/resumo").status_code == 200
+    assert client.get("/caixa/operacoes").status_code == 200
     assert client.get("/caixa/novo-lancamento").status_code == 200
-    assert client.get("/caixa/historico").status_code == 200
-    assert client.get(f"/caixa/movimentos/{movement_id}").status_code == 200
+    assert client.get("/caixa/resumo").status_code == 403
+    assert client.get("/caixa/historico").status_code == 403
+    assert client.get(f"/caixa/movimentos/{movement_id}").status_code == 404
     assert client.post("/caixa/novo-lancamento", data=_cash_form(), follow_redirects=False).status_code == 303
+    with app.state.session_factory() as session:
+        user_id = _user_id(app, "usuario@local")
+        own_movement_id = session.scalar(
+            select(CashMovement.id)
+            .where(CashMovement.created_by == user_id)
+            .order_by(CashMovement.id.desc())
+        )
+    assert client.get(f"/caixa/movimentos/{own_movement_id}").status_code == 200
     assert client.get("/caixa/relatorios").status_code == 403
     assert client.get(f"/caixa/movimentos/{movement_id}/editar").status_code == 403
     assert client.post(f"/caixa/movimentos/{movement_id}/editar", data=_cash_form()).status_code == 403

@@ -40,12 +40,16 @@ OPERATIONAL_TRANSITIONS = {
 }
 
 QUANTITY_BEHAVIORS = ("INTEGER", "DECIMAL", "FIXED_ONE")
-EVENT_TYPES = ("NOTE_CREATED", "NOTE_UPDATED", "STATUS_CHANGED", "NOTE_CANCELLED")
+EVENT_TYPES = (
+    "NOTE_CREATED", "NOTE_UPDATED", "STATUS_CHANGED", "NOTE_CANCELLED",
+    "PAYMENT_RECEIVED",
+)
 EVENT_TYPE_LABELS = {
     "NOTE_CREATED": "Nota criada",
     "NOTE_UPDATED": "Nota atualizada",
     "STATUS_CHANGED": "Status alterado",
     "NOTE_CANCELLED": "Nota cancelada",
+    "PAYMENT_RECEIVED": "Pagamento recebido",
 }
 
 # Limites operacionais da primeira versão. O banco continua sendo a última

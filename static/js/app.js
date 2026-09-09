@@ -197,6 +197,40 @@ document.querySelectorAll('[data-custom-period-toggle]').forEach((container) => 
   refresh();
 });
 
+document.querySelectorAll('[data-payment-form]').forEach((form) => {
+  const method = form.querySelector('[data-payment-method]');
+  const cardFields = form.querySelector('[data-card-payment-fields]');
+  const cardInputs = [...form.querySelectorAll('[data-card-payment-input]')];
+  const cardMode = form.querySelector('[data-card-mode]');
+  const installments = form.querySelector('[name="installments"]');
+  const refreshCard = () => {
+    const card = method?.selectedOptions[0]?.dataset.methodKind === 'CARD';
+    if (cardFields) cardFields.hidden = !card;
+    cardInputs.forEach((input) => {
+      input.disabled = !card;
+      input.required = card;
+    });
+    if (card && cardMode?.value === 'DEBIT' && installments) installments.value = '1';
+  };
+  method?.addEventListener('change', refreshCard);
+  cardMode?.addEventListener('change', refreshCard);
+  refreshCard();
+});
+
+document.querySelectorAll('[data-fee-rule-form]').forEach((form) => {
+  const method = form.querySelector('[data-fee-method]');
+  const fields = [...form.querySelectorAll('[data-fee-card-field]')];
+  const refresh = () => {
+    const card = method?.selectedOptions[0]?.dataset.methodKind === 'CARD';
+    fields.forEach((field) => {
+      field.hidden = !card;
+      field.querySelectorAll('select, input').forEach((input) => { input.disabled = !card; });
+    });
+  };
+  method?.addEventListener('change', refresh);
+  refresh();
+});
+
 const parseNoteDecimal = (value, maxDecimalPlaces) => {
   const raw = String(value ?? '').trim();
   if (!/^[0-9]+(?:[.,][0-9]+)?$/.test(raw)) return null;

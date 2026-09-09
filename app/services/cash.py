@@ -125,6 +125,17 @@ class CashHistoryResult:
     totals: FinancialTotals
 
 
+@dataclass(frozen=True, slots=True)
+class CashOperationsResult:
+    rows: list[CashMovement]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+    start_utc: datetime
+    end_utc: datetime
+
+
 class CashReportService:
     """Fonte única para todos os cálculos financeiros exibidos pelo Caixa."""
 
@@ -283,6 +294,13 @@ class CashService:
             details=json.dumps(details, ensure_ascii=False, default=str) if details else None,
         ))
 
+    def _operator_window(self, now: datetime | None = None) -> tuple[datetime, datetime]:
+        local_current = now or local_now(self.timezone_name)
+        if local_current.tzinfo is None:
+            local_current = local_current.replace(tzinfo=project_zone(self.timezone_name))
+        current_utc = local_current.astimezone(timezone.utc).replace(tzinfo=None)
+        return current_utc - timedelta(days=7), current_utc + timedelta(microseconds=1)
+
     def _validate_refs(self, data: CashMovementInput, *, existing: CashMovement | None = None) -> None:
         category = self.categories.get(data.category_id) if data.category_id else None
         if data.category_id and category is None:
@@ -340,10 +358,25 @@ class CashService:
         return f"{label} {participle} de {money_br(before)} para {money_br(after)}."
 
     @atomic_write
-    def update(self, movement_id: int, data: CashMovementInput, user_id: int) -> CashMovement:
-        movement = self.repository.get(movement_id)
+    def update(
+        self,
+        movement_id: int,
+        data: CashMovementInput,
+        user_id: int,
+        *,
+        operator_scope: bool = False,
+    ) -> CashMovement:
+        movement = (
+            self.detail_for_operator(movement_id, user_id)
+            if operator_scope
+            else self.repository.get(movement_id)
+        )
         if movement is None:
             raise CashMovementNotFoundError()
+        if movement.origin == "SYSTEM":
+            raise CashStateError(
+                "Lançamentos gerados pelo sistema não podem ser editados diretamente no Caixa."
+            )
         if movement.status == "CANCELED":
             raise CashStateError("Lançamentos cancelados não podem ser editados.")
         if data.movement_type != movement.movement_type:
@@ -384,10 +417,25 @@ class CashService:
         return movement
 
     @atomic_write
-    def cancel(self, movement_id: int, reason: str, user_id: int) -> CashMovement:
-        movement = self.repository.get(movement_id)
+    def cancel(
+        self,
+        movement_id: int,
+        reason: str,
+        user_id: int,
+        *,
+        operator_scope: bool = False,
+    ) -> CashMovement:
+        movement = (
+            self.detail_for_operator(movement_id, user_id)
+            if operator_scope
+            else self.repository.get(movement_id)
+        )
         if movement is None:
             raise CashMovementNotFoundError()
+        if movement.origin == "SYSTEM":
+            raise CashStateError(
+                "Lançamentos gerados pelo sistema não podem ser cancelados diretamente no Caixa."
+            )
         if movement.status == "CANCELED":
             raise CashStateError("Este lançamento já está cancelado.")
         cleaned = reason.strip()[:500]
@@ -425,6 +473,55 @@ class CashService:
             max(1, math.ceil(total / per_page)),
             self.reports.totals(self.repository.active_between(period.start_utc, period.end_utc)),
         )
+
+    def operations(
+        self,
+        user_id: int,
+        *,
+        page: int = 1,
+        per_page: int = 25,
+        now: datetime | None = None,
+    ) -> CashOperationsResult:
+        """Histórico recente do operador, deliberadamente sem totais financeiros."""
+        effective_page = max(1, int(page))
+        effective_per_page = int(per_page)
+        if effective_per_page not in {10, 25, 50, 100}:
+            effective_per_page = 25
+        start_utc, end_utc = self._operator_window(now)
+        rows, total, effective_page = self.repository.list_for_creator(
+            creator_id=user_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            page=effective_page,
+            per_page=effective_per_page,
+        )
+        return CashOperationsResult(
+            rows=rows,
+            total=total,
+            page=effective_page,
+            per_page=effective_per_page,
+            pages=max(1, math.ceil(total / effective_per_page)),
+            start_utc=start_utc,
+            end_utc=end_utc,
+        )
+
+    def detail_for_operator(
+        self,
+        movement_id: int,
+        user_id: int,
+        *,
+        now: datetime | None = None,
+    ) -> CashMovement:
+        start_utc, end_utc = self._operator_window(now)
+        movement = self.repository.get_for_creator(
+            movement_id,
+            creator_id=user_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+        )
+        if movement is None:
+            raise CashMovementNotFoundError()
+        return movement
 
     def detail(self, movement_id: int) -> CashMovement:
         movement = self.repository.get(movement_id)

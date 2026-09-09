@@ -342,3 +342,182 @@ SERVICE_NOTES_0008_STATEMENTS = ('CREATE TABLE service_notes (\n'
  'CREATE INDEX ix_service_note_events_note_id ON service_note_events (note_id)',
  'CREATE INDEX ix_service_note_events_note_occurred ON service_note_events (note_id, occurred_at)',
  'CREATE INDEX ix_service_note_events_occurred_at ON service_note_events (occurred_at)')
+
+
+# Fase 3. Estas instrucoes sao deliberadamente literais: migrations aplicadas
+# nunca passam a depender do DDL que models futuros venham a gerar.
+CASH_PAYMENT_METHOD_KIND_0009_STATEMENT = (
+    "ALTER TABLE cash_payment_methods ADD COLUMN method_kind VARCHAR(16) "
+    "DEFAULT 'OTHER' NOT NULL CONSTRAINT ck_cash_payment_methods_kind "
+    "CHECK (method_kind in ('CASH','PIX','CARD','BOLETO','OTHER'))"
+)
+CASH_PAYMENT_METHOD_KIND_INDEX_0009_STATEMENT = (
+    "CREATE INDEX ix_cash_payment_methods_method_kind "
+    "ON cash_payment_methods (method_kind)"
+)
+CASH_PAYMENT_METHODS_0009_CREATE_STATEMENTS = (
+    """CREATE TABLE cash_payment_methods (
+        id INTEGER NOT NULL,
+        name VARCHAR(80) NOT NULL,
+        method_kind VARCHAR(16) DEFAULT 'OTHER' NOT NULL,
+        sort_order INTEGER NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        CONSTRAINT uq_cash_payment_methods_name UNIQUE (name),
+        CONSTRAINT ck_cash_payment_methods_kind CHECK (method_kind in ('CASH','PIX','CARD','BOLETO','OTHER'))
+    )""",
+    "CREATE INDEX ix_cash_payment_methods_is_active ON cash_payment_methods (is_active)",
+    "CREATE INDEX ix_cash_payment_methods_method_kind ON cash_payment_methods (method_kind)",
+    "CREATE INDEX ix_cash_payment_methods_name ON cash_payment_methods (name)",
+    "CREATE INDEX ix_cash_payment_methods_sort_order ON cash_payment_methods (sort_order)",
+)
+PAYMENT_METHOD_DEFAULTS_0009 = (
+    ("Dinheiro", "CASH", 10),
+    ("Pix", "PIX", 20),
+    ("Cartão", "CARD", 30),
+    ("Boleto", "BOLETO", 40),
+    ("Outro", "OTHER", 50),
+)
+
+PAYMENT_CONFIGURATION_0009_STATEMENTS = (
+    """CREATE TABLE payment_terminals (
+        id INTEGER NOT NULL,
+        code VARCHAR(40) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        description VARCHAR(300),
+        sort_order INTEGER NOT NULL,
+        is_active BOOLEAN NOT NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        created_by INTEGER NOT NULL,
+        updated_by INTEGER NOT NULL,
+        PRIMARY KEY (id),
+        CONSTRAINT uq_payment_terminals_code UNIQUE (code),
+        CONSTRAINT ck_payment_terminals_code CHECK (length(code) between 1 and 40 and code = trim(code) and code = upper(code) and code not glob '*[^A-Z0-9_]*'),
+        CONSTRAINT ck_payment_terminals_name CHECK (length(trim(name)) between 1 and 120),
+        CONSTRAINT ck_payment_terminals_sort_order CHECK (typeof(sort_order) = 'integer' and sort_order between 0 and 9999),
+        CONSTRAINT ck_payment_terminals_is_active CHECK (typeof(is_active) = 'integer' and is_active in (0, 1)),
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(updated_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_payment_terminals_active_order ON payment_terminals (is_active, sort_order)",
+    "CREATE INDEX ix_payment_terminals_created_by ON payment_terminals (created_by)",
+    "CREATE INDEX ix_payment_terminals_name ON payment_terminals (name)",
+    "CREATE INDEX ix_payment_terminals_updated_by ON payment_terminals (updated_by)",
+    """CREATE TABLE payment_fee_rules (
+        id INTEGER NOT NULL,
+        payment_method_id INTEGER NOT NULL,
+        terminal_id INTEGER,
+        card_mode VARCHAR(12),
+        installments INTEGER,
+        fee_percentage_scaled INTEGER NOT NULL,
+        fixed_fee_cents INTEGER NOT NULL,
+        valid_from DATETIME NOT NULL,
+        valid_until DATETIME,
+        is_active BOOLEAN NOT NULL,
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        created_by INTEGER NOT NULL,
+        updated_by INTEGER NOT NULL,
+        PRIMARY KEY (id),
+        CONSTRAINT ck_payment_fee_rules_card_mode CHECK (card_mode is null or card_mode in ('DEBIT','CREDIT')),
+        CONSTRAINT ck_payment_fee_rules_installments CHECK ((card_mode is null and installments is null) or (card_mode = 'DEBIT' and installments is null) or (card_mode = 'CREDIT' and (installments is null or (typeof(installments) = 'integer' and installments between 1 and 999)))),
+        CONSTRAINT ck_payment_fee_rules_percentage CHECK (typeof(fee_percentage_scaled) = 'integer' and fee_percentage_scaled between 0 and 1000000),
+        CONSTRAINT ck_payment_fee_rules_fixed_fee CHECK (typeof(fixed_fee_cents) = 'integer' and fixed_fee_cents between 0 and 9223372036854775807),
+        CONSTRAINT ck_payment_fee_rules_validity CHECK (valid_until is null or valid_until > valid_from),
+        CONSTRAINT ck_payment_fee_rules_is_active CHECK (typeof(is_active) = 'integer' and is_active in (0, 1)),
+        FOREIGN KEY(payment_method_id) REFERENCES cash_payment_methods (id) ON DELETE RESTRICT,
+        FOREIGN KEY(terminal_id) REFERENCES payment_terminals (id) ON DELETE RESTRICT,
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(updated_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_payment_fee_rules_active_method ON payment_fee_rules (payment_method_id, is_active)",
+    "CREATE INDEX ix_payment_fee_rules_created_by ON payment_fee_rules (created_by)",
+    "CREATE INDEX ix_payment_fee_rules_resolution ON payment_fee_rules (payment_method_id, terminal_id, card_mode, installments, valid_from)",
+    "CREATE INDEX ix_payment_fee_rules_updated_by ON payment_fee_rules (updated_by)",
+)
+
+PAYMENTS_0010_STATEMENTS = (
+    """CREATE TABLE payments (
+        id INTEGER NOT NULL,
+        request_uid VARCHAR(36) NOT NULL,
+        service_note_id INTEGER NOT NULL,
+        customer_id INTEGER NOT NULL,
+        payment_method_id INTEGER NOT NULL,
+        terminal_id INTEGER,
+        fee_rule_id INTEGER,
+        status VARCHAR(12) NOT NULL,
+        method_name_snapshot VARCHAR(80) NOT NULL,
+        method_kind_snapshot VARCHAR(16) NOT NULL,
+        terminal_name_snapshot VARCHAR(120),
+        card_mode_snapshot VARCHAR(12),
+        installments INTEGER,
+        gross_amount_cents INTEGER NOT NULL,
+        fee_percentage_scaled INTEGER NOT NULL,
+        fixed_fee_cents INTEGER NOT NULL,
+        fee_amount_cents INTEGER NOT NULL,
+        net_amount_cents INTEGER NOT NULL,
+        paid_at DATETIME NOT NULL,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME NOT NULL,
+        reversed_at DATETIME,
+        reversed_by INTEGER,
+        reversal_reason VARCHAR(500),
+        PRIMARY KEY (id),
+        CONSTRAINT uq_payments_request_uid UNIQUE (request_uid),
+        CONSTRAINT ck_payments_request_uid CHECK (length(request_uid) = 36 and request_uid = lower(request_uid) and substr(request_uid, 9, 1) = '-' and substr(request_uid, 14, 1) = '-' and substr(request_uid, 19, 1) = '-' and substr(request_uid, 24, 1) = '-' and request_uid not glob '*[^0-9a-f-]*'),
+        CONSTRAINT ck_payments_status CHECK (status in ('CONFIRMED','REVERSED')),
+        CONSTRAINT ck_payments_method_snapshot CHECK (length(trim(method_name_snapshot)) between 1 and 80 and method_kind_snapshot in ('CASH','PIX','CARD','BOLETO','OTHER')),
+        CONSTRAINT ck_payments_terminal_snapshot CHECK ((terminal_id is null and terminal_name_snapshot is null) or (terminal_id is not null and terminal_name_snapshot is not null and length(trim(terminal_name_snapshot)) between 1 and 120)),
+        CONSTRAINT ck_payments_card_details CHECK ((method_kind_snapshot <> 'CARD' and card_mode_snapshot is null and installments is null) or (method_kind_snapshot = 'CARD' and ((card_mode_snapshot = 'DEBIT' and installments = 1) or (card_mode_snapshot = 'CREDIT' and typeof(installments) = 'integer' and installments between 1 and 999)))),
+        CONSTRAINT ck_payments_money CHECK (typeof(gross_amount_cents) = 'integer' and gross_amount_cents between 1 and 9223372036854775807 and typeof(fee_percentage_scaled) = 'integer' and fee_percentage_scaled between 0 and 1000000 and typeof(fixed_fee_cents) = 'integer' and fixed_fee_cents between 0 and 9223372036854775807 and typeof(fee_amount_cents) = 'integer' and fee_amount_cents between 0 and 9223372036854775807 and typeof(net_amount_cents) = 'integer' and net_amount_cents between 0 and 9223372036854775807 and fee_amount_cents <= gross_amount_cents and net_amount_cents = gross_amount_cents - fee_amount_cents),
+        CONSTRAINT ck_payments_reversal CHECK ((status = 'CONFIRMED' and reversed_at is null and reversed_by is null and reversal_reason is null) or (status = 'REVERSED' and reversed_at is not null and reversed_by is not null and reversal_reason is not null and length(trim(reversal_reason)) between 1 and 500)),
+        FOREIGN KEY(service_note_id) REFERENCES service_notes (id) ON DELETE RESTRICT,
+        FOREIGN KEY(customer_id) REFERENCES customers (id) ON DELETE RESTRICT,
+        FOREIGN KEY(payment_method_id) REFERENCES cash_payment_methods (id) ON DELETE RESTRICT,
+        FOREIGN KEY(terminal_id) REFERENCES payment_terminals (id) ON DELETE RESTRICT,
+        FOREIGN KEY(fee_rule_id) REFERENCES payment_fee_rules (id) ON DELETE RESTRICT,
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(reversed_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_payments_created_by ON payments (created_by)",
+    "CREATE INDEX ix_payments_customer_paid ON payments (customer_id, paid_at)",
+    "CREATE INDEX ix_payments_method_paid ON payments (payment_method_id, paid_at)",
+    "CREATE INDEX ix_payments_status_paid ON payments (status, paid_at)",
+    "CREATE UNIQUE INDEX uq_payments_confirmed_service_note ON payments (service_note_id) WHERE status = 'CONFIRMED'",
+)
+
+CUSTOMER_ACTIVITY_SOURCES_0011_STATEMENTS = (
+    "ALTER TABLE customer_activities ADD COLUMN source_id VARCHAR(100)",
+    "ALTER TABLE customer_activities ADD COLUMN source_reference VARCHAR(180)",
+    "ALTER TABLE customer_activities ADD COLUMN source_type VARCHAR(40) CONSTRAINT ck_customer_activities_source CHECK ((source_type is null and source_id is null) or (source_type is not null and source_id is not null and length(source_type) between 1 and 40 and source_type = upper(source_type) and source_type not glob '*[^A-Z0-9_]*' and length(trim(source_id)) between 1 and 100))",
+    "CREATE UNIQUE INDEX uq_customer_activities_source ON customer_activities (customer_id, activity_type, source_type, source_id) WHERE source_type IS NOT NULL AND source_id IS NOT NULL",
+)
+
+CUSTOMER_ACTIVITIES_0011_CREATE_STATEMENTS = (
+    """CREATE TABLE customer_activities (
+        id INTEGER NOT NULL,
+        customer_id INTEGER NOT NULL,
+        activity_type VARCHAR(40) NOT NULL,
+        occurred_at DATETIME NOT NULL,
+        description VARCHAR(300) NOT NULL,
+        metadata_json TEXT,
+        source_type VARCHAR(40),
+        source_id VARCHAR(100),
+        source_reference VARCHAR(180),
+        created_by INTEGER NOT NULL,
+        created_at DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        CONSTRAINT ck_customer_activities_type CHECK (activity_type in ('CUSTOMER_CREATED','CUSTOMER_UPDATED','CUSTOMER_DEACTIVATED','CUSTOMER_REACTIVATED','VISIT','NOTE','SERVICE_CREATED','SERVICE_COMPLETED')),
+        CONSTRAINT ck_customer_activities_source CHECK ((source_type is null and source_id is null) or (source_type is not null and source_id is not null and length(source_type) between 1 and 40 and source_type = upper(source_type) and source_type not glob '*[^A-Z0-9_]*' and length(trim(source_id)) between 1 and 100)),
+        FOREIGN KEY(customer_id) REFERENCES customers (id) ON DELETE CASCADE,
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_customer_activities_activity_type ON customer_activities (activity_type)",
+    "CREATE INDEX ix_customer_activities_created_by ON customer_activities (created_by)",
+    "CREATE INDEX ix_customer_activities_customer_id ON customer_activities (customer_id)",
+    "CREATE INDEX ix_customer_activities_occurred_at ON customer_activities (occurred_at)",
+    "CREATE UNIQUE INDEX uq_customer_activities_source ON customer_activities (customer_id, activity_type, source_type, source_id) WHERE source_type IS NOT NULL AND source_id IS NOT NULL",
+)

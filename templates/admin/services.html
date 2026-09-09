@@ -1,0 +1,15 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › SERVIÇOS</p><h1>Gestão de Serviços</h1><p>Administre o catálogo sem alterar os snapshots já registrados em Notas.</p></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+<section class="metrics-grid metrics-grid--four compact">
+  <article class="metric-card"><span class="metric-card__label">Serviços</span><strong class="metric-card__value">{{ counts.services }}</strong><small>{{ counts.active_services }} ativos</small></article>
+  <article class="metric-card"><span class="metric-card__label">Categorias</span><strong class="metric-card__value">{{ counts.categories }}</strong></article>
+  <article class="metric-card"><span class="metric-card__label">Unidades</span><strong class="metric-card__value">{{ counts.units }}</strong></article>
+  <article class="metric-card"><span class="metric-card__label">Histórico</span><strong class="metric-card__value">Preservado</strong><small>Preços e Notas</small></article>
+</section>
+<section class="dashboard-grid section-block">
+  <article class="panel"><div class="section-heading"><h2>Catálogo</h2><p>Cadastre, edite ou inative serviços.</p></div><div class="form-actions">{% if current_user.can('admin.services.view') %}<a class="button button--secondary" href="/admin/servicos/catalogo">Abrir catálogo</a>{% endif %}{% if current_user.can('admin.services.create') %}<a class="button button--primary" href="/admin/servicos/novo">Novo serviço</a>{% endif %}</div></article>
+  <article class="panel"><div class="section-heading"><h2>Estrutura de cobrança</h2><p>Configure categorias, unidades universais e preços.</p></div><div class="form-actions">{% if current_user.can('admin.services.categories.manage') %}<a class="button button--secondary" href="/admin/servicos/categorias">Categorias</a>{% endif %}{% if current_user.can('admin.services.units.manage') %}<a class="button button--secondary" href="/admin/servicos/unidades">Unidades</a>{% endif %}{% if current_user.can('admin.services.prices.manage') %}<a class="button button--secondary" href="/admin/servicos/precos">Preços</a>{% endif %}</div></article>
+</section>
+{% endblock %}

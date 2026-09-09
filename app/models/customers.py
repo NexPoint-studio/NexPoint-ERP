@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -42,6 +42,7 @@ class Customer(Base):
     activities: Mapped[list[CustomerActivity]] = relationship(
         back_populates="customer", cascade="all, delete-orphan", order_by="CustomerActivity.occurred_at.desc()"
     )
+    payments = relationship("Payment", back_populates="customer")
 
 
 class CustomerAddress(Base):
@@ -68,6 +69,24 @@ class CustomerActivity(Base):
             "'CUSTOMER_REACTIVATED','VISIT','NOTE','SERVICE_CREATED','SERVICE_COMPLETED')",
             name="ck_customer_activities_type",
         ),
+        CheckConstraint(
+            "(source_type is null and source_id is null) or ("
+            "source_type is not null and source_id is not null "
+            "and length(source_type) between 1 and 40 "
+            "and source_type = upper(source_type) "
+            "and source_type not glob '*[^A-Z0-9_]*' "
+            "and length(trim(source_id)) between 1 and 100)",
+            name="ck_customer_activities_source",
+        ),
+        Index(
+            "uq_customer_activities_source",
+            "customer_id",
+            "activity_type",
+            "source_type",
+            "source_id",
+            unique=True,
+            sqlite_where=text("source_type IS NOT NULL AND source_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -76,6 +95,9 @@ class CustomerActivity(Base):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
     description: Mapped[str] = mapped_column(String(300))
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_reference: Mapped[str | None] = mapped_column(String(180), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

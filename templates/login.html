@@ -11,7 +11,7 @@
 <body class="login-page">
   <main class="login-layout">
     <section class="login-card">
-      <div class="login-brand"><img src="{{ logo_path }}" alt="SEU LOGO"><h1>{{ app_name }}</h1><p>Versão {{ app_version }}</p></div>
+      <div class="login-brand"><img src="{{ logo_path }}" alt="SEU LOGO"><h1>{{ company_name }}</h1><p>{{ app_name }} · Versão {{ app_version }}</p></div>
       <div class="login-heading"><h2>Entrar</h2><p>Acesse a carcaça local do sistema.</p></div>
       {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
       <form action="/login" method="post" class="form-stack">

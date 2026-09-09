@@ -186,7 +186,13 @@ def test_create_note_uses_authoritative_prices_and_full_snapshots(client, app):
         assert note.items[0].decimal_places_snapshot == 3
         assert note.items[0].quantity == Decimal("1.500")
         assert [event.event_type for event in note.events] == ["NOTE_CREATED"]
-        assert set(session.scalars(select(CustomerActivity.id))) == customer_activity_ids
+        new_activities = list(session.scalars(
+            select(CustomerActivity).where(CustomerActivity.id.not_in(customer_activity_ids))
+        ))
+        assert len(new_activities) == 1
+        assert new_activities[0].activity_type == "SERVICE_CREATED"
+        assert new_activities[0].source_type == "SERVICE_NOTE"
+        assert new_activities[0].source_id == str(note.id)
 
 
 @pytest.mark.parametrize(
@@ -397,7 +403,7 @@ def test_invalid_and_manipulated_note_payloads_are_rejected(client, app, changes
         assert session.scalar(select(ServiceNote.id)) is None
 
 
-def test_zero_total_is_paid_without_cash_payment_or_customer_activity(client, app):
+def test_zero_total_is_paid_without_cash_payment_but_records_service_activity(client, app):
     customer_id, services = phase_two_records(client, app)
     with app.state.engine.connect() as connection:
         customer_activity_count = connection.exec_driver_sql(
@@ -422,7 +428,10 @@ def test_zero_total_is_paid_without_cash_payment_or_customer_activity(client, ap
         assert connection.exec_driver_sql("select count(*) from cash_movements").scalar_one() == 0
         assert connection.exec_driver_sql(
             "select count(*) from customer_activities"
-        ).scalar_one() == customer_activity_count
+        ).scalar_one() == customer_activity_count + 1
+        assert connection.exec_driver_sql(
+            "select activity_type, source_type from customer_activities order by id desc limit 1"
+        ).one() == ("SERVICE_CREATED", "SERVICE_NOTE")
 
 
 def test_status_flow_freezes_ready_delay_and_rejects_arbitrary_transitions(client, app):

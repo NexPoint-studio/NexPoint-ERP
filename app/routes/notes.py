@@ -8,11 +8,13 @@ from fastapi.responses import RedirectResponse
 from app.core.modules import MODULE_BY_ID
 from app.core.note_config import (
     DEADLINE_STATUS_LABELS,
+    EVENT_TYPE_LABELS,
     FINANCIAL_STATUS_LABELS,
     OPERATIONAL_STATUS_LABELS,
 )
 from app.core.permissions import require_permission
-from app.routes.helpers import navigation_context, templates
+from app.routes.helpers import navigation_context, runtime_timezone, templates
+from app.repositories.payments import PaymentRepository
 from app.services.cash_validation import local_now
 from app.services.note_validation import NoteInput
 from app.services.notes import (
@@ -32,14 +34,6 @@ DEADLINE_OPTIONS = {
     "OVERDUE": DEADLINE_STATUS_LABELS["ATRASADO"],
     "TODAY": DEADLINE_STATUS_LABELS["VENCE_HOJE"],
 }
-EVENT_TYPE_LABELS = {
-    "NOTE_CREATED": "Nota criada",
-    "NOTE_UPDATED": "Nota atualizada",
-    "STATUS_CHANGED": "Status alterado",
-    "NOTE_CANCELLED": "Nota cancelada",
-}
-
-
 def _context(request: Request, session, tab_id: str, **extra):
     module = MODULE_BY_ID["services"]
     tab = next(item for item in module.tabs if item.id == tab_id)
@@ -115,6 +109,9 @@ def _form_response(
 
 
 def _detail_response(request: Request, session, profile, *, status_code: int = 200, **extra):
+    payments = PaymentRepository(session)
+    payment = payments.confirmed_for_note(profile.note.id)
+    payment_cash = payments.cash_for_payment(payment.id) if payment else None
     return templates.TemplateResponse(
         request,
         "notes/detail.html",
@@ -123,6 +120,8 @@ def _detail_response(request: Request, session, profile, *, status_code: int = 2
             session,
             "notas",
             profile=profile,
+            payment=payment,
+            payment_cash=payment_cash,
             page_title=f"Nota {profile.note.number_original}",
             **extra,
         ),
@@ -133,8 +132,8 @@ def _detail_response(request: Request, session, profile, *, status_code: int = 2
 @router.get("/nova-nota")
 def new_note(request: Request):
     require_permission(request, "notes.create")
-    timezone_name = request.app.state.settings.timezone
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
         service = NoteService(session, timezone_name)
         return _form_response(
             request,
@@ -150,10 +149,10 @@ def new_note(request: Request):
 @router.post("/nova-nota")
 async def create_note(request: Request):
     user = require_permission(request, "notes.create")
-    timezone_name = request.app.state.settings.timezone
     raw = await request.form()
-    data = NoteInput.from_form(raw, timezone_name)
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
+        data = NoteInput.from_form(raw, timezone_name)
         service = NoteService(session, timezone_name)
         try:
             note = service.create(data, user.id)
@@ -216,8 +215,8 @@ def list_notes(
         "date_to": date_to,
         "per_page": str(per_page),
     }
-    timezone_name = request.app.state.settings.timezone
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
         service = NoteService(session, timezone_name)
         try:
             result = service.list(
@@ -266,10 +265,11 @@ def note_detail(
     updated: int = 0,
     status_changed: int = 0,
     canceled: int = 0,
+    payment_saved: int = 0,
 ):
     require_permission(request, "notes.view")
     with request.app.state.session_factory() as session:
-        service = NoteService(session, request.app.state.settings.timezone)
+        service = NoteService(session, runtime_timezone(request, session))
         try:
             profile = service.profile(note_id)
         except NoteNotFoundError:
@@ -282,6 +282,7 @@ def note_detail(
             updated=bool(updated),
             status_changed=bool(status_changed),
             canceled=bool(canceled),
+            payment_saved=bool(payment_saved),
             action_error="",
             cancel_error="",
         )
@@ -290,8 +291,8 @@ def note_detail(
 @router.get("/notas/{note_id}/editar")
 def edit_note(request: Request, note_id: int):
     require_permission(request, "notes.edit")
-    timezone_name = request.app.state.settings.timezone
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
         service = NoteService(session, timezone_name)
         try:
             note = service.detail(note_id)
@@ -314,9 +315,9 @@ def edit_note(request: Request, note_id: int):
 @router.post("/notas/{note_id}/editar")
 async def update_note(request: Request, note_id: int):
     user = require_permission(request, "notes.edit")
-    timezone_name = request.app.state.settings.timezone
     raw = await request.form()
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
         service = NoteService(session, timezone_name)
         try:
             current = service.detail(note_id)
@@ -396,7 +397,7 @@ async def change_note_status(request: Request, note_id: int):
     raw = await request.form()
     unexpected = {str(key) for key in raw.keys()} - {"target_status", "revision", "submit"}
     with request.app.state.session_factory() as session:
-        service = NoteService(session, request.app.state.settings.timezone)
+        service = NoteService(session, runtime_timezone(request, session))
         try:
             if unexpected:
                 raise NoteStateError("O payload da alteração de status contém campos não permitidos.")
@@ -431,7 +432,7 @@ async def cancel_note(request: Request, note_id: int):
     raw = await request.form()
     unexpected = {str(key) for key in raw.keys()} - {"reason", "revision", "submit"}
     with request.app.state.session_factory() as session:
-        service = NoteService(session, request.app.state.settings.timezone)
+        service = NoteService(session, runtime_timezone(request, session))
         try:
             if unexpected:
                 raise ValueError("O payload do cancelamento contém campos não permitidos.")

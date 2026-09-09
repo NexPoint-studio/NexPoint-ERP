@@ -5,13 +5,14 @@ Vale para o projeto `D:\NexStudio\sistema ERP`, repositório `SmuriNex/sistema-E
 As exigências abaixo orientam as Fases 2 e 3. A Fase 1 não cria tabelas de
 Nota/Pagamento, não migra o Caixa e não modifica valores operacionais.
 
-> Estado atual: a Fase 2 aplicou esta estratégia às Notas, com dinheiro em
-> centavos inteiros e quantidade inteira escalonada de 0 a 6 casas. As migrations
-> `0007_billing_units` e `0008_service_notes` não convertem o Caixa legado.
+> Estado atual: as Fases 2 e 3 aplicaram esta estratégia às Notas e Pagamentos,
+> com dinheiro em centavos inteiros e quantidade inteira escalonada de 0 a 6
+> casas. O Caixa legado não foi convertido; a integração usa uma ponte exata e
+> transacional descrita na seção 4.
 
 ## 1. Decisão monetária
 
-Novos campos monetários de Nota, itens, descontos, entrega e Pagamento serão
+Os campos monetários de Nota, itens, descontos, entrega e Pagamento são
 persistidos em **centavos inteiros**, em colunas SQLite `INTEGER`, com nomes
 explícitos como `total_cents`. Nas regras de negócio, usar `Decimal`, criado
 de texto ou inteiro. Nunca converter entrada financeira para `float`, fazer
@@ -76,7 +77,7 @@ extremos. São testes puros, sem acesso a banco.
 
 ## 3. Cálculos e valores que não são dinheiro
 
-As futuras regras devem seguir o contrato da Nota:
+As regras implementadas seguem o contrato da Nota:
 
 1. Calcular cada item com preço utilizado e quantidade em `Decimal`.
 2. Arredondar o subtotal de cada item para centavos com `ROUND_HALF_UP` e
@@ -88,21 +89,15 @@ As futuras regras devem seguir o contrato da Nota:
    por alterações do catálogo ou de regras futuras.
 
 O contexto explícito do conversor protege a **conversão**. Ele não recupera
-precisão perdida em uma multiplicação anterior. Os serviços de cálculo
-deverão definir contexto local adequado aos limites de preços, quantidades,
-percentuais e número de itens, com testes das fronteiras e sem depender da
-precisão global. Evitar arredondamentos intermediários adicionais.
+precisão perdida em uma multiplicação anterior. Os serviços de cálculo definem
+contexto local adequado aos limites de preços, quantidades, percentuais e número
+de itens, com testes das fronteiras e sem depender da precisão global.
 
-Quantidade e percentual não representam dinheiro e não devem passar pelo
-conversor de centavos. `UNIT` e `PAIR` exigem inteiro positivo; `FIXED` exige
-`1`; `KG` e `METER` aceitam decimal positivo. Desconto percentual deverá
-ficar entre zero e cem, sem tornar os serviços negativos.
-
-A precisão máxima de quantidades decimais e percentuais ainda deverá ser
-definida antes das tabelas e dos validadores da Fase 2. Não impor agora uma
-escala arbitrária. Depois dessa decisão, escolher armazenamento exato como
-inteiro escalonado com escala documentada ou texto decimal canônico validado.
-Não usar `REAL` nem ampliar a dependência de `Numeric`/SQLite nesses campos.
+Quantidade e percentual não representam dinheiro e não passam pelo conversor de
+centavos. A unidade de cobrança define se a quantidade é inteira, decimal ou
+fixa em um; quantidades decimais usam inteiro escalonado com precisão configurada
+de 0 a 6 casas. O desconto percentual fica entre zero e cem e conserva sua
+representação decimal canônica. Esses campos não usam `REAL`.
 
 Nota com total zero fica financeiramente `PAGO`, sem exigir forma de pagamento
 e sem gerar entrada financeira. Essa quitação também bloqueia edição dos
@@ -111,20 +106,20 @@ valor zero para produzir um movimento no Caixa.
 
 ## 4. Compatibilidade com o legado na Fase 3
 
-O estado atual permanece intacto na Fase 1:
+O legado permanece intacto após a Fase 3:
 
 - `CashMovement.gross_amount`, `fee_amount` e `net_amount` usam `Numeric(14, 2)`.
 - O validador do Caixa aceita até `Decimal("999999999999.99")` por valor.
 - `ServicePrice.amount` usa `Numeric(12, 2)` e seu validador aceita até
   `Decimal("9999999999.99")`.
-- Os serviços trabalham com `Decimal`, mas o adaptador atual pode passar por
-  conversão binária na persistência SQLite. O utilitário novo não remove essa
-  característica do legado e não é integrado a essas tabelas nesta fase.
+- Os serviços trabalham com `Decimal`, mas o adaptador legado pode passar por
+  conversão binária na persistência SQLite. A integração financeira não altera
+  essas colunas e valida a correspondência em centavos após cada gravação nova.
 
-Antes da integração financeira, a Fase 3 deverá implementar e testar uma
-fronteira explícita entre Pagamento em centavos e Caixa legado:
+A Fase 3 implementa e testa uma fronteira explícita entre Pagamento em centavos
+e Caixa legado:
 
-1. Nota/Pagamento manterão seus snapshots monetários em inteiros, como fonte
+1. Nota/Pagamento mantêm seus snapshots monetários em inteiros, como fonte
    dos valores da operação nova.
 2. Ao preparar o lançamento legado, converter centavos para `Decimal` pela API
    central; não usar `float`, divisão binária ou SQL `REAL` para conversão.
@@ -137,17 +132,15 @@ fronteira explícita entre Pagamento em centavos e Caixa legado:
    sem confirmação parcial ou correção silenciosa. Testar especificamente
    os maiores valores aceitos pelo legado.
 5. Pagamento, origem única no Caixa, situação financeira, eventual entrega e
-   auditoria deverão compartilhar uma única transação. Os commits internos
-   atuais dos serviços precisarão de adaptação delimitada antes da integração:
-   chamar serviços que já confirmaram operações separadas não garante atomicidade.
+   auditoria compartilham uma única transação delimitada. O fluxo composto não
+   chama serviços que confirmem operações separadas.
 6. Usar ID interno do Pagamento para vínculo e idempotência; impedir duplicação
    por reenvio/concorrência e edição avulsa que rompa a correspondência financeira.
 
 Essa ponte verifica a correspondência **em centavos**; ela não torna a
 representação interna de `Numeric`/SQLite uma persistência inteira exata.
-Não habilitar a integração enquanto reconciliação e transação não estiverem
-validadas. Se a ponte não atender aos testes, tratar a migração do Caixa como
-pré-requisito explícito daquela etapa.
+A integração permanece condicionada à reconciliação e à transação validadas; uma
+diferença em centavos provoca rollback, sem correção silenciosa.
 
 Uma eventual migração do legado para centavos será uma tarefa identificada,
 com backup validado e ensaio isolado. Deverá preservar IDs, referências,
@@ -162,12 +155,11 @@ Notas, clientes ou vínculos retroativos a partir de descrição, valor ou data.
 ## 5. Padrão obrigatório para migrations futuras
 
 O mecanismo atual em [`app/migrations.py`](../app/migrations.py) registra
-versões em `schema_migrations`. A Fase 2 acrescenta `0007_billing_units` e
-`0008_service_notes`, com DDL/defaults versionados em
-[`app/migration_definitions.py`](../app/migration_definitions.py). `0007`
-reconstrói `services` de forma explícita para trocar o código textual por FK;
-`0008` cria Notas, itens e eventos. As definições já versionadas não dependem do
-model ou de defaults mutáveis.
+versões em `schema_migrations`. A Fase 2 acrescentou `0007_billing_units` e
+`0008_service_notes`; a Fase 3 acrescentou `0009_payment_configuration`,
+`0010_payments` e `0011_customer_activity_sources`. O DDL e os defaults ficam
+versionados em [`app/migration_definitions.py`](../app/migration_definitions.py)
+e não dependem do model ou de defaults mutáveis.
 
 Cada mudança futura deverá atender a estes requisitos:
 
@@ -227,10 +219,11 @@ O hash do arquivo ajuda a provar ausência de gravação em tarefas sem migratio
 como esta Fase 1. Em migrations legítimas, o arquivo muda: a evidência de
 preservação deve ser lógica e financeira, além da integridade estrutural.
 
-## 7. Limite da Fase 2
+## 7. Limite histórico da Fase 2 e evolução da Fase 3
 
 As novas Notas persistem dinheiro em centavos inteiros e snapshots da unidade e
 do preço do catálogo. O `Numeric(12,2)` já existente em `service_prices` e toda a
-persistência monetária do Caixa permanecem sem conversão. Esta fase não cria
-Payment, não vincula Nota ao Caixa, não infere recebimentos antigos e não produz
-`CustomerActivity`; essas integrações continuam reservadas às fases seguintes.
+persistência monetária do Caixa permanecem sem conversão. A Fase 3 adiciona
+`Payment`, o vínculo transacional com o Caixa e atividades automáticas de
+Clientes. Ela não infere recebimentos antigos, não converte lançamentos manuais
+em Pagamentos e não recria atividades retroativas.

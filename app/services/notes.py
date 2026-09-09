@@ -21,6 +21,7 @@ from app.core.note_config import (
     deadline_info,
 )
 from app.models import AuditEvent, ServiceNote, ServiceNoteEvent, ServiceNoteItem
+from app.repositories.customers import CustomerRepository
 from app.repositories.notes import AvailableService, NoteRepository
 from app.services.note_validation import (
     NoteInput,
@@ -194,6 +195,7 @@ class NoteService:
         self.session = session
         self.timezone_name = timezone_name
         self.repository = NoteRepository(session)
+        self.customers = CustomerRepository(session)
 
     def _audit(self, user_id: int, action: str, note_id: int, details: dict | None = None) -> None:
         self.session.add(AuditEvent(
@@ -212,6 +214,89 @@ class NoteService:
             created_by=user_id,
             details_json=json.dumps(details, ensure_ascii=False, sort_keys=True, default=str) if details else None,
         ))
+
+    @staticmethod
+    def _customer_activity_reference(note: ServiceNote) -> str:
+        reference = f"Nota {note.number_original}"
+        if note.series_original:
+            reference += f" · Série {note.series_original}"
+        return reference[:180]
+
+    @staticmethod
+    def _customer_activity_metadata(
+        note: ServiceNote,
+        *,
+        operational_status: str,
+    ) -> dict[str, object]:
+        return {
+            "service_note_id": note.id,
+            "number_snapshot": note.number_original,
+            "series_snapshot": note.series_original,
+            "operational_status": operational_status,
+            "financial_status": note.financial_status,
+            "total_cents": note.total_cents,
+            "items": [
+                {
+                    "service_id": item.service_id,
+                    "service_code_snapshot": item.service_code_snapshot,
+                    "service_name_snapshot": item.service_name_snapshot,
+                    "billing_unit_code_snapshot": item.billing_unit_code_snapshot,
+                    "billing_unit_name_snapshot": item.billing_unit_name_snapshot,
+                    "billing_unit_symbol_snapshot": item.billing_unit_symbol_snapshot,
+                    "quantity_behavior_snapshot": item.quantity_behavior_snapshot,
+                    "decimal_places_snapshot": item.decimal_places_snapshot,
+                    "quantity_scaled": item.quantity_scaled,
+                    "unit_price_cents": item.unit_price_cents,
+                    "subtotal_cents": item.subtotal_cents,
+                }
+                for item in sorted(note.items, key=lambda row: row.position)
+            ],
+        }
+
+    def _customer_activity(
+        self,
+        note: ServiceNote,
+        activity_type: str,
+        user_id: int,
+        *,
+        occurred_at: datetime,
+        operational_status: str,
+    ) -> None:
+        customer = self.customers.get(note.customer_id)
+        if customer is None:
+            raise NoteStateError("O cliente da Nota não foi encontrado.")
+        reference = self._customer_activity_reference(note)
+        service_names = ", ".join(
+            item.service_name_snapshot
+            for item in sorted(note.items, key=lambda row: row.position)
+        )
+        if activity_type == "SERVICE_CREATED":
+            description = f"{reference} criada"
+        elif activity_type == "SERVICE_COMPLETED":
+            description = f"Serviços da {reference} concluídos"
+        else:
+            raise ValueError("Tipo de atividade automática da Nota inválido.")
+        if service_names:
+            description += f": {service_names}"
+        description = f"{description}."[:300]
+        self.customers.add_activity(
+            customer,
+            activity_type,
+            description,
+            user_id,
+            occurred_at=occurred_at,
+            metadata_json=json.dumps(
+                self._customer_activity_metadata(
+                    note,
+                    operational_status=operational_status,
+                ),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            source_type="SERVICE_NOTE",
+            source_id=str(note.id),
+            source_reference=reference,
+        )
 
     @staticmethod
     def _is_number_conflict(exc: IntegrityError) -> bool:
@@ -462,6 +547,13 @@ class NoteService:
             "financial_status": note.financial_status,
             "item_count": len(calculation.items),
         })
+        self._customer_activity(
+            note,
+            "SERVICE_CREATED",
+            user_id,
+            occurred_at=note.received_at,
+            operational_status=note.operational_status,
+        )
         self._audit(user_id, "service_note.created", note.id, {
             "number": note.number_original,
             "series": note.series_original,
@@ -673,6 +765,14 @@ class NoteService:
         if changed.rowcount != 1:
             raise NoteConflictError("A Nota foi alterada em outra solicitação. Atualize a página.")
         self._event(persistent_id, "STATUS_CHANGED", user_id, {"from": before, "to": target}, at=now)
+        if target == "PRONTO":
+            self._customer_activity(
+                note,
+                "SERVICE_COMPLETED",
+                user_id,
+                occurred_at=now,
+                operational_status=target,
+            )
         self._audit(user_id, "service_note.status_changed", persistent_id, {"from": before, "to": target})
         self._commit()
         refreshed = self.repository.get(persistent_id)

@@ -1,0 +1,15 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header page-header--split"><div><p class="eyebrow">ADMINISTRAÇÃO › FINANCEIRO</p><h1>Financeiro</h1><p>Visão global autorizada do Caixa.</p></div><div class="header-actions"><a class="button button--secondary" href="/caixa/resumo">Resumo detalhado</a><a class="button button--secondary" href="/caixa/historico">Histórico completo</a>{% if current_user.can('finance.reports.view') %}<a class="button button--primary" href="/caixa/relatorios">Relatórios</a>{% endif %}</div></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+<section class="primary-banner cash-balance-banner"><span class="primary-banner__label">Saldo atual</span><strong class="primary-banner__value">{{ summary.current_balance|money }}</strong><p class="primary-banner__description">Resultado acumulado de movimentações ativas.</p></section>
+<section class="metrics-grid metrics-grid--four compact section-block">
+  <article class="metric-card"><span class="metric-card__label">Saldo anterior ao mês</span><strong class="metric-card__value">{{ summary.month.previous_balance|money }}</strong></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Entradas brutas no mês</span><strong class="metric-card__value">{{ summary.month.totals.entry_gross|money }}</strong></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Entradas líquidas no mês</span><strong class="metric-card__value">{{ summary.month.totals.entries|money }}</strong></article>
+  <article class="metric-card"><span class="metric-card__label">Taxas</span><strong class="metric-card__value">{{ summary.month.totals.fees|money }}</strong></article>
+  <article class="metric-card metric-card--negative"><span class="metric-card__label">Saídas</span><strong class="metric-card__value">{{ summary.month.totals.exits|money }}</strong></article>
+  <article class="metric-card"><span class="metric-card__label">Resultado do mês</span><strong class="metric-card__value">{{ summary.month.totals.result|money }}</strong></article>
+</section>
+<section class="panel section-block"><div class="section-heading"><h2>Movimentações recentes</h2></div><div class="table-shell"><table><thead><tr><th>Data</th><th>Descrição</th><th>Origem</th><th>Valor líquido</th></tr></thead><tbody>{% for row in summary.recent %}<tr><td>{{ row.occurred_at|datetime_br }}</td><td><a class="table-action" href="/caixa/movimentos/{{ row.id }}">{{ row.description }}</a></td><td>{{ row.origin }}</td><td>{{ row.net_amount|money }}</td></tr>{% else %}<tr><td colspan="4" class="table-empty">Nenhuma movimentação registrada.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

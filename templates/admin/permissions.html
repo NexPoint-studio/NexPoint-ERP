@@ -1,0 +1,6 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header page-header--split"><div><p class="eyebrow">ADMINISTRAÇÃO › ACESSO</p><h1>Permissões por papel</h1><p>As proteções também são aplicadas diretamente no backend.</p></div><a class="button button--secondary" href="/admin/usuarios">Voltar aos usuários</a></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+{% for role in roles %}<section class="panel section-block"><form method="post" action="/admin/permissoes/{{ role.id }}"><div class="section-heading"><h2>{{ 'Proprietário' if role.code == owner_role_code else role.name }}</h2><p>{{ role.code }}</p></div><div class="permission-grid">{% set assigned = role.permissions|map(attribute='code')|list %}{% for permission in permissions %}<label class="checkbox"><input type="checkbox" name="permissions" value="{{ permission.code }}" {% if permission.code in assigned %}checked{% endif %}> {{ permission.code }}</label>{% endfor %}</div><div class="form-actions"><button class="button button--primary" type="submit">Salvar permissões</button></div></form></section>{% endfor %}
+{% endblock %}

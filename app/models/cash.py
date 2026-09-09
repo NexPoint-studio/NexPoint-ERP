@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.auth import User
+    from app.models.payments import Payment, PaymentFeeRule
 
 
 def utc_now() -> datetime:
@@ -40,15 +41,26 @@ class CashCategory(Base):
 
 class CashPaymentMethod(Base):
     __tablename__ = "cash_payment_methods"
-    __table_args__ = (UniqueConstraint("name", name="uq_cash_payment_methods_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_cash_payment_methods_name"),
+        CheckConstraint(
+            "method_kind in ('CASH','PIX','CARD','BOLETO','OTHER')",
+            name="ck_cash_payment_methods_kind",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), index=True)
+    method_kind: Mapped[str] = mapped_column(
+        String(16), default="OTHER", server_default=text("'OTHER'"), index=True
+    )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
     movements: Mapped[list[CashMovement]] = relationship(back_populates="payment_method")
+    fee_rules: Mapped[list[PaymentFeeRule]] = relationship(back_populates="payment_method")
+    payments: Mapped[list[Payment]] = relationship(back_populates="payment_method")
 
 
 class CashMovement(Base):

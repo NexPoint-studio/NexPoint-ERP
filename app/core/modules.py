@@ -29,11 +29,9 @@ def tab(id_: str, name: str, path: str, permission: str, description: str) -> Ta
 
 
 MODULES = (
-    ModuleDefinition("cash", "Caixa", "$", "/caixa/resumo", "cash.view", "cash", "functional", (
-        tab("resumo", "Resumo", "/caixa/resumo", "cash.view", "Saldo e movimento financeiro local."),
+    ModuleDefinition("cash", "Caixa", "$", "/caixa/operacoes", "cash.operations.view", "cash", "functional", (
+        tab("operacoes", "Operações", "/caixa/operacoes", "cash.operations.view", "Lançamentos recentes do operador."),
         tab("novo", "Novo lançamento", "/caixa/novo-lancamento", "cash.create", "Registro manual de entradas e saídas."),
-        tab("historico", "Histórico", "/caixa/historico", "cash.view", "Consulta completa dos lançamentos."),
-        tab("relatorios", "Relatórios", "/caixa/relatorios", "cash.reports.view", "Análise financeira por período."),
     )),
     ModuleDefinition("customers", "Clientes", "♙", "/clientes/lista", "customers.view", "customers", "functional", (
         tab("lista", "Lista", "/clientes/lista", "customers.view", "Consulta e gestão dos clientes locais."),
@@ -44,20 +42,19 @@ MODULES = (
         tab("catalogo", "Catálogo", "/servicos/catalogo", "services.view", "Consulta dos serviços, preços e unidades disponíveis."),
         tab("nova-nota", "Nova Nota", "/servicos/nova-nota", "notes.create", "Registro operacional de uma Nota de Serviço."),
         tab("notas", "Notas de Serviço", "/servicos/notas", "notes.view", "Pesquisa e acompanhamento das Notas de Serviço."),
-        tab("novo", "Novo serviço", "/servicos/novo", "services.create", "Cadastro de um serviço e seu preço inicial."),
-        tab("categorias", "Categorias", "/servicos/categorias", "services.categories.manage", "Organização das categorias do catálogo."),
-        tab("precos", "Preços", "/servicos/precos", "services.prices.manage", "Gestão individual e histórico de preços."),
     )),
-    ModuleDefinition("admin", "Administração", "⚙", "/admin/usuarios", "admin.users", None, "infrastructure", (
-        tab("usuarios", "Usuários", "/admin/usuarios", "admin.users", "Estrutura local de usuários."),
-        tab("permissoes", "Permissões", "/admin/permissoes", "admin.permissions", "Estrutura local de papéis e permissões."),
-        tab("configuracoes", "Configurações", "/admin/configuracoes", "admin.settings", "Configurações genéricas da aplicação."),
-        tab("sistema", "Sistema", "/admin/sistema", "admin.settings", "Informações da execução local."),
+    ModuleDefinition("admin", "Administração", "⚙", "/admin/visao-geral", "admin.overview.view", None, "functional", (
+        tab("visao-geral", "Visão geral", "/admin/visao-geral", "admin.overview.view", "Indicadores operacionais e alertas administrativos."),
+        tab("servicos", "Serviços", "/admin/servicos", "admin.services.view", "Gestão do catálogo, categorias, unidades e preços."),
+        tab("financeiro", "Financeiro", "/admin/financeiro", "finance.overview.view", "Saldo, histórico e relatórios globais."),
+        tab("pagamentos", "Pagamentos e taxas", "/admin/pagamentos", "finance.config.manage", "Formas, terminais e regras de taxa."),
+        tab("usuarios", "Usuários e permissões", "/admin/usuarios", "admin.users", "Gestão local de acesso e papéis."),
+        tab("empresa", "Empresa", "/admin/empresa", "admin.settings", "Dados institucionais usados pelo ERP."),
     )),
 )
 
 MODULE_BY_ID = {module.id: module for module in MODULES}
 ROUTE_INDEX = {item.path: (module, item) for module in MODULES for item in module.tabs}
 
-# O módulo Serviços reúne catálogo e Notas; telas administrativas do catálogo
-# coexistem temporariamente até a reorganização autorizada para a Fase 3.
+# O módulo Serviços é operacional. Toda mutação de catálogo fica na
+# Administração e exige permissão administrativa própria.

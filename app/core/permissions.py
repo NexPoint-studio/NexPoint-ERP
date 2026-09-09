@@ -3,13 +3,20 @@ from dataclasses import dataclass
 from fastapi import HTTPException, Request, status
 
 ALL_PERMISSIONS = (
+    "cash.operations.view",
     "cash.view", "cash.create", "cash.edit", "cash.cancel",
     "cash.reports.view", "cash.categories.manage",
+    "finance.overview.view", "finance.reports.view", "finance.config.manage",
+    "payments.receive",
     "customers.view", "customers.create",
     "customers.edit", "customers.deactivate", "customers.activity.create",
     "services.view", "services.create", "services.edit", "services.deactivate",
     "services.prices.manage", "services.categories.manage", "reports.view",
     "notes.view", "notes.create", "notes.edit", "notes.change_status", "notes.cancel",
+    "admin.overview.view",
+    "admin.services.view", "admin.services.create", "admin.services.edit",
+    "admin.services.deactivate", "admin.services.prices.manage",
+    "admin.services.categories.manage", "admin.services.units.manage",
     "admin.users", "admin.permissions", "admin.settings",
 )
 

@@ -163,16 +163,10 @@ class NoteRepository:
             conditions.append(ServiceNote.received_at < received_to)
 
         if deadline_status == "OVERDUE":
-            conditions.append(ServiceNote.operational_status != "CANCELADO")
-            conditions.append(or_(
-                and_(
-                    ServiceNote.ready_at.is_(None),
-                    ServiceNote.expected_ready_at < today_start,
-                ),
-                and_(
-                    ServiceNote.ready_at.is_not(None),
-                    ServiceNote.ready_delay_days > 0,
-                ),
+            conditions.extend((
+                ServiceNote.operational_status.in_(("RECEBIDO", "EM_ANDAMENTO")),
+                ServiceNote.ready_at.is_(None),
+                ServiceNote.expected_ready_at < today_start,
             ))
         elif deadline_status == "TODAY":
             conditions.extend((

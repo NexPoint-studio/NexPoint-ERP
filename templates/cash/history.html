@@ -181,10 +181,10 @@
               <td>{{ movement.creator.display_name }}</td>
               <td>
                 <a class="table-action" href="/caixa/movimentos/{{ movement.id }}">Ver</a>
-                {% if movement.status == 'ACTIVE' and current_user.can('cash.edit') %}
+                {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.edit') %}
                   <a class="table-action" href="/caixa/movimentos/{{ movement.id }}/editar">Editar</a>
                 {% endif %}
-                {% if movement.status == 'ACTIVE' and current_user.can('cash.cancel') %}
+                {% if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' and current_user.can('cash.cancel') %}
                   <button class="link-button" type="button" data-modal-open="cancel-movement-{{ movement.id }}">Cancelar</button>
                 {% endif %}
               </td>
@@ -210,7 +210,7 @@
 </section>
 
 {% if current_user.can('cash.cancel') %}
-  {% for movement in result.rows if movement.status == 'ACTIVE' %}
+  {% for movement in result.rows if movement.status == 'ACTIVE' and movement.origin == 'MANUAL' %}
     <div class="modal-backdrop" id="cancel-movement-{{ movement.id }}" hidden>
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-movement-title-{{ movement.id }}">
         <div class="modal__header">

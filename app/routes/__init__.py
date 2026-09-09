@@ -1,11 +1,15 @@
 from app.routes.auth import router as auth_router
+from app.routes.admin import router as admin_router
 from app.routes.cash import router as cash_router
 from app.routes.customers import router as customers_router
 from app.routes.notes import router as notes_router
-from app.routes.services import router as services_router
+from app.routes.services import admin_router as services_admin_router, router as services_router
 from app.routes.pages import router as pages_router
+from app.routes.payments import router as payments_router
+from app.routes.payment_configuration import router as payment_configuration_router
 
 __all__ = [
-    "auth_router", "cash_router", "customers_router", "notes_router",
-    "services_router", "pages_router",
+    "auth_router", "admin_router", "cash_router", "customers_router", "notes_router",
+    "services_router", "services_admin_router", "payments_router",
+    "payment_configuration_router", "pages_router",
 ]

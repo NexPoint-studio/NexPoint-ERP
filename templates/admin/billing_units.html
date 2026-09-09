@@ -1,0 +1,25 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header page-header--split"><div><p class="eyebrow">ADMINISTRAÇÃO › SERVIÇOS</p><h1>Unidades de cobrança</h1><p>O código identifica a unidade; Notas antigas mantêm seus snapshots.</p></div><a class="button button--secondary" href="/admin/servicos">Voltar</a></header>
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
+{% if errors.form %}<div class="alert alert--error">{{ errors.form }}</div>{% endif %}
+<section class="panel">
+  <form method="post" action="{{ '/admin/servicos/unidades/' ~ editing.id ~ '/editar' if editing else '/admin/servicos/unidades' }}" class="form-stack">
+    <div class="section-heading"><h2>{{ 'Editar ' ~ editing.code if editing else 'Nova unidade' }}</h2></div>
+    <div class="form-grid">
+      <label class="field">Código *<input name="code" value="{{ editing.code if editing else form.get('code','') }}" maxlength="40" required {% if editing %}readonly{% endif %}>{% if errors.code %}<small class="field-error">{{ errors.code }}</small>{% endif %}</label>
+      <label class="field">Nome *<input name="name" value="{{ form.get('name', editing.name if editing else '') }}" maxlength="120" required>{% if errors.name %}<small class="field-error">{{ errors.name }}</small>{% endif %}</label>
+      <label class="field">Símbolo *<input name="symbol" value="{{ form.get('symbol', editing.symbol if editing else '') }}" maxlength="20" required>{% if errors.symbol %}<small class="field-error">{{ errors.symbol }}</small>{% endif %}</label>
+      <label class="field">Comportamento<select name="quantity_behavior"><option value="INTEGER" {% if form.get('quantity_behavior', editing.quantity_behavior if editing else 'INTEGER') == 'INTEGER' %}selected{% endif %}>Quantidade inteira</option><option value="DECIMAL" {% if form.get('quantity_behavior', editing.quantity_behavior if editing else '') == 'DECIMAL' %}selected{% endif %}>Quantidade decimal</option><option value="FIXED_ONE" {% if form.get('quantity_behavior', editing.quantity_behavior if editing else '') == 'FIXED_ONE' %}selected{% endif %}>Quantidade fixa em 1</option></select>{% if errors.quantity_behavior %}<small class="field-error">{{ errors.quantity_behavior }}</small>{% endif %}</label>
+      <label class="field">Casas decimais<input type="number" min="0" max="6" name="decimal_places" value="{{ form.get('decimal_places', editing.decimal_places if editing else 0) }}">{% if errors.decimal_places %}<small class="field-error">{{ errors.decimal_places }}</small>{% endif %}</label>
+      <label class="field">Ordem<input type="number" min="0" max="9999" name="display_order" value="{{ form.get('display_order', editing.display_order if editing else 0) }}">{% if errors.display_order %}<small class="field-error">{{ errors.display_order }}</small>{% endif %}</label>
+    </div>
+    <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if form.get('is_active', '1' if not editing or editing.is_active else '0') == '1' %}checked{% endif %}> Unidade ativa</label>
+    <div class="form-actions"><a class="button button--secondary" href="/admin/servicos/unidades">Limpar</a><button class="button button--primary" type="submit">Salvar unidade</button></div>
+  </form>
+</section>
+<section class="panel section-block"><div class="table-shell"><table><thead><tr><th>Código</th><th>Nome</th><th>Comportamento</th><th>Precisão</th><th>Serviços</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><strong>{{ row.unit.code }}</strong></td><td>{{ row.unit.name }} · {{ row.unit.symbol }}</td><td>{{ row.unit.quantity_behavior }}</td><td>{{ row.unit.decimal_places }}</td><td>{{ row.service_count }}</td><td><span class="badge badge--{{ 'success' if row.unit.is_active else 'neutral' }}">{{ 'Ativa' if row.unit.is_active else 'Inativa' }}</span></td><td><a class="table-action" href="/admin/servicos/unidades?edit={{ row.unit.id }}">Editar</a><form method="post" action="/admin/servicos/unidades/{{ row.unit.id }}/status" class="inline-form" data-confirm="{{ 'Reativar' if not row.unit.is_active else 'Inativar' }} esta unidade? Serviços e snapshots serão preservados."><input type="hidden" name="active" value="{{ '1' if not row.unit.is_active else '0' }}"><button class="link-button" type="submit">{{ 'Reativar' if not row.unit.is_active else 'Inativar' }}</button></form></td></tr>
+{% else %}<tr><td colspan="7" class="table-empty">Nenhuma unidade cadastrada.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

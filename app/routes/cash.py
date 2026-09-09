@@ -19,7 +19,7 @@ from app.core.cash_config import (
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
 from app.repositories import ConfigurationRepository
-from app.routes.helpers import navigation_context, templates
+from app.routes.helpers import navigation_context, runtime_timezone, templates
 from app.services.cash import (
     CashCategoryNotFoundError,
     CashMovementNotFoundError,
@@ -42,9 +42,13 @@ router = APIRouter(prefix="/caixa")
 
 
 def _context(request: Request, session, tab_id: str, **extra):
-    module = MODULE_BY_ID["cash"]
-    tab = next(item for item in module.tabs if item.id == tab_id)
-    timezone_name = request.app.state.settings.timezone
+    if tab_id in {"resumo", "historico", "relatorios", "financeiro"}:
+        module = MODULE_BY_ID["admin"]
+        tab = next(item for item in module.tabs if item.id == "financeiro")
+    else:
+        module = MODULE_BY_ID["cash"]
+        tab = next(item for item in module.tabs if item.id == tab_id)
+    timezone_name = runtime_timezone(request, session)
     return navigation_context(
         request,
         session,
@@ -71,11 +75,31 @@ def _not_found(message: str = "Lançamento não encontrado") -> None:
 def _cash_service(request: Request, session) -> CashService:
     if not ConfigurationRepository(session).flags().get("cash", False):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Módulo Caixa desativado.")
-    return CashService(session, request.app.state.settings.timezone)
+    return CashService(session, runtime_timezone(request, session))
 
 
-def _empty_form(request: Request, movement_type: str = "ENTRY") -> dict[str, str]:
-    now = local_now(request.app.state.settings.timezone).replace(second=0, microsecond=0)
+def _require_movement_scope(request: Request):
+    user = getattr(request.state, "current_user", None)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    if not (user.can("finance.overview.view") or user.can("cash.operations.view")):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    return user, user.can("finance.overview.view")
+
+
+def _movement_in_scope(service: CashService, movement_id: int, user, full_access: bool):
+    try:
+        return (
+            service.detail(movement_id)
+            if full_access
+            else service.detail_for_operator(movement_id, user.id)
+        )
+    except CashMovementNotFoundError:
+        _not_found()
+
+
+def _empty_form(timezone_name: str, movement_type: str = "ENTRY") -> dict[str, str]:
+    now = local_now(timezone_name).replace(second=0, microsecond=0)
     return {
         "movement_type": movement_type if movement_type in {"ENTRY", "EXIT"} else "ENTRY",
         "description": "",
@@ -105,11 +129,12 @@ def _form_context(
     categories_open: bool = False,
     saved_type: str = "",
     saved_amount: str = "",
+    operator_scope: bool = False,
 ):
     return _context(
         request,
         session,
-        "historico" if editing else "novo",
+        ("operacoes" if operator_scope else "financeiro") if editing else "novo",
         form=form,
         errors=errors,
         editing=editing,
@@ -129,7 +154,7 @@ def _form_context(
 
 @router.get("/resumo")
 def summary(request: Request):
-    require_permission(request, "cash.view")
+    require_permission(request, "finance.overview.view")
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
         return templates.TemplateResponse(request, "cash/summary.html", _context(
@@ -138,6 +163,26 @@ def summary(request: Request):
             "resumo",
             summary=service.reports.summary(),
             page_title="Resumo do Caixa",
+        ))
+
+
+@router.get("/operacoes")
+def operations(request: Request, page: int = 1, per_page: int = 25):
+    user = require_permission(request, "cash.operations.view")
+    with request.app.state.session_factory() as session:
+        service = _cash_service(request, session)
+        result = service.operations(user.id, page=page, per_page=per_page)
+
+        def page_url(number: int) -> str:
+            return "/caixa/operacoes?" + urlencode({"page": number, "per_page": result.per_page})
+
+        return templates.TemplateResponse(request, "cash/operations.html", _context(
+            request,
+            session,
+            "operacoes",
+            result=result,
+            page_url=page_url,
+            page_title="Operações do Caixa",
         ))
 
 
@@ -163,7 +208,7 @@ def new_movement(
             request,
             session,
             service,
-            form=_empty_form(request, type),
+            form=_empty_form(runtime_timezone(request, session), type),
             errors={},
             editing=False,
             categories_open=bool(categories),
@@ -178,8 +223,9 @@ def new_movement(
 async def create_movement(request: Request):
     user = require_permission(request, "cash.create")
     raw = {key: str(value) for key, value in (await request.form()).items()}
-    data = CashMovementInput.from_form(raw, request.app.state.settings.timezone)
     with request.app.state.session_factory() as session:
+        timezone_name = runtime_timezone(request, session)
+        data = CashMovementInput.from_form(raw, timezone_name)
         service = _cash_service(request, session)
         try:
             movement = service.create(data, user.id)
@@ -192,7 +238,7 @@ async def create_movement(request: Request):
                     request,
                     session,
                     service,
-                    form=data.as_form(request.app.state.settings.timezone),
+                    form=data.as_form(timezone_name),
                     errors=data.errors,
                     editing=False,
                 ),
@@ -205,8 +251,8 @@ async def create_movement(request: Request):
     return RedirectResponse("/caixa/novo-lancamento", status_code=303)
 
 
-def _resolve_requested_period(request: Request, shortcut: str, start: str, end: str):
-    return resolve_period(shortcut, start, end, request.app.state.settings.timezone)
+def _resolve_requested_period(request: Request, session, shortcut: str, start: str, end: str):
+    return resolve_period(shortcut, start, end, runtime_timezone(request, session))
 
 
 @router.get("/historico")
@@ -224,16 +270,16 @@ def history(
     page: int = 1,
     per_page: int = 25,
 ):
-    require_permission(request, "cash.view")
+    require_permission(request, "finance.overview.view")
     period_error = ""
     response_status = 200
-    try:
-        selected_period = _resolve_requested_period(request, period, start, end)
-    except ValueError as exc:
-        selected_period = _resolve_requested_period(request, "month", "", "")
-        period_error = str(exc)
-        response_status = 422
     with request.app.state.session_factory() as session:
+        try:
+            selected_period = _resolve_requested_period(request, session, period, start, end)
+        except ValueError as exc:
+            selected_period = _resolve_requested_period(request, session, "month", "", "")
+            period_error = str(exc)
+            response_status = 422
         service = _cash_service(request, session)
         result = service.history(
             selected_period,
@@ -279,16 +325,16 @@ def history(
 
 @router.get("/relatorios")
 def reports(request: Request, period: str = "month", start: str = "", end: str = ""):
-    require_permission(request, "cash.reports.view")
+    require_permission(request, "finance.reports.view")
     period_error = ""
     response_status = 200
-    try:
-        selected_period = _resolve_requested_period(request, period, start, end)
-    except ValueError as exc:
-        selected_period = _resolve_requested_period(request, "month", "", "")
-        period_error = str(exc)
-        response_status = 422
     with request.app.state.session_factory() as session:
+        try:
+            selected_period = _resolve_requested_period(request, session, period, start, end)
+        except ValueError as exc:
+            selected_period = _resolve_requested_period(request, session, "month", "", "")
+            period_error = str(exc)
+            response_status = 422
         service = _cash_service(request, session)
         report = service.reports.period_report(selected_period)
         max_evolution = max(
@@ -308,7 +354,7 @@ def reports(request: Request, period: str = "month", start: str = "", end: str =
 
 @router.get("/movimentos/{movement_id}")
 def movement_detail(request: Request, movement_id: int):
-    require_permission(request, "cash.view")
+    user, full_access = _require_movement_scope(request)
     flash = request.session.pop("cash_movement_result", None)
     action = ""
     if isinstance(flash, dict) and flash.get("movement_id") == movement_id:
@@ -317,15 +363,14 @@ def movement_detail(request: Request, movement_id: int):
             action = candidate
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
-        try:
-            movement = service.detail(movement_id)
-        except CashMovementNotFoundError:
-            _not_found()
+        movement = _movement_in_scope(service, movement_id, user, full_access)
         return templates.TemplateResponse(request, "cash/detail.html", _context(
             request,
             session,
-            "historico",
+            "financeiro" if full_access else "operacoes",
             movement=movement,
+            operator_scope=not full_access,
+            return_path="/caixa/historico" if full_access else "/caixa/operacoes",
             updated=action == "UPDATED",
             canceled=action == "CANCELED",
             cancel_error="",
@@ -336,12 +381,15 @@ def movement_detail(request: Request, movement_id: int):
 @router.get("/movimentos/{movement_id}/editar")
 def edit_movement(request: Request, movement_id: int):
     require_permission(request, "cash.edit")
+    user, full_access = _require_movement_scope(request)
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
-        try:
-            movement = service.detail(movement_id)
-        except CashMovementNotFoundError:
-            _not_found()
+        movement = _movement_in_scope(service, movement_id, user, full_access)
+        if movement.origin == "SYSTEM":
+            raise HTTPException(
+                status_code=409,
+                detail="Lançamentos gerados pelo sistema não podem ser editados diretamente no Caixa.",
+            )
         if movement.status == "CANCELED":
             raise HTTPException(status_code=409, detail="Lançamentos cancelados não podem ser editados.")
         data = CashMovementInput(
@@ -359,40 +407,41 @@ def edit_movement(request: Request, movement_id: int):
             request,
             session,
             service,
-            form=data.as_form(request.app.state.settings.timezone),
+            form=data.as_form(runtime_timezone(request, session)),
             errors={},
             editing=True,
             movement=movement,
+            operator_scope=not full_access,
         ))
 
 
 @router.post("/movimentos/{movement_id}/editar")
 async def update_movement(request: Request, movement_id: int):
-    user = require_permission(request, "cash.edit")
+    require_permission(request, "cash.edit")
+    user, full_access = _require_movement_scope(request)
     raw = {key: str(value) for key, value in (await request.form()).items()}
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
-        try:
-            movement = service.detail(movement_id)
-        except CashMovementNotFoundError:
-            _not_found()
+        movement = _movement_in_scope(service, movement_id, user, full_access)
+        timezone_name = runtime_timezone(request, session)
         data = CashMovementInput.from_form(
             raw,
-            request.app.state.settings.timezone,
+            timezone_name,
             fixed_type=movement.movement_type,
         )
         try:
-            service.update(movement_id, data, user.id)
+            service.update(movement_id, data, user.id, operator_scope=not full_access)
         except CashValidationError as exc:
             data = exc.data
             return templates.TemplateResponse(request, "cash/form.html", _form_context(
                 request,
                 session,
                 service,
-                form=data.as_form(request.app.state.settings.timezone),
+                form=data.as_form(timezone_name),
                 errors=data.errors,
                 editing=True,
                 movement=movement,
+                operator_scope=not full_access,
             ), status_code=422)
         except CashStateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -405,24 +454,35 @@ async def update_movement(request: Request, movement_id: int):
 
 @router.post("/movimentos/{movement_id}/cancelar")
 async def cancel_movement(request: Request, movement_id: int):
-    user = require_permission(request, "cash.cancel")
+    require_permission(request, "cash.cancel")
+    user, full_access = _require_movement_scope(request)
     form = await request.form()
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
         try:
-            movement = service.cancel(movement_id, str(form.get("reason") or ""), user.id)
+            _movement_in_scope(service, movement_id, user, full_access)
+            movement = service.cancel(
+                movement_id,
+                str(form.get("reason") or ""),
+                user.id,
+                operator_scope=not full_access,
+            )
         except CashMovementNotFoundError:
             _not_found()
-        except (CashStateError, ValueError) as exc:
+        except CashStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except ValueError as exc:
             try:
-                movement = service.detail(movement_id)
+                movement = _movement_in_scope(service, movement_id, user, full_access)
             except CashMovementNotFoundError:
                 _not_found()
             return templates.TemplateResponse(request, "cash/detail.html", _context(
                 request,
                 session,
-                "historico",
+                "financeiro" if full_access else "operacoes",
                 movement=movement,
+                operator_scope=not full_access,
+                return_path="/caixa/historico" if full_access else "/caixa/operacoes",
                 updated=False,
                 canceled=False,
                 cancel_error=str(exc),
@@ -449,7 +509,7 @@ def _category_error_response(
         request,
         session,
         service,
-        form=_empty_form(request),
+        form=_empty_form(runtime_timezone(request, session)),
         errors={},
         editing=False,
         category_errors=errors,

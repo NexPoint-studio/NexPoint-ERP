@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 import math
 
@@ -10,9 +10,9 @@ from sqlalchemy.exc import IntegrityError
 from app.services.transactions import atomic_write
 
 from app.core.customer_config import InactivityThresholds, RELATIONSHIP_BADGES
-from app.models import Customer
+from app.models import Customer, CustomerActivity
 from app.repositories import ConfigurationRepository, CustomerActivityRepository, CustomerRepository
-from app.repositories.customers import ActivityItem, CustomerListItem
+from app.repositories.customers import ActivityItem, CustomerListItem, LastServiceSummary
 from app.services.customer_validation import CustomerInput
 
 
@@ -65,6 +65,16 @@ class CustomerListResult:
     per_page: int
     pages: int
     indicators: dict[str, int]
+    thresholds: InactivityThresholds
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerHistoryResult:
+    rows: list[ActivityItem]
+    total: int
+    page: int
+    per_page: int
+    pages: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +85,13 @@ class CustomerProfile:
     relationship_label: str
     relationship_badge: str
     inactive_days: int | None
+    last_service: LastServiceSummary | None
+    activities: list[CustomerActivity]
     actor_names: dict[int, str]
+    activity_total: int
+    activity_page: int
+    activity_per_page: int
+    activity_pages: int
 
 
 class CustomerService:
@@ -183,19 +199,48 @@ class CustomerService:
         self.repository.add_activity(customer, "VISIT", description, user_id, occurred_at=occurred_at)
         self.session.commit()
 
-    def profile(self, customer_id: int, *, now: datetime | None = None) -> CustomerProfile:
+    def profile(
+        self,
+        customer_id: int,
+        *,
+        now: datetime | None = None,
+        page: int = 1,
+        per_page: int = 25,
+    ) -> CustomerProfile:
         customer = self.repository.get(customer_id)
         if customer is None:
             raise CustomerNotFoundError()
         last = self.repository.last_relevant_activity(customer_id)
         code, label, days = self.thresholds.classify(last, now=now)
-        actors = self.repository.actor_names({activity.created_by for activity in customer.activities})
-        return CustomerProfile(customer, last, code, label, RELATIONSHIP_BADGES[code], days, actors)
+        per_page = per_page if per_page in {10, 25, 50, 100} else 25
+        activities, total, effective_page = self.activities.customer_history_page(
+            customer_id,
+            page=max(1, page),
+            per_page=per_page,
+        )
+        pages = max(1, math.ceil(total / per_page))
+        actors = self.repository.actor_names({activity.created_by for activity in activities})
+        return CustomerProfile(
+            customer=customer,
+            last_activity=last,
+            relationship_code=code,
+            relationship_label=label,
+            relationship_badge=RELATIONSHIP_BADGES[code],
+            inactive_days=days,
+            last_service=self.repository.last_service_summary(customer_id),
+            activities=activities,
+            actor_names=actors,
+            activity_total=total,
+            activity_page=effective_page,
+            activity_per_page=per_page,
+            activity_pages=pages,
+        )
 
     def list(
         self, *, search: str = "", customer_type: str = "ALL", active: str = "ALL",
         relationship: str = "ALL", inactive_days: int | None = None, sort: str = "name",
         page: int = 1, per_page: int = 25, now: datetime | None = None,
+        month_start: datetime | None = None,
     ) -> CustomerListResult:
         current = now or datetime.now(timezone.utc)
         page = max(1, page)
@@ -203,15 +248,21 @@ class CustomerService:
         raw, total = self.repository.list_customers(
             search=search, customer_type=customer_type, active=active, relationship=relationship,
             inactive_days=inactive_days, sort=sort, page=page, per_page=per_page, now=current,
+            thresholds=self.thresholds,
         )
         rows = [self._row(item, current) for item in raw]
-        month_start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        indicator_month_start = month_start or current.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
         indicators = self.repository.indicators(
-            month_start=month_start,
-            stale_before=current - timedelta(days=self.thresholds.distant_days),
+            month_start=indicator_month_start,
+            now=current,
+            thresholds=self.thresholds,
         )
         pages = max(1, math.ceil(total / per_page))
-        return CustomerListResult(rows, total, min(page, pages), per_page, pages, indicators)
+        return CustomerListResult(
+            rows, total, min(page, pages), per_page, pages, indicators, self.thresholds
+        )
 
     def _row(self, item: CustomerListItem, now: datetime) -> CustomerRow:
         code, label, days = self.thresholds.classify(item.last_activity, now=now)
@@ -219,6 +270,33 @@ class CustomerService:
 
     def general_history(self, **filters) -> list[ActivityItem]:
         return self.activities.general_history(**filters)
+
+    def general_history_page(
+        self,
+        *,
+        page: int = 1,
+        per_page: int = 25,
+        **filters,
+    ) -> CustomerHistoryResult:
+        per_page = per_page if per_page in {10, 25, 50, 100} else 25
+        rows, total, effective_page = self.activities.general_history_page(
+            page=max(1, page),
+            per_page=per_page,
+            **filters,
+        )
+        return CustomerHistoryResult(
+            rows=rows,
+            total=total,
+            page=effective_page,
+            per_page=per_page,
+            pages=max(1, math.ceil(total / per_page)),
+        )
+
+    def relationship_counts(self, *, now: datetime | None = None) -> dict[str, int]:
+        return self.repository.relationship_counts(
+            now=now or datetime.now(timezone.utc),
+            thresholds=self.thresholds,
+        )
 
     @staticmethod
     def activity_label(activity_type: str) -> str:

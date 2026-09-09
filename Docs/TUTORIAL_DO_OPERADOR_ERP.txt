@@ -1,8 +1,8 @@
 ERP LOCAL — GUIA PRÁTICO DO OPERADOR
 Como usar as funções disponíveis hoje
-Atualizado em 05/09/2026
+Atualizado em 09/09/2026
 
-Este guia acompanha a carcaça ERP local atualmente em teste. Os nomes entre
+Este guia acompanha o ERP local integrado atualmente em teste. Os nomes entre
 aspas são os nomes que você encontra nas telas. Os exemplos de valores e
 cadastros são apenas explicações: não foram inseridos no sistema.
 
@@ -13,9 +13,9 @@ SUMÁRIO
 03. Clientes: cadastrar e consultar
 04. Clientes: visitas, relacionamento e histórico
 05. Clientes: editar, inativar e reativar
-06. Serviços: consultar e cadastrar
-07. Serviços: categorias e preços
-08. Caixa: entender o Resumo
+06. Serviços: consultar e operar Notas
+07. Administração: catálogo, categorias, unidades e preços
+08. Caixa operacional e Financeiro
 09. Caixa: registrar uma entrada
 10. Caixa: registrar uma saída
 11. Caixa: consultar o Histórico
@@ -34,36 +34,40 @@ SUMÁRIO
 
 CLIENTES
 Guarda os dados das pessoas e empresas atendidas: nome, contato, endereço,
-observações e visitas registradas. Ajuda a consultar quando o cliente veio
-e há quanto tempo não há uma nova visita registrada.
+observações, visitas e atendimentos gerados pelas Notas. Mostra o último retorno,
+o último serviço e há quanto tempo não há um novo atendimento.
 
 SERVIÇOS
-É a lista do que a empresa oferece e de quanto cobra. Guarda nome, categoria,
-forma de cobrança, preço atual e preços anteriores.
+Na área operacional, permite consultar o catálogo, criar uma Nota de Serviço e
+acompanhar as Notas. A gestão de catálogo, categorias, unidades e preços fica na
+Administração.
 
 CAIXA
-Registra o dinheiro que entrou e saiu. Mostra o saldo, permite conferir os
-lançamentos e apresenta relatórios por período, categoria e pagamento.
+Registra dinheiro efetivamente realizado. O operador confere apenas os próprios
+lançamentos recentes; saldo, totais e relatórios globais ficam no Financeiro para
+quem possui a permissão adequada.
 
 ADMINISTRAÇÃO
-Por enquanto, tem telas preparadas para funções futuras. Elas não oferecem
-ainda um cadastro completo de usuários nem edição de permissões pela tela.
+É a área funcional do Proprietário: visão geral, gestão de Serviços, Financeiro,
+formas de pagamento e taxas, usuários e permissões e dados da empresa.
 
-COMO ESSAS PARTES TRABALHAM JUNTAS AGORA
+COMO ESSAS PARTES TRABALHAM JUNTAS
 
-Você pode cadastrar um cliente, consultar um serviço e registrar um
-recebimento. Porém, essas ações são separadas nesta versão:
+O fluxo principal é Cliente → Nota de Serviço → Pagamento → Caixa:
 
-- Cadastrar um cliente não cria visita, venda ou entrada no Caixa.
+- Cadastrar um cliente não cria visita, Nota nem entrada no Caixa.
 - Registrar uma visita não cria cobrança nem recebimento.
-- Cadastrar um serviço não significa que ele foi prestado a um cliente.
-- Alterar o preço do serviço não altera lançamentos já feitos no Caixa.
-- Para movimentar dinheiro, use "Novo lançamento", dentro de Caixa.
-- O lançamento atual não exige escolher um cliente ou serviço. Use uma
-  descrição clara para reconhecer o que foi recebido ou pago.
+- Criar uma Nota registra um atendimento no histórico do Cliente e congela os
+  serviços, unidades e preços daquele momento.
+- Confirmar o pagamento integral de uma Nota positiva cria uma entrada automática
+  no Caixa. Não faça outra entrada manual para o mesmo recebimento.
+- Nota de total zero fica paga sem Pagamento e sem Caixa.
+- Entrada e Saída manuais continuam disponíveis para valores que não vieram do
+  recebimento de uma Nota.
+- Alterações posteriores de catálogo ou taxa não reescrevem os históricos.
 
 O sistema funciona neste computador, inclusive sem internet. Os registros
-ficam guardados aqui. Esta carcaça não compartilha os dados automaticamente
+ficam guardados aqui. Este ERP não compartilha os dados automaticamente
 com celular, outro computador ou o sistema oficial NIL LAV.
 
 
@@ -87,7 +91,7 @@ Os campos podem já vir preenchidos para facilitar o teste. Se a sua sessão
 continuar aberta, o aplicativo pode entrar diretamente, sem pedir login.
 Não há uma opção "Manter conectado" para marcar nesta tela atual.
 
-Essas credenciais pertencem à carcaça local de teste; este guia não muda
+Essas credenciais pertencem ao ERP local de teste; este guia não muda
 as contas dos outros sistemas.
 
 ENTENDER A NAVEGAÇÃO
@@ -191,18 +195,6 @@ O QUE FAZ CADA FILTRO DA LISTA
 - "Pesquisar e filtrar": aplica as escolhas.
 - "Limpar": volta à lista inicial.
 
-LIMITAÇÃO ATUAL DOS FILTROS DE CLIENTES
-
-O botão "Pesquisar e filtrar" pode apresentar erro quando o campo
-"Sem atividade há mais de" fica vazio. A lista inicial, aberta pela aba
-"Lista", continua sendo uma alternativa para localizar e abrir os cadastros.
-
-Não preencha esse campo com um número qualquer só para evitar o erro: ele
-muda quem aparece na lista. Até o valor 0 exclui os clientes "Nunca atendidos".
-Se a pesquisa falhar, volte à aba Lista e informe o responsável pelo sistema.
-Uma falha de pesquisa não significa que o cadastro foi apagado.
-
-
 ======================================================================
 04. CLIENTES: VISITAS, RELACIONAMENTO E HISTÓRICO
 ======================================================================
@@ -223,17 +215,18 @@ REGISTRAR UMA VISITA
 4. Se quiser, escreva uma observação curta, como "Veio pedir orçamento".
    Use até 300 caracteres; textos maiores são cortados nesta versão.
 5. Clique em "Registrar".
-6. Confira a atividade na ficha e a informação "Última visita".
+6. Confira a atividade na ficha e a informação "Último retorno".
 
-A visita é registrada manualmente. Se ninguém a registrar, o sistema não
-terá como saber que o cliente voltou. A visita não movimenta o Caixa.
+Uma visita avulsa é registrada manualmente. Criar uma Nota também registra um
+retorno automaticamente, sem exigir uma visita duplicada. A visita isolada não
+movimenta o Caixa.
 Não há botão nesta tela para editar ou apagar uma visita já registrada.
 
 ENTENDER A SITUAÇÃO DE RELACIONAMENTO
 
 Na configuração inicial:
 
-- "Nunca atendido": não há visita relevante registrada.
+- "Nunca atendido": não há visita nem Nota registrada.
 - "Recente": a última atividade foi há até 30 dias.
 - "Atenção": entre 31 e 60 dias.
 - "Afastado": entre 61 e 90 dias.
@@ -243,26 +236,26 @@ Essas mensagens ajudam a acompanhar o contato com o cliente. Elas não
 informam se ele tem dívida, nem se comprou algo.
 
 "Ativo/Inativo" é a situação do cadastro. "Recente/Afastado" é o tempo
-desde a última atividade. Um cliente pode estar ativo e aparecer como
+desde o último retorno relevante. Um cliente pode estar ativo e aparecer como
 "Há muito tempo" sem contradição.
 
-O campo "Último serviço" mostra "Ainda não integrado", pois a lista de
-serviços ainda não registra atendimentos individuais de clientes.
+O campo "Último serviço" mostra a Nota mais recente, a data do atendimento e os
+nomes congelados dos serviços. Concluir a produção dias depois aparece na linha
+do tempo, mas não muda artificialmente a data do último retorno.
 
 CONSULTAR O HISTÓRICO
 
 - Dentro da ficha, "Atividades do cliente" mostra os eventos daquele cliente.
 - Em "Clientes > Histórico", você vê a linha do tempo geral: cadastros,
-  alterações, visitas, inativações e reativações, com data e responsável.
-- A tela geral mostra até 200 atividades por consulta e não possui botão
-  para passar para uma segunda página desse histórico.
+  alterações, visitas, Notas, conclusões, inativações e reativações, com data e
+  responsável.
+- O histórico geral e o individual são paginados. Escolha 25, 50 ou 100 itens
+  por página e use "Anterior" e "Próxima".
 - Clique no nome do cliente de uma atividade para abrir a ficha.
 
 Os controles "Busca", "Cliente", "Atividade", "Usuário", "De" e "Até"
-servem para restringir essa consulta. Há uma limitação atual: ao clicar em
-"Filtrar histórico", deixar Cliente ou Usuário em "Todos" pode causar erro.
-Para uma consulta específica, selecione um cliente e um usuário. Para voltar
-à consulta geral, abra novamente a aba Histórico sem aplicar esses filtros.
+servem para restringir essa consulta. Cliente e Usuário podem permanecer em
+"Todos". Para voltar à consulta geral, use "Limpar".
 
 
 ======================================================================
@@ -286,24 +279,18 @@ INATIVAR UM CADASTRO
 Inativar preserva a ficha e as atividades anteriores. Não é uma exclusão.
 Para voltar a usar o cadastro, abra a ficha e use "Reativar cliente".
 
-ATENÇÃO AO STATUS NA VERSÃO ATUAL
-
-A opção "Cliente ativo no cadastro" do formulário tem uma limitação:
-desmarcá-la não garante a inativação. Além disso, salvar a edição de um
-cliente inativo pode deixá-lo ativo novamente.
-
-Para controlar a situação do cadastro, use os botões "Inativar cliente" e
-"Reativar cliente" na ficha. Depois de editar um cliente que deve continuar
-inativo, confira o status e use "Inativar cliente" novamente, se necessário.
+O formulário de dados comuns não muda o status por um campo forjado. Para
+controlar a situação do cadastro, use as ações separadas "Inativar cliente" e
+"Reativar cliente" na ficha. Elas exigem permissão própria no servidor.
 
 
 ======================================================================
-06. SERVIÇOS: CONSULTAR E CADASTRAR
+06. SERVIÇOS: CONSULTAR E OPERAR NOTAS
 ======================================================================
 
 CONSULTAR UM SERVIÇO
 
-1. Entre em "Serviços > Lista".
+1. Entre em "Serviços > Catálogo".
    A página aberta tem o título "Catálogo" e começa mostrando os ativos.
 2. Procure o serviço pelo campo de busca.
 3. Se necessário, filtre categoria, forma de cobrança ou status.
@@ -316,9 +303,49 @@ Ativos, Inativos e Categorias ativas são indicadores gerais do catálogo.
 A lista tem 25 serviços por página. A ordenação permite comparar nomes,
 preços ou datas de cadastro.
 
+CRIAR E ACOMPANHAR UMA NOTA DE SERVIÇO
+
+1. Entre em "Serviços > Nova Nota".
+2. Informe o número manual e a série ou bloco, quando houver.
+3. Escolha um Cliente ativo.
+4. Confira recebimento e prazo previsto.
+5. Adicione um ou mais serviços e informe a quantidade permitida pela unidade.
+6. Informe entrega ou desconto somente quando fizer parte do atendimento.
+7. Confira subtotais, desconto, entrega e total calculados pelo servidor.
+8. Salve e acompanhe a Nota em "Serviços > Notas de Serviço".
+
+A Nota congela nomes, unidades, preços e totais. Ao criá-la, o histórico do
+Cliente recebe uma atividade de atendimento. Alterar o catálogo depois não muda
+a Nota já registrada.
+
+Os estados operacionais seguem a ordem Recebido → Em andamento → Pronto →
+Entregue. Uma Nota cancelada fica preservada e não aceita novas operações.
+
+RECEBER UMA NOTA
+
+- "Registrar pagamento" confirma a quitação integral sem mudar o estado
+  operacional. Pode ser usado antes ou depois da produção.
+- Em uma Nota pronta, "Entregar e receber" faz entrega e recebimento juntos.
+- "Entregar sem receber" mantém o financeiro Pendente. Use "Registrar pagamento"
+  quando o valor for recebido depois.
+- Cartão exige terminal, Débito ou Crédito e quantidade de parcelas.
+- Não existe pagamento parcial. Boleto só deve ser escolhido quando já foi pago.
+- Nota de total zero já fica Paga e não solicita forma de pagamento.
+
+O pagamento da Nota cria automaticamente uma entrada SYSTEM no Caixa. Nunca
+registre outra entrada manual para o mesmo recebimento.
+
+
+======================================================================
+07. ADMINISTRAÇÃO: CATÁLOGO, CATEGORIAS, UNIDADES E PREÇOS
+======================================================================
+
+Esta área exige permissões administrativas. O operador comum consulta o catálogo
+em Serviços, mas não encontra botões de manutenção.
+
 CADASTRAR UM SERVIÇO
 
-1. Entre em "Serviços > Novo serviço".
+1. Entre em "Administração > Serviços > Novo serviço".
 2. Informe um "Código interno", se a empresa usar códigos.
    Exemplo apenas ilustrativo: SRV-010. O código não pode se repetir.
 3. Preencha "Nome", que é obrigatório.
@@ -332,17 +359,15 @@ CADASTRAR UM SERVIÇO
 Se houver aviso de possível serviço duplicado, confira o nome encontrado.
 Use "Cadastrar mesmo assim" somente quando a repetição fizer sentido.
 
-O QUE SIGNIFICA A FORMA DE COBRANÇA
+O QUE SIGNIFICA A UNIDADE DE COBRANÇA
 
-- "Por unidade": o valor de um item.
-- "Por kg": o valor de um quilograma.
-- "Por par": o valor de um par.
-- "Por metro": o valor de um metro.
-- "Preço fixo": o valor combinado para uma execução.
+- inteiro: aceita somente quantidades inteiras positivas;
+- decimal: aceita a precisão configurada para a unidade;
+- fixa: a quantidade é sempre 1.
 
-Exemplo: R$ 20,00 por unidade indica R$ 20,00 para cada item. Nesta versão,
-o catálogo apenas informa esse preço. Não há uma tela de venda que receba
-a quantidade e calcule automaticamente o total do atendimento.
+As unidades são universais e configuráveis. Exemplos iniciais incluem unidade,
+preço fixo, kg, metro, m², hora, dia, sessão, par, pessoa, km, litro e pacote.
+Uma unidade em uso pode ser inativada; o histórico nunca é apagado.
 
 EDITAR OU RETIRAR UM SERVIÇO DA OFERTA
 
@@ -355,13 +380,9 @@ EDITAR OU RETIRAR UM SERVIÇO DA OFERTA
 - Inativar preserva o cadastro e seus preços anteriores.
 
 
-======================================================================
-07. SERVIÇOS: CATEGORIAS E PREÇOS
-======================================================================
-
 CRIAR UMA CATEGORIA DE SERVIÇOS
 
-1. Entre em "Serviços > Categorias".
+1. Entre em "Administração > Serviços > Categorias".
 2. Clique em "+ Nova categoria".
 3. Informe um nome, como "Manutenção", se fizer sentido para a empresa.
 4. Escreva uma descrição, se necessário.
@@ -376,7 +397,7 @@ Nomes de categoria não podem se repetir.
 
 ALTERAR UM PREÇO
 
-1. Entre em "Serviços > Preços".
+1. Entre em "Administração > Serviços > Preços".
 2. Localize o serviço correto.
 3. Clique em "Alterar preço".
 4. Confira o valor atual mostrado na janela.
@@ -404,12 +425,26 @@ CONSULTAR PREÇOS ANTERIORES
 Alterar o catálogo não recebe dinheiro, não cria visita e não corrige
 retroativamente um lançamento financeiro que você já registrou.
 
+GERENCIAR UNIDADES
+
+Em "Administração > Serviços > Unidades de cobrança", o Proprietário pode criar,
+editar, ordenar, ativar e inativar unidades. Código, nome, símbolo, comportamento
+e precisão ficam congelados nos itens das Notas; editar a unidade atual não
+altera os documentos anteriores.
+
 
 ======================================================================
-08. CAIXA: ENTENDER O RESUMO
+08. CAIXA OPERACIONAL E FINANCEIRO
 ======================================================================
 
-Entre em "Caixa > Resumo".
+O acesso comum abre "Caixa > Operações". Essa tela mostra apenas os lançamentos
+criados pelo próprio usuário nos últimos sete dias, com paginação e sem saldo,
+totais, gráficos ou agregações da empresa. Ela serve para conferir o trabalho
+recente.
+
+Saldo e análises globais exigem permissão financeira e ficam em
+"Administração > Financeiro". Nessa área, use os atalhos para Resumo, Histórico e
+Relatórios completos. Os conceitos abaixo pertencem a esse acesso administrativo.
 
 "SALDO ATUAL"
 É o acumulado das entradas menos as saídas registradas e ativas até agora,
@@ -462,10 +497,11 @@ novo o saldo anterior só porque começou um novo mês: isso duplicaria dinheiro
 09. CAIXA: REGISTRAR UMA ENTRADA
 ======================================================================
 
-Use Entrada para registrar um valor efetivamente recebido.
+Use Entrada manual para registrar um valor efetivamente recebido que não tenha
+sido gerado pelo pagamento de uma Nota.
 
 1. Entre em "Caixa > Novo lançamento" ou clique em "+ Registrar entrada"
-   no Resumo.
+   quando esse atalho estiver disponível.
 2. Escolha "Entrada".
 3. Em "Valor bruto", informe o valor antes de descontar a taxa.
    Digite, por exemplo, 100,00.
@@ -479,8 +515,8 @@ Use Entrada para registrar um valor efetivamente recebido.
    da taxa em reais. O campo não é uma porcentagem.
 10. Confira o "Valor líquido", quando a área de taxa estiver aberta.
 11. Clique em "Registrar lançamento".
-12. Aguarde "Entrada registrada com sucesso" e confira o lançamento
-    em "Histórico" e os valores em "Resumo".
+12. Aguarde "Entrada registrada com sucesso" e confira o lançamento em
+    "Operações". Quem possui acesso financeiro também pode conferir no Histórico.
 
 ENTRADA SEM TAXA
 
@@ -498,8 +534,9 @@ ATENÇÕES
 
 - O valor bruto precisa ser maior que zero.
 - A taxa não pode ser negativa nem maior que o valor bruto.
-- Cartão é uma opção única nesta carcaça: não há opções separadas de
-  crédito e débito no cadastro inicial.
+- Cartão é uma opção única em um lançamento manual: não há opções separadas de
+  crédito e débito nesse formulário. O recebimento de Nota em cartão usa
+  terminal, modalidade, parcelas e taxa configurada.
 - Escolher Pix não gera cobrança nem confirma recebimento no banco.
 - Escolher Boleto não emite boleto. Use para um valor já recebido.
 - Promessa de pagamento ou boleto ainda pendente não é dinheiro recebido.
@@ -516,8 +553,7 @@ não significa que o anterior se perdeu. Consulte o Histórico antes de repetir.
 
 Use Saída para registrar um pagamento efetivamente realizado.
 
-1. No Resumo, clique em "Registrar saída", ou abra "Novo lançamento"
-   e escolha "Saída".
+1. Abra "Caixa > Novo lançamento" e escolha "Saída".
 2. Digite o valor pago em "Valor bruto", sempre como um número positivo.
    Exemplo: 80,00. Não digite -80,00.
 3. Confira a data e a hora do pagamento.
@@ -525,7 +561,7 @@ Use Saída para registrar um pagamento efetivamente realizado.
 5. Selecione categoria e forma de pagamento, se disponíveis.
 6. Acrescente observações, se necessário.
 7. Clique em "Registrar lançamento".
-8. Aguarde "Saída registrada com sucesso" e confira o Histórico.
+8. Aguarde "Saída registrada com sucesso" e confira em Operações.
 
 Uma saída de R$ 80,00 reduz o saldo em R$ 80,00.
 
@@ -541,7 +577,10 @@ um pagamento, não apenas uma conta que vencerá no futuro.
 11. CAIXA: CONSULTAR O HISTÓRICO
 ======================================================================
 
-1. Entre em "Caixa > Histórico".
+O operador consulta "Caixa > Operações", limitado aos próprios lançamentos dos
+últimos sete dias. O Histórico completo abaixo exige permissão financeira.
+
+1. Entre em "Administração > Financeiro" e abra "Histórico completo".
 2. Escolha o período:
    - Hoje: a data de hoje.
    - Esta semana: de segunda-feira a domingo da semana atual.
@@ -572,7 +611,7 @@ O QUE MOSTRAM AS COLUNAS
 - Usuário: quem criou o lançamento.
 - Ações: Ver, Editar e Cancelar, conforme sua permissão.
 
-REGRA IMPORTANTE DOS CARTÕES DO HISTÓRICO
+REGRA IMPORTANTE DOS CARTÕES DO HISTÓRICO ADMINISTRATIVO
 
 Os cartões de entradas, saídas, taxas e resultado mostram TODOS os
 lançamentos ativos do período escolhido, em todas as páginas.
@@ -608,6 +647,11 @@ EDITAR UM LANÇAMENTO ATIVO
 É possível corrigir descrição, valor, taxa de entrada, data, categoria,
 pagamento e observações. O tipo Entrada/Saída não pode ser trocado na edição.
 Se o tipo estiver errado, cancele o registro e faça outro com o tipo correto.
+
+Entradas `SYSTEM` geradas por Pagamento aparecem como automáticas e não podem ser
+editadas ou canceladas isoladamente, nem pelo Proprietário. Essa proteção evita
+divergência entre Nota, Pagamento e Caixa. O estorno completo não faz parte desta
+versão.
 
 CANCELAR UM LANÇAMENTO INCORRETO OU DUPLICADO
 
@@ -658,14 +702,17 @@ As categorias de Caixa são independentes das categorias de Serviços.
 Criar uma categoria em Serviços não cria outra igual automaticamente no Caixa.
 
 As formas de pagamento iniciais são Dinheiro, Pix, Cartão, Boleto e Outro.
-Não há tela de gerenciamento dessas formas de pagamento nesta versão.
+O Proprietário pode mantê-las em "Administração > Pagamentos e taxas", junto com
+terminais genéricos e regras de taxa. Inativar preserva referências históricas.
 
 
 ======================================================================
 14. CAIXA: CONSULTAR RELATÓRIOS E GRÁFICOS
 ======================================================================
 
-1. Entre em "Caixa > Relatórios".
+Esta função exige `finance.reports.view`; não aparece para o operador comum.
+
+1. Entre em "Administração > Financeiro" e abra "Relatórios".
 2. Escolha Hoje, Esta semana, Este mês, Este ano ou Personalizado.
 3. Se for Personalizado, informe a data inicial e a final.
 4. Clique em "Gerar relatório".
@@ -716,11 +763,12 @@ Cada usuário só vê os módulos e botões liberados para seu acesso.
 
 Na configuração inicial dos perfis:
 
-- Administrador: pode usar todas as funções disponíveis de Clientes,
-  Serviços e Caixa, incluindo edição, categorias, preços e cancelamento.
+- Proprietário: é o papel técnico legado `admin` exibido com o nome correto da
+  função na empresa. Pode acessar Administração, Clientes, Serviços e Caixa.
 - Usuário: pode cadastrar e cuidar de Clientes, consultar Serviços,
-  consultar Caixa e criar lançamentos. Por padrão, não altera o catálogo
-  ou preços e não edita/cancela lançamentos nem abre Relatórios do Caixa.
+  criar e operar Notas, receber quando autorizado e criar lançamentos manuais.
+  Por padrão, não vê saldo global, não altera catálogo ou taxas e não gerencia
+  usuários.
 - Entrega: ainda não recebe acesso automático a esses módulos.
 
 Esses são os perfis previstos. Isso não significa que existe uma conta
@@ -732,15 +780,20 @@ responsável. Isso pode ser uma restrição de acesso, não uma perda de dados.
 
 O QUE EXISTE EM ADMINISTRAÇÃO HOJE
 
-- Usuários: espaço preparado para uma futura gestão de contas.
-- Permissões: espaço preparado para uma futura gestão de acessos.
-- Configurações: espaço preparado para futuros ajustes pela tela.
-- Sistema: espaço preparado para futuras informações administrativas.
+- Visão geral: indicadores clicáveis de produção e Clientes; valores financeiros
+  aparecem somente com permissão.
+- Serviços: catálogo administrativo, categorias, unidades e preços.
+- Financeiro: saldo, Histórico e Relatórios completos.
+- Pagamentos e taxas: formas, terminais e regras com vigência.
+- Usuários e permissões: criar, editar, ativar/inativar, atribuir papel,
+  redefinir senha e configurar a matriz de acesso.
+- Empresa: nome, contato, endereço, logo local e fuso horário.
 
-Essas abas mostram "Módulo preparado" e uma apresentação da estrutura.
-Os campos de demonstração não equivalem a funções administrativas prontas.
-Não há nelas botão funcional para criar conta, trocar senha, redefinir
-permissões ou realizar backup. Solicite essas ações ao responsável.
+O último Proprietário não pode ser inativado nem perder as permissões essenciais.
+Uma gestão delegada não pode assumir o papel Proprietário, alterar essa conta ou
+conceder permissões superiores às do próprio responsável pela operação.
+Usuários não são apagados fisicamente. Não existe conta de suporte NexPoint,
+senha secreta do desenvolvedor ou acesso permanente nesta fase.
 
 
 ======================================================================
@@ -752,32 +805,35 @@ Exemplo apenas para entender o fluxo; não é necessário lançar estes dados.
 1. Uma pessoa chega à empresa.
    Consulte Clientes. Se ainda não houver cadastro, use Novo cliente.
 
-2. Você quer registrar que ela veio.
-   Na ficha, use Registrar visita e escreva uma observação curta.
+2. Você quer iniciar um atendimento.
+   Abra "Serviços > Nova Nota", escolha o Cliente e os serviços e salve. A Nota
+   registra o atendimento no histórico automaticamente.
 
-3. Você precisa consultar o preço do que será oferecido.
-   Abra Serviços > Lista e confira nome, preço atual e forma de cobrança.
+3. A produção começou.
+   Abra a Nota e marque "Em andamento". Quando terminar, marque "Pronto".
 
 4. A pessoa efetivamente paga R$ 100,00 por Pix.
-   Abra Caixa > Novo lançamento. Escolha Entrada, informe 100,00, a data
-   real, uma descrição clara e Pix. Sem taxa, o líquido é R$ 100,00.
+   Na própria Nota, use "Registrar pagamento", escolha Pix e confirme. O ERP
+   marca a Nota como Paga e cria uma entrada SYSTEM de R$ 100,00 no Caixa.
 
 5. A empresa efetivamente paga R$ 30,00 de uma despesa.
    Crie uma Saída de 30,00, com descrição e pagamento correspondentes.
 
 6. Você confere os registros.
-   Abra Histórico e escolha Hoje. Confira as duas linhas e os detalhes.
+   Em Caixa > Operações, confira seus lançamentos recentes. Com permissão
+   financeira, abra o Histórico completo e escolha Hoje.
    Se só existissem esses dois movimentos, o resultado seria R$ 70,00.
 
-7. Você confere o saldo.
-   Abra Resumo. O saldo será o acumulado anterior mais esses R$ 70,00.
+7. Você confere o saldo, se tiver permissão financeira.
+   Abra Administração > Financeiro. O saldo será o acumulado anterior mais esses
+   R$ 70,00.
 
 8. No fim do dia, confira os recebimentos e pagamentos realizados.
    Use Relatórios, se tiver acesso, e compare com os comprovantes da empresa.
    Depois, use Sair e feche a janela.
 
-O sistema não criou automaticamente uma ordem de serviço, uma venda ou uma
-cobrança nesse fluxo. Você registrou separadamente cliente, visita e dinheiro.
+O Pagamento e o Caixa foram gravados juntos. Se a entrega acontecer antes do
+recebimento, use "Entregar sem receber" e registre o pagamento depois.
 
 
 ======================================================================
@@ -785,10 +841,13 @@ cobrança nesse fluxo. Você registrou separadamente cliente, visita e dinheiro.
 ======================================================================
 
 CADASTREI UM CLIENTE E ELE APARECE COMO "NUNCA ATENDIDO".
-Isso é esperado até registrar uma visita. Criar a ficha não conta como visita.
+Isso é esperado até registrar uma visita ou criar uma Nota. Criar apenas a ficha
+não conta como retorno.
 
 CADASTREI UM SERVIÇO E O CAIXA CONTINUA IGUAL.
-O catálogo não representa um recebimento. Lance a Entrada quando receber.
+O catálogo não representa um recebimento. Crie a Nota e, quando o valor for
+recebido, registre o Pagamento na Nota. Use Entrada manual apenas para valores sem
+vínculo com uma Nota.
 
 O PREÇO MUDOU. OS RECEBIMENTOS ANTIGOS TAMBÉM MUDAM?
 Não. Alterar o preço do catálogo não muda o histórico financeiro.
@@ -798,36 +857,33 @@ Confira período, busca, filtros, status e outras páginas. Veja se houve
 mensagem de sucesso. Não repita o lançamento sem fazer essa conferência.
 
 O TOTAL NÃO É A SOMA DAS LINHAS QUE ESTOU VENDO.
-No Histórico do Caixa, o total é do período inteiro, não apenas da página
-ou do filtro da lista. Cancelados não contam; entradas com taxa contam
-pelo líquido. Veja também se há data/hora futura.
+No Histórico financeiro, o total é do período inteiro, não apenas da página ou
+do filtro da lista. Cancelados não contam; entradas com taxa contam pelo líquido.
+O Caixa > Operações do usuário não exibe totais globais.
 
 O SALDO É DIFERENTE DO DINHEIRO NA GAVETA.
 O saldo pode reunir Pix, cartão e outros meios, além de dinheiro. Ele
 reflete o que foi registrado no sistema e não faz conferência bancária sozinho.
 
-A BUSCA OU O HISTÓRICO DE CLIENTES MOSTROU ERRO.
-Há limitações nos filtros com campos vazios, descritas nas seções 03 e 04.
-Volte à aba correspondente. Não cadastre a mesma pessoa de novo por isso.
-
-EDITEI UM CLIENTE INATIVO E ELE APARECE ATIVO.
-É uma limitação atual do formulário. Confira o status e use "Inativar
-cliente" na ficha se ele precisar continuar inativo.
+A BUSCA NÃO MOSTROU O CLIENTE OU A ATIVIDADE.
+Confira filtros, período e a página atual. Use "Limpar" para voltar à consulta
+geral. Não cadastre a mesma pessoa novamente sem conferir o documento.
 
 QUERO APAGAR UM LANÇAMENTO DO CAIXA.
 A ação normal é cancelar com motivo. O histórico fica preservado.
 Não há exclusão definitiva nem reativação de cancelados pela tela.
 
 QUERO REGISTRAR UMA CONTA AINDA NÃO PAGA.
-Esta versão é um controle do dinheiro realizado. Contas a pagar, contas
-a receber, cobranças e ordens de serviço ainda não têm módulos funcionais.
+Uma Nota entregue pode permanecer financeiramente Pendente até o recebimento,
+mas esta versão não oferece contas a receber completas, parcelas ou cobrança
+automática. O Caixa registra somente valores realizados.
 
 PRECISO LANÇAR "SALDO INICIAL" TODO MÊS?
 Não. O saldo é acumulado. O procedimento especial de saldo de implantação
 ainda não tem uma ação pronta nesta versão.
 
 O SISTEMA TRAZ OS DADOS ANTIGOS DO NIL LAV?
-Esta carcaça tem registros próprios locais. Não importa automaticamente
+Este ERP tem registros próprios locais. Não importa automaticamente
 o histórico do sistema anterior nem o consulta durante a operação.
 
 SE A INTERNET CAIR, POSSO CONTINUAR?
@@ -868,7 +924,9 @@ ANTES DE ATENDER
 ANTES DE REGISTRAR DINHEIRO
 
 [ ] O dinheiro já foi efetivamente recebido ou pago.
-[ ] Escolhi Entrada ou Saída corretamente.
+[ ] Se o valor pertence a uma Nota, usei o pagamento da Nota e evitei duplicar
+    uma Entrada manual.
+[ ] Para movimento sem Nota, escolhi Entrada ou Saída corretamente.
 [ ] Digitei valor, data e hora corretos.
 [ ] A descrição permite reconhecer o motivo.
 [ ] Conferi categoria e forma de pagamento.

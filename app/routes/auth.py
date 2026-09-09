@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import RedirectResponse
 
 from app.repositories import AuthRepository
-from app.routes.helpers import templates
+from app.routes.helpers import branding_context, templates
 from app.services.auth import AuthService
 
 
@@ -15,8 +15,9 @@ router = APIRouter()
 def login_page(request: Request):
     if request.state.current_user:
         return RedirectResponse("/clientes/lista", status_code=status.HTTP_303_SEE_OTHER)
-    settings = request.app.state.settings
-    return templates.TemplateResponse(request, "login.html", {"error": None, "app_name": settings.app_name, "logo_path": settings.logo_path, "app_version": settings.version})
+    with request.app.state.session_factory() as session:
+        context = {"error": None, **branding_context(request, session)}
+    return templates.TemplateResponse(request, "login.html", context)
 
 
 @router.post("/login")
@@ -26,9 +27,13 @@ def login(request: Request, email: str = Form("", max_length=180), password: str
         user = AuthService(repository).authenticate(email, password)
         if user is None:
             repository.audit(None, "auth.login_failed", "session", email.strip().lower())
+            context = {
+                "error": "Usuário ou senha inválidos.",
+                "email": email,
+                **branding_context(request, session),
+            }
             return templates.TemplateResponse(
-                request, "login.html",
-                {"error": "Usuário ou senha inválidos.", "email": email, "app_name": request.app.state.settings.app_name, "logo_path": request.app.state.settings.logo_path, "app_version": request.app.state.settings.version},
+                request, "login.html", context,
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
         request.session.clear()
