@@ -7,7 +7,7 @@ from decimal import Decimal
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Service, ServiceCategory, ServicePrice, User
+from app.models import BillingUnit, Service, ServiceCategory, ServicePrice, User
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +60,11 @@ class ServiceRepository:
         if not 0 < service_id < 2**63:
             return None
         return self.session.scalar(
-            select(Service).where(Service.id == service_id).options(selectinload(Service.category), selectinload(Service.prices))
+            select(Service).where(Service.id == service_id).options(
+                selectinload(Service.category),
+                selectinload(Service.billing_unit),
+                selectinload(Service.prices),
+            )
         )
 
     def by_code(self, code: str, exclude_id: int | None = None) -> Service | None:
@@ -70,7 +74,9 @@ class ServiceRepository:
         return self.session.scalar(query)
 
     def name_candidates(self, name: str, exclude_id: int | None = None) -> list[Service]:
-        query = select(Service).options(selectinload(Service.category))
+        query = select(Service).options(
+            selectinload(Service.category), selectinload(Service.billing_unit)
+        )
         if exclude_id:
             query = query.where(Service.id != exclude_id)
         return list(self.session.scalars(query))
@@ -81,7 +87,9 @@ class ServiceRepository:
     ) -> tuple[list[ServiceListItem], int]:
         current_amount = select(ServicePrice.amount).where(ServicePrice.service_id == Service.id, ServicePrice.valid_to.is_(None)).correlate(Service).scalar_subquery()
         current_since = select(ServicePrice.valid_from).where(ServicePrice.service_id == Service.id, ServicePrice.valid_to.is_(None)).correlate(Service).scalar_subquery()
-        query = select(Service, current_amount.label("price"), current_since.label("price_since")).options(selectinload(Service.category))
+        query = select(
+            Service, current_amount.label("price"), current_since.label("price_since")
+        ).options(selectinload(Service.category), selectinload(Service.billing_unit))
         term = search.strip().casefold()
         if term:
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -95,7 +103,9 @@ class ServiceRepository:
         elif category.isascii() and category.isdecimal() and len(category) < 19:
             query = query.where(Service.category_id == int(category))
         if billing_unit != "ALL":
-            query = query.where(Service.billing_unit == billing_unit)
+            query = query.join(BillingUnit, BillingUnit.id == Service.billing_unit_id).where(
+                BillingUnit.code == billing_unit
+            )
         if active in {"ACTIVE", "INACTIVE"}:
             query = query.where(Service.is_active.is_(active == "ACTIVE"))
         total = int(self.session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0)

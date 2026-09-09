@@ -41,7 +41,9 @@ MODULES = (
         tab("historico", "Histórico", "/clientes/historico", "customers.view", "Linha do tempo das atividades dos clientes."),
     )),
     ModuleDefinition("services", "Serviços", "◇", "/servicos/catalogo", "services.view", "services", "functional", (
-        tab("catalogo", "Lista", "/servicos/catalogo", "services.view", "Consulta e gestão do catálogo local."),
+        tab("catalogo", "Catálogo", "/servicos/catalogo", "services.view", "Consulta dos serviços, preços e unidades disponíveis."),
+        tab("nova-nota", "Nova Nota", "/servicos/nova-nota", "notes.create", "Registro operacional de uma Nota de Serviço."),
+        tab("notas", "Notas de Serviço", "/servicos/notas", "notes.view", "Pesquisa e acompanhamento das Notas de Serviço."),
         tab("novo", "Novo serviço", "/servicos/novo", "services.create", "Cadastro de um serviço e seu preço inicial."),
         tab("categorias", "Categorias", "/servicos/categorias", "services.categories.manage", "Organização das categorias do catálogo."),
         tab("precos", "Preços", "/servicos/precos", "services.prices.manage", "Gestão individual e histórico de preços."),
@@ -57,5 +59,5 @@ MODULES = (
 MODULE_BY_ID = {module.id: module for module in MODULES}
 ROUTE_INDEX = {item.path: (module, item) for module in MODULES for item in module.tabs}
 
-# DONE: registry contém somente os quatro módulos aprovados e seus metadados.
-# BLOCKED: novos módulos dependem de discussão e aprovação futura do usuário.
+# O módulo Serviços reúne catálogo e Notas; telas administrativas do catálogo
+# coexistem temporariamente até a reorganização autorizada para a Fase 3.

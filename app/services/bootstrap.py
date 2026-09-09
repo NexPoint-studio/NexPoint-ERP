@@ -8,7 +8,8 @@ from app.core.database import Base
 from app.core.permissions import ALL_PERMISSIONS
 from app.core.security import hash_password
 from app.migrations import run_schema_migrations
-from app.models import FeatureFlag, Permission, Role, Setting, User
+from app.models import BillingUnit, FeatureFlag, Permission, Role, Setting, User
+from app.models.services import BILLING_UNIT_DEFAULTS
 
 
 ROLE_PERMISSIONS = {
@@ -16,6 +17,7 @@ ROLE_PERMISSIONS = {
     "user": {
         "cash.view", "cash.create", "customers.view", "customers.create", "customers.edit",
         "customers.deactivate", "customers.activity.create", "services.view", "reports.view",
+        "notes.view", "notes.create", "notes.edit", "notes.change_status",
     },
     "delivery": set(),
 }
@@ -32,12 +34,17 @@ def initialize_database(
     domain_tables = {
         "customers", "customer_addresses", "customer_activities",
         "service_categories", "services", "service_prices",
+        "billing_units", "service_notes", "service_note_items", "service_note_events",
         "cash_categories", "cash_payment_methods", "cash_movements",
     }
     infrastructure = [table for name, table in Base.metadata.tables.items() if name not in domain_tables]
-    Base.metadata.create_all(engine, tables=infrastructure)
-    run_schema_migrations(engine)
+    # Infraestrutura e domínio compartilham o mesmo lock SQLite de inicialização;
+    # isso evita corridas check-then-create entre dois starters simultâneos.
+    run_schema_migrations(engine, infrastructure_tables=infrastructure)
     with factory() as session:
+        # O seed também é query-then-insert e precisa do mesmo tipo de exclusão.
+        # Uma segunda inicialização espera e então enxerga os registros da primeira.
+        session.connection().exec_driver_sql("begin immediate")
         permissions = {}
         new_permission_codes: set[str] = set()
         for code in ALL_PERMISSIONS:
@@ -106,6 +113,9 @@ def initialize_database(
         for key, enabled in FEATURE_DEFAULTS.items():
             if session.get(FeatureFlag, key) is None:
                 session.add(FeatureFlag(key=key, enabled=enabled))
+        for default in BILLING_UNIT_DEFAULTS:
+            if session.scalar(select(BillingUnit.id).where(BillingUnit.code == default["code"])) is None:
+                session.add(BillingUnit(**default, is_active=True))
         session.commit()
 
 # DONE: seed contém somente metadados de infraestrutura e usuários locais genéricos.

@@ -11,7 +11,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app import create_app
-from app.models import CashMovement, Customer, CustomerActivity, Service, ServicePrice, User
+from app.models import BillingUnit, CashMovement, Customer, CustomerActivity, Service, ServicePrice, User
 from app.services.cash import CashReportService, CashService
 from app.services.cash_validation import CashMovementInput, resolve_period
 from tests.conftest import TEST_CREDENTIALS, login
@@ -152,7 +152,8 @@ def test_repeated_initialization_preserves_all_tables_and_backup(tmp_path):
     _create_movement(application, gross="123.45")
     with application.state.session_factory() as session:
         customer = Customer(type="PERSON", name="Cliente persistente", created_by=actor, updated_by=actor)
-        service = Service(name="Serviço persistente", billing_unit="UNIT", created_by=actor, updated_by=actor)
+        billing_unit_id = session.scalar(select(BillingUnit.id).where(BillingUnit.code == "UNIT"))
+        service = Service(name="Serviço persistente", billing_unit_id=billing_unit_id, created_by=actor, updated_by=actor)
         session.add_all([customer, service])
         session.flush()
         session.add_all([CustomerActivity(customer_id=customer.id, activity_type="VISIT", description="Visita preservada", created_by=actor),

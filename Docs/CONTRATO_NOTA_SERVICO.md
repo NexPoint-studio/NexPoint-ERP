@@ -2,6 +2,10 @@
 
 Consolidado na Fase 1/4 — Fundação, correções e contratos.
 
+> Estado atual: implementado na Fase 2/4 conforme
+> [Notas de Serviço](NOTAS_SERVICO.md). As menções abaixo a “futuro” registram o
+> momento em que o contrato foi congelado; as decisões continuam normativas.
+
 Este documento registra as decisões aprovadas para a primeira versão da Nota de
 Serviço. É a referência para as fases seguintes e prevalece sobre propostas da
 análise anterior e referências genéricas a Atendimento/OS na documentação antiga.
@@ -50,7 +54,7 @@ serie_normalizada = (serie_digitada ou "").strip().casefold()
 | `187` / ausente, Nota cancelada | `187` / ausente | Duplicidade |
 | `187` / ausente, ano anterior | `187` / ausente | Duplicidade |
 
-Na futura tabela, a chave normalizada da série deverá ser não nula, com vazio
+Na tabela implementada, a chave normalizada da série é não nula, com vazio
 representado por string vazia. Uma constraint composta com série nullable não
 cumpre sozinha este contrato. A unicidade deve existir no banco e tratar duas
 criações concorrentes com erro de domínio compreensível.
@@ -133,7 +137,7 @@ e o subtotal dos serviços. Validar os limites do desconto informado antes do
 arredondamento, sem aceitar excesso que apenas arredondaria para dentro do limite.
 O desconto não pode tornar o subtotal dos serviços negativo.
 
-Guardar futuramente o tipo do desconto, o percentual original quando utilizado,
+Guardar o tipo do desconto, o percentual original quando utilizado,
 a base aplicada e o valor efetivamente descontado. Congelar também subtotal dos
 serviços, valor de entrega e total final. A forma de representação exata do
 percentual será definida com a precisão dos campos; não usar ponto flutuante.
@@ -268,8 +272,9 @@ Cancelar a Nota e devolver dinheiro são operações distintas. A Nota cancelada
 
 Para uma Nota já paga, a correção financeira depende de fluxo específico futuro.
 Não improvisar estorno usando o cancelamento atual do Caixa, nem cancelar uma
-entrada e lançar saída como se fossem uma única correção sem regra definida.
-Esta Fase 1 não implementa cancelamento da Nota nem estorno.
+entrada e lançar saída como se fossem uma única correção sem regra definida. A
+Fase 2 implementa o cancelamento operacional com histórico; estorno financeiro
+continua fora do escopo.
 
 ## 11. Integração com Clientes e responsabilidades
 

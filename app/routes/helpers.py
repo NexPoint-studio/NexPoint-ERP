@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.core.config import ROOT_DIR
+from app.core.money import cents_to_decimal
 from app.core.modules import MODULES
 from app.repositories import ConfigurationRepository
 from app.services.customer_validation import format_document, format_phone
@@ -34,12 +35,17 @@ def _format_money(value):
     return f"R$ {formatted}"
 
 
+def _format_money_cents(value):
+    return _format_money(cents_to_decimal(int(value or 0)))
+
+
 templates.env.filters.update({
     "document": format_document,
     "phone": format_phone,
     "date_br": _format_date,
     "datetime_br": _format_datetime,
     "money": _format_money,
+    "money_cents": _format_money_cents,
 })
 
 

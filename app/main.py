@@ -15,7 +15,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.core.config import ROOT_DIR, Settings, development_credentials, get_settings
 from app.core.database import build_engine, build_session_factory
 from app.repositories import AuthRepository
-from app.routes import auth_router, cash_router, customers_router, pages_router, services_router
+from app.routes import (
+    auth_router,
+    cash_router,
+    customers_router,
+    notes_router,
+    pages_router,
+    services_router,
+)
 from app.routes.helpers import navigation_context, templates
 from app.services.auth import AuthService
 from app.services.bootstrap import initialize_database
@@ -132,6 +139,8 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(cash_router)
     app.include_router(customers_router)
+    # As rotas literais de Notas precisam preceder /servicos/{service_id}.
+    app.include_router(notes_router)
     app.include_router(services_router)
     app.include_router(pages_router)
 

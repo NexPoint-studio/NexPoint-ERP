@@ -1,40 +1,56 @@
 # Módulo Serviços
 
-O módulo Serviços é um catálogo genérico, local e independente de Clientes. Ele não representa atendimento, venda ou execução de serviço.
+O módulo Serviços reúne o catálogo configurável e a operação de
+[Notas de Serviço](NOTAS_SERVICO.md). Tudo permanece local e genérico: cadastrar
+ou alterar um item do catálogo não gera recebimento, movimento de Caixa ou
+atividade de Cliente.
 
-## Persistência
-
-As migrations aditivas `0003_services_catalog` e `0004_enable_services` criam e habilitam o módulo sem apagar usuários, clientes ou configurações existentes.
+## Persistência do catálogo
 
 - `service_categories`: nome, descrição, ordem, status e autoria.
-- `services`: código opcional e único, nome, descrição, categoria opcional, forma de cobrança, status e autoria.
-- `service_prices`: valor `Numeric(12,2)`, início/fim da vigência, motivo e autor.
+- `billing_units`: código, nome, símbolo, comportamento da quantidade, precisão,
+  status e ordem de exibição.
+- `services`: código opcional e único, nome, descrição, categoria opcional,
+  referência à unidade, status e autoria.
+- `service_prices`: valor legado `Numeric(12,2)`, início/fim da vigência, motivo
+  e autor.
 
-Não há categorias ou serviços empresariais inseridos automaticamente. Uma categoria em uso não é excluída; ela pode ser inativada e seus vínculos permanecem preservados.
+A migration `0007_billing_units` cria as unidades e substitui o código textual
+legado de cada Serviço por `billing_unit_id`. O rebuild preserva IDs, categorias,
+status, autoria, datas e todo o histórico em `service_prices`. A FK final usa
+`ON DELETE RESTRICT`, portanto uma unidade em uso pode ser inativada, mas não
+removida deixando referências órfãs.
 
-## Formas de cobrança
+## Unidades configuráveis
 
-Os identificadores ficam centralizados em `app/core/service_config.py`:
+Cada unidade define uma das regras abaixo. O backend consulta essa configuração;
+não há regras de quantidade condicionadas ao código `KG`, `PAIR` ou a qualquer
+segmento comercial.
 
-- `UNIT`: Por unidade — preço multiplicado pela quantidade.
-- `KG`: Por kg.
-- `PAIR`: Por par.
-- `METER`: Por metro.
-- `FIXED`: Preço fixo para uma execução.
+| Comportamento | Quantidade |
+|---|---|
+| `INTEGER` | inteiro positivo |
+| `DECIMAL` | decimal positivo, limitado por `decimal_places` |
+| `FIXED_ONE` | exatamente 1 |
 
-O módulo ainda não calcula quantidade, total, venda ou OS. A distinção entre unidade e fixo já está preservada para essa fase futura.
+Os defaults da carcaça são `UNIT`, `FIXED`, `KG`, `METER`, `SQUARE_METER`,
+`HOUR`, `DAY`, `SESSION`, `PAIR`, `PERSON`, `KM`, `LITER` e `PACKAGE`. O seed
+insere somente códigos ausentes e nunca restaura campos de uma unidade já
+customizada. A Administração completa dessas unidades pertence à Fase 3.
 
 ## Preços e vigências
 
-O preço atual nunca é sobrescrito. O registro vigente possui `valid_to IS NULL`. Ao alterar um preço, a vigência anterior é encerrada e um novo registro é criado com valor, momento, motivo opcional e usuário responsável.
+O preço atual nunca é sobrescrito. O registro vigente possui
+`valid_to IS NULL`; uma alteração encerra a vigência anterior e cria outra.
+O catálogo legado continua usando `Decimal` e `Numeric(12,2)`. As novas Notas
+convertem o preço vigente para centavos inteiros ao congelar o item, sem alterar
+a persistência existente do catálogo.
 
-Valores monetários são tratados com `Decimal` na aplicação e `Numeric(12,2)` no SQLAlchemy. Não se usa `float`.
+## Interface e permissões
 
-## Inativação e auditoria
-
-Serviços e categorias não são apagados pela interface. Inativação e reativação preservam histórico. Criação, edição, mudança de unidade, status e preço são registradas em `audit_events` sem expor SQL ao usuário.
-
-## Permissões
+O catálogo mostra serviço, categoria, preço e nome/símbolo da unidade. Os
+formulários oferecem somente unidades ativas, exceto quando a edição precisa
+preservar uma unidade inativada já vinculada.
 
 - `services.view`
 - `services.create`
@@ -43,18 +59,6 @@ Serviços e categorias não são apagados pela interface. Inativação e reativa
 - `services.prices.manage`
 - `services.categories.manage`
 
-Admin recebe acesso completo. User visualiza o catálogo por padrão e precisa de permissão específica para mudanças estruturais. Delivery não recebe acesso ao módulo.
-
-## Contrato futuro com Atendimento/OS
-
-Uma futura linha de OS deverá referenciar `service_id` e congelar o snapshot usado no atendimento:
-
-- `service_name`
-- `billing_unit`
-- `unit_price`
-- `quantity`
-- `line_total`
-
-Assim, alterações posteriores no nome, unidade ou preço do catálogo não modificam uma OS antiga.
-
-Somente a futura conclusão de um Atendimento/OS poderá criar em Clientes a atividade `SERVICE_COMPLETED`, contendo ao menos `customer_id`, `service_id`, data e referência da OS. Cadastrar ou editar um item do catálogo não cria atividade de cliente.
+Admin recebe acesso completo. User visualiza o catálogo por padrão e precisa de
+permissão específica para mudanças estruturais. Inativação preserva todos os
+vínculos e históricos.

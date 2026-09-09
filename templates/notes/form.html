@@ -1,0 +1,255 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+{% set financial_locked = editing and note and note.financial_status == 'PAGO' %}
+<header class="page-header page-header--split note-form-header">
+  <div>
+    <p class="eyebrow">SERVIÇOS › NOTAS</p>
+    <h1>{{ 'Editar Nota ' ~ note.number_original if editing else 'Nova Nota de Serviço' }}</h1>
+    <p>{{ 'Atualize os dados permitidos e preserve o histórico do atendimento.' if editing else 'Registre o atendimento com os valores e unidades vigentes no catálogo.' }}</p>
+    {% if financial_locked %}
+      <div class="profile-badges">
+        <span class="badge badge--success">Paga</span>
+        <span class="badge badge--info">Valores protegidos</span>
+      </div>
+    {% endif %}
+  </div>
+  <a class="button button--secondary" href="{{ '/servicos/notas/' ~ note.id if editing else '/servicos/notas' }}">Voltar</a>
+</header>
+
+{% if errors.get('form') %}<div class="alert alert--error" role="alert">{{ errors.get('form') }}</div>{% endif %}
+{% if errors.get('_form') %}<div class="alert alert--error" role="alert">{{ errors.get('_form') }}</div>{% endif %}
+{% if errors.get('number_series') %}<div class="alert alert--error" role="alert">{{ errors.get('number_series') }}</div>{% endif %}
+{% if errors.get('items') %}<div class="alert alert--error" role="alert">{{ errors.get('items') }}</div>{% endif %}
+
+{% if financial_locked %}
+<div class="alert alert--info" role="status">
+  <strong>Esta Nota já está paga.</strong>
+  Serviços, quantidades, entrega e desconto permanecem congelados. Somente as observações podem ser alteradas.
+</div>
+<section class="metrics-grid metrics-grid--three compact note-locked-summary" aria-label="Resumo da Nota">
+  <article class="metric-card"><span class="metric-card__label">Identificação</span><strong class="metric-card__value note-metric-text">{{ note.number_original }}</strong><small>{{ 'Série/Bloco ' ~ note.series_original if note.series_original else 'Sem série/bloco' }}</small></article>
+  <article class="metric-card"><span class="metric-card__label">Cliente</span><strong class="metric-card__value note-metric-text">{{ note.customer.name }}</strong><small>Cadastro vinculado</small></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Total congelado</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>Quitação preservada</small></article>
+</section>
+<form method="post" class="customer-form note-form" action="/servicos/notas/{{ note.id }}/editar">
+  <input type="hidden" name="revision" value="{{ note.revision }}">
+  <section class="panel form-section">
+    <div class="section-heading"><div><span class="section-kicker">Informação não financeira</span><h2>Observações</h2></div></div>
+    <label class="field">Observações
+      <textarea name="notes" maxlength="5000" placeholder="Informações opcionais sobre o atendimento">{{ form.notes or '' }}</textarea>
+      {% if errors.get('notes') %}<small class="field-error">{{ errors.get('notes') }}</small>{% endif %}
+    </label>
+  </section>
+  <div class="form-actions form-actions--sticky">
+    <a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Cancelar</a>
+    <button class="button button--primary" type="submit">Salvar observações</button>
+  </div>
+</form>
+{% else %}
+<form
+  method="post"
+  class="customer-form note-form"
+  action="{{ '/servicos/notas/' ~ note.id ~ '/editar' if editing else '/servicos/nova-nota' }}"
+  data-note-form
+>
+  {% if editing %}<input type="hidden" name="revision" value="{{ form.revision or note.revision }}">{% endif %}
+  <section class="panel form-section">
+    <div class="section-heading"><div><span class="section-kicker">Identificação</span><h2>Nota e cliente</h2></div></div>
+    <div class="form-grid note-identification-grid">
+      <label class="field">Número da Nota *
+        <input name="number" value="{{ form.number or '' }}" maxlength="80" required autocomplete="off" placeholder="Ex.: 0187">
+        <small class="form-hint">O número é textual; zeros iniciais serão preservados.</small>
+        {% if errors.get('number') %}<small class="field-error">{{ errors.get('number') }}</small>{% endif %}
+      </label>
+      <label class="field">Série/Bloco
+        <input name="series" value="{{ form.series or '' }}" maxlength="80" autocomplete="off" placeholder="Opcional">
+        {% if errors.get('series') %}<small class="field-error">{{ errors.get('series') }}</small>{% endif %}
+      </label>
+      <label class="field field--wide">Cliente *
+        <select name="customer_id" required>
+          <option value="">Selecione o cliente</option>
+          {% for customer in customers %}
+            <option value="{{ customer.id }}" {% if form.customer_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}{% if not customer.is_active %} (inativo){% endif %}</option>
+          {% endfor %}
+        </select>
+        {% if errors.get('customer_id') %}<small class="field-error">{{ errors.get('customer_id') }}</small>{% endif %}
+      </label>
+    </div>
+  </section>
+
+  <section class="panel form-section">
+    <div class="section-heading"><div><span class="section-kicker">Prazo de produção</span><h2>Recebimento e previsão</h2></div></div>
+    <div class="form-grid">
+      <label class="field">Recebimento *
+        <input type="datetime-local" name="received_at" value="{{ form.received_at or '' }}" required>
+        {% if errors.get('received_at') %}<small class="field-error">{{ errors.get('received_at') }}</small>{% endif %}
+      </label>
+      <label class="field">Previsão para ficar pronto *
+        <input type="datetime-local" name="expected_ready_at" value="{{ form.expected_ready_at or '' }}" required>
+        <small class="form-hint">Esta é a previsão de produção, não a data de entrega ao cliente.</small>
+        {% if errors.get('expected_ready_at') %}<small class="field-error">{{ errors.get('expected_ready_at') }}</small>{% endif %}
+      </label>
+    </div>
+  </section>
+
+  <section class="panel form-section note-items-section">
+    <div class="section-heading section-heading--split">
+      <div><span class="section-kicker">Itens da Nota</span><h2>Serviços</h2><p>Pesquise no catálogo e informe a quantidade conforme a unidade de cobrança.</p></div>
+      <span class="badge badge--neutral" data-note-item-count>0 itens</span>
+    </div>
+
+    <div class="note-service-picker">
+      <label class="field field--search">Pesquisar serviço
+        <input type="search" placeholder="Nome, código, categoria ou unidade" autocomplete="off" data-note-service-search>
+      </label>
+      <label class="field">Serviço disponível
+        <select data-note-service-picker>
+          <option value="">Selecione um serviço</option>
+          {% for service in available_services %}
+            <option
+              value="{{ service.id }}"
+              data-service-name="{{ service.name }}"
+              data-service-code="{{ service.code or '' }}"
+              data-category="{{ service.category_name or '' }}"
+              data-price-cents="{{ service.current_price_cents }}"
+              data-unit-name="{{ service.billing_unit.name }}"
+              data-unit-symbol="{{ service.billing_unit.symbol }}"
+              data-quantity-behavior="{{ service.billing_unit.quantity_behavior }}"
+              data-decimal-places="{{ service.billing_unit.decimal_places }}"
+            >{{ service.name }}{% if service.code %} · {{ service.code }}{% endif %} · {{ service.current_price_cents|money_cents }} / {{ service.billing_unit.symbol }}</option>
+          {% endfor %}
+        </select>
+        <small class="form-hint" data-note-service-result>{{ available_services|length }} serviço(s) disponível(is).</small>
+      </label>
+      <button class="button button--primary note-add-service" type="button" data-note-add-service>Adicionar serviço</button>
+    </div>
+    <div class="alert alert--warning note-picker-message" role="status" data-note-picker-message hidden></div>
+
+    <div class="table-shell note-items-table-shell">
+      <table class="note-items-table">
+        <thead><tr><th>Serviço</th><th>Unidade</th><th>Quantidade</th><th>Preço</th><th>Subtotal</th><th>Ações</th></tr></thead>
+        <tbody data-note-items>
+          {% for item in form.get('items', []) %}
+            {% set persisted_item = (note.items|selectattr('id', 'equalto', item.item_id|int)|list|first) if editing and item.item_id else none %}
+            {% set catalog_service = (available_services|selectattr('id', 'equalto', item.service_id|int)|list|first) if item.service_id else none %}
+            {% set item_error = item_errors[loop.index0] if item_errors and loop.index0 < item_errors|length else {} %}
+            {% set display_name = persisted_item.service_name_snapshot if persisted_item else (catalog_service.name if catalog_service else 'Serviço não encontrado') %}
+            {% set display_code = persisted_item.service_code_snapshot if persisted_item else (catalog_service.code if catalog_service else '') %}
+            {% set unit_name = persisted_item.billing_unit_name_snapshot if persisted_item else (catalog_service.billing_unit.name if catalog_service else 'Unidade indisponível') %}
+            {% set unit_symbol = persisted_item.billing_unit_symbol_snapshot if persisted_item else (catalog_service.billing_unit.symbol if catalog_service else '—') %}
+            {% set quantity_behavior = persisted_item.quantity_behavior_snapshot if persisted_item else (catalog_service.billing_unit.quantity_behavior if catalog_service else 'DECIMAL') %}
+            {% set decimal_places = persisted_item.decimal_places_snapshot if persisted_item else (catalog_service.billing_unit.decimal_places if catalog_service else 3) %}
+            {% set price_cents = persisted_item.unit_price_cents if persisted_item else (catalog_service.current_price_cents if catalog_service else 0) %}
+            <tr
+              data-note-item
+              data-service-id="{{ item.service_id }}"
+              data-price-cents="{{ price_cents }}"
+              data-quantity-behavior="{{ quantity_behavior }}"
+              data-decimal-places="{{ decimal_places }}"
+            >
+              <td>
+                <input type="hidden" name="item_id" value="{{ item.item_id or '' }}">
+                <input type="hidden" name="service_id" value="{{ item.service_id or '' }}">
+                <strong>{{ display_name }}</strong><small>{{ display_code or 'Sem código' }}{% if persisted_item %} · snapshot da Nota{% endif %}</small>
+                {% if item_error.get('service_id') %}<small class="field-error">{{ item_error.get('service_id') }}</small>{% endif %}
+              </td>
+              <td><strong>{{ unit_symbol }}</strong><small>{{ unit_name }}</small></td>
+              <td>
+                <input
+                  id="note-quantity-{{ loop.index0 }}"
+                  class="note-quantity-input"
+                  aria-label="Quantidade de {{ display_name }}"
+                  name="quantity"
+                  value="{{ item.quantity or ('1' if quantity_behavior == 'FIXED_ONE' else '') }}"
+                  maxlength="64"
+                  inputmode="{{ 'numeric' if quantity_behavior in ('INTEGER', 'FIXED_ONE') else 'decimal' }}"
+                  min="{{ '1' if quantity_behavior in ('INTEGER', 'FIXED_ONE') else '' }}"
+                  step="{{ '1' if quantity_behavior in ('INTEGER', 'FIXED_ONE') else 'any' }}"
+                  required
+                  {% if quantity_behavior == 'FIXED_ONE' %}readonly aria-readonly="true"{% endif %}
+                  data-note-quantity
+                >
+                <small>{{ 'Sempre 1' if quantity_behavior == 'FIXED_ONE' else ('Inteira e positiva' if quantity_behavior == 'INTEGER' else 'Até ' ~ decimal_places ~ ' casa(s) decimal(is)') }}</small>
+                {% if item_error.get('quantity') %}<small class="field-error">{{ item_error.get('quantity') }}</small>{% endif %}
+              </td>
+              <td class="note-money-cell">{{ price_cents|money_cents }}<small>/ {{ unit_symbol }}</small></td>
+              <td class="note-money-cell"><strong data-note-item-subtotal>—</strong><small>prévia</small></td>
+              <td><button class="link-button note-remove-item" type="button" data-note-remove-item aria-label="Remover {{ display_name }}">Remover</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="empty-state note-items-empty" data-note-items-empty {% if form.get('items') %}hidden{% endif %}>
+        <strong>Nenhum serviço adicionado.</strong><p>Selecione ao menos um serviço do catálogo para salvar a Nota.</p>
+      </div>
+    </div>
+    <p class="panel-note">Preços e unidades exibidos são uma prévia. Ao salvar, o servidor consulta o catálogo e congela os valores válidos na Nota.</p>
+  </section>
+
+  <section class="note-totals-layout">
+    <div>
+      <section class="panel form-section">
+        <div class="section-heading"><div><span class="section-kicker">Entrega</span><h2>Forma de retirada</h2></div></div>
+        <label class="checkbox">
+          <input type="checkbox" name="delivery_enabled" value="1" {% if form.delivery_enabled == '1' %}checked{% endif %} data-note-delivery-toggle>
+          Esta Nota possui entrega
+        </label>
+        <div class="note-conditional-field" data-note-delivery-fields {% if form.delivery_enabled != '1' %}hidden{% endif %}>
+          <label class="field">Valor da entrega
+            <input name="delivery_amount" value="{{ form.delivery_amount or '' }}" maxlength="64" inputmode="decimal" autocomplete="off" placeholder="0,00" data-note-delivery-amount>
+            <small class="form-hint">Deixe vazio para entrega gratuita.</small>
+            {% if errors.get('delivery_amount') %}<small class="field-error">{{ errors.get('delivery_amount') }}</small>{% endif %}
+          </label>
+        </div>
+      </section>
+
+      <section class="panel form-section">
+        <div class="section-heading"><div><span class="section-kicker">Desconto</span><h2>Aplicação sobre os serviços</h2></div></div>
+        <div class="form-grid note-discount-grid">
+          <label class="field">Tipo de desconto
+            <select name="discount_type" data-note-discount-type>
+              <option value="" {% if not form.discount_type %}selected{% endif %}>Nenhum</option>
+              <option value="VALOR" {% if form.discount_type == 'VALOR' %}selected{% endif %}>Valor</option>
+              <option value="PERCENTUAL" {% if form.discount_type == 'PERCENTUAL' %}selected{% endif %}>Percentual</option>
+            </select>
+            {% if errors.get('discount_type') %}<small class="field-error">{{ errors.get('discount_type') }}</small>{% endif %}
+          </label>
+          <label class="field" data-note-discount-field {% if not form.discount_type %}hidden{% endif %}>
+            <span data-note-discount-label>{{ 'Percentual *' if form.discount_type == 'PERCENTUAL' else 'Valor *' }}</span>
+            <input name="discount_input" value="{{ form.discount_input or '' }}" maxlength="64" inputmode="decimal" autocomplete="off" placeholder="{{ '0,00' if form.discount_type == 'PERCENTUAL' else '0,00' }}" data-note-discount-input>
+            <small class="form-hint">O desconto não incide sobre a entrega.</small>
+            {% if errors.get('discount_input') %}<small class="field-error">{{ errors.get('discount_input') }}</small>{% endif %}
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <aside class="panel note-summary" aria-labelledby="note-summary-title" aria-live="polite">
+      <div class="section-heading"><div><span class="section-kicker">Prévia</span><h2 id="note-summary-title">Resumo da Nota</h2></div></div>
+      <dl>
+        <div><dt>Subtotal dos serviços</dt><dd data-note-services-subtotal>R$ 0,00</dd></div>
+        <div><dt>Desconto</dt><dd class="note-summary__discount" data-note-discount-total>− R$ 0,00</dd></div>
+        <div><dt>Entrega</dt><dd data-note-delivery-total>R$ 0,00</dd></div>
+        <div class="note-summary__total"><dt>Total</dt><dd data-note-total>R$ 0,00</dd></div>
+      </dl>
+      <p class="note-summary__message" data-note-summary-message>Adicione serviços para calcular a prévia.</p>
+      <small>O servidor recalcula todos os valores antes de salvar.</small>
+    </aside>
+  </section>
+
+  <section class="panel form-section">
+    <div class="section-heading"><div><span class="section-kicker">Informações adicionais</span><h2>Observações</h2></div></div>
+    <label class="field">Observações
+      <textarea name="notes" maxlength="5000" placeholder="Detalhes opcionais sobre o atendimento">{{ form.notes or '' }}</textarea>
+      {% if errors.get('notes') %}<small class="field-error">{{ errors.get('notes') }}</small>{% endif %}
+    </label>
+  </section>
+
+  <div class="form-actions form-actions--sticky">
+    <a class="button button--secondary" href="{{ '/servicos/notas/' ~ note.id if editing else '/servicos/notas' }}">Cancelar</a>
+    <button class="button button--primary" type="submit">{{ 'Salvar alterações' if editing else 'Salvar Nota' }}</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

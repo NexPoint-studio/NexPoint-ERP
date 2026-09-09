@@ -7,8 +7,8 @@ internet.
 
 Ela oferece login local, perfis e permissões, auditoria, feature flags, sidebar
 responsiva, abas contextuais e componentes visuais. Os módulos Clientes,
-Serviços e Caixa são funcionais e reutilizáveis. Administração contém apenas
-infraestrutura genérica.
+Serviços, Notas de Serviço e Caixa são funcionais e reutilizáveis. Administração
+contém apenas infraestrutura genérica.
 
 ## Preparar o ambiente próprio
 
@@ -42,6 +42,6 @@ Para desenvolvimento local no navegador, sempre restrito a `127.0.0.1`:
 ```
 
 Consulte [a documentação da carcaça](Docs/CARCACA.md), as documentações dos
-módulos [Clientes](Docs/CLIENTES.md), [Serviços](Docs/SERVICOS.md) e
-[Caixa](Docs/CAIXA.md), e o guia
+módulos [Clientes](Docs/CLIENTES.md), [Serviços](Docs/SERVICOS.md),
+[Notas de Serviço](Docs/NOTAS_SERVICO.md) e [Caixa](Docs/CAIXA.md), e o guia
 [Como criar um novo ERP](Docs/COMO_CRIAR_NOVO_ERP.md) antes de reutilizar.

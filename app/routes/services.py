@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
-from app.core.service_config import BILLING_UNITS, BILLING_UNIT_BY_CODE
+from app.repositories import BillingUnitRepository
 from app.routes.helpers import navigation_context, templates
 from app.services.service_validation import CategoryInput, ServiceInput
 from app.services.services import (
@@ -20,10 +20,15 @@ router = APIRouter(prefix="/servicos")
 def _context(request: Request, session, tab_id: str, **extra):
     module = MODULE_BY_ID["services"]
     tab = next(item for item in module.tabs if item.id == tab_id)
+    billing_units = extra.pop("billing_units", None)
+    if billing_units is None:
+        billing_units = BillingUnitRepository(session).all()
     return navigation_context(
         request, session, selected_module=module, selected_tab=tab,
         page_title=extra.pop("page_title", tab.name), implemented=True,
-        billing_units=BILLING_UNITS, billing_unit_by_code=BILLING_UNIT_BY_CODE, **extra,
+        billing_units=billing_units,
+        billing_unit_by_code={unit.code: unit for unit in billing_units},
+        **extra,
     )
 
 
@@ -49,9 +54,12 @@ def new_service(request: Request):
     require_permission(request, "services.create")
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
+        billing_units = service.billing_units.all(active_only=True)
+        default_unit = next((unit.code for unit in billing_units if unit.code == "UNIT"), billing_units[0].code if billing_units else "")
         return templates.TemplateResponse(request, "services/form.html", _context(
-            request, session, "novo", form={"billing_unit": "UNIT", "is_active": "1"}, errors={},
+            request, session, "novo", form={"billing_unit": default_unit, "is_active": "1"}, errors={},
             duplicates=[], categories=service.categories.all(active_only=True), editing=False, page_title="Novo serviço",
+            billing_units=billing_units,
         ))
 
 
@@ -69,7 +77,11 @@ async def create_service(request: Request):
         except DuplicateCodeError:
             data.errors["code"] = "Este código já está em uso."
             result = data
-        context = _context(request, session, "novo", form=data.as_form(), errors=data.errors, categories=service.categories.all(active_only=True), editing=False, page_title="Novo serviço")
+        context = _context(
+            request, session, "novo", form=data.as_form(), errors=data.errors,
+            categories=service.categories.all(active_only=True), editing=False,
+            page_title="Novo serviço", billing_units=service.billing_units.all(active_only=True),
+        )
         if isinstance(result, PossibleServiceDuplicate):
             context["duplicates"] = result.services
             return templates.TemplateResponse(request, "services/form.html", context, status_code=409)
@@ -199,10 +211,14 @@ def edit_service(request: Request, service_id: int):
         item = service.repository.get(service_id)
         if item is None:
             _not_found()
-        form = {"name": item.name, "code": item.code or "", "description": item.description or "", "category_id": str(item.category_id or ""), "billing_unit": item.billing_unit, "is_active": "1" if item.is_active else "0"}
+        form = {"name": item.name, "code": item.code or "", "description": item.description or "", "category_id": str(item.category_id or ""), "billing_unit": item.billing_unit.code, "is_active": "1" if item.is_active else "0"}
+        billing_units = service.billing_units.all(active_only=True)
+        if not item.billing_unit.is_active:
+            billing_units.append(item.billing_unit)
+            billing_units.sort(key=lambda unit: (unit.display_order, unit.name, unit.id))
         return templates.TemplateResponse(request, "services/form.html", _context(
             request, session, "catalogo", form=form, errors={}, duplicates=[], categories=service.categories.all(),
-            editing=True, service_item=item, page_title="Editar serviço",
+            editing=True, service_item=item, page_title="Editar serviço", billing_units=billing_units,
         ))
 
 
@@ -222,7 +238,16 @@ async def update_service(request: Request, service_id: int):
         except DuplicateCodeError:
             data.errors["code"] = "Este código já está em uso."
             result = data
-        context = _context(request, session, "catalogo", form=data.as_form(), errors=data.errors, categories=service.categories.all(), editing=True, service_item=service.repository.get(service_id), page_title="Editar serviço")
+        current = service.repository.get(service_id)
+        billing_units = service.billing_units.all(active_only=True)
+        if current is not None and not current.billing_unit.is_active:
+            billing_units.append(current.billing_unit)
+            billing_units.sort(key=lambda unit: (unit.display_order, unit.name, unit.id))
+        context = _context(
+            request, session, "catalogo", form=data.as_form(), errors=data.errors,
+            categories=service.categories.all(), editing=True, service_item=current,
+            page_title="Editar serviço", billing_units=billing_units,
+        )
         if isinstance(result, PossibleServiceDuplicate):
             context["duplicates"] = result.services
             return templates.TemplateResponse(request, "services/form.html", context, status_code=409)

@@ -42,21 +42,22 @@ acoplar a interface, mas nenhum adaptador remoto é incluído nesta versão.
 ## Módulos funcionais atuais
 
 - Clientes: cadastro, endereços e atividades locais;
-- Serviços: catálogo, categorias e histórico de preços;
+- Serviços: catálogo, unidades configuráveis, Notas operacionais e histórico de preços;
 - Caixa: livro-caixa, categorias, formas de pagamento, histórico e relatórios.
 
-Os módulos continuam independentes. Cadastrar Cliente ou Serviço não gera uma
-movimentação financeira. A integração futura com Atendimento/OS e Pagamentos
-deve respeitar as mesmas camadas e o contrato idempotente documentado em
-`Docs/CAIXA.md`.
+Os módulos continuam independentes. Cadastrar Cliente, Serviço ou Nota não gera
+movimentação financeira. A Nota de total zero fica quitada sem Payment e sem
+Caixa. A integração de Pagamentos pertence à Fase 3 e deverá respeitar o contrato
+idempotente documentado em `Docs/CAIXA.md`.
 
 ## Contratos da evolução
 
 A primeira versão da Nota de Serviço segue o
-[contrato oficial](CONTRATO_NOTA_SERVICO.md), consolidado na Fase 1/4. Ele
-prevalece sobre os exemplos genéricos anteriores de Atendimento/OS.
+[contrato oficial](CONTRATO_NOTA_SERVICO.md), consolidado na Fase 1/4, e sua
+[implementação operacional](NOTAS_SERVICO.md) foi realizada na Fase 2/4. Esses
+documentos prevalecem sobre os exemplos genéricos anteriores de Atendimento/OS.
 
 Novos valores financeiros e migrations seguem a
 [estratégia monetária e de migrations](ESTRATEGIA_MONETARIA_MIGRATIONS.md).
-O utilitário de centavos está preparado para as novas entidades; o Caixa
-existente e seu schema não foram convertidos na Fase 1.
+O utilitário de centavos é usado pelas Notas; o Caixa existente e seu schema
+monetário continuam sem conversão.

@@ -5,6 +5,10 @@ Vale para o projeto `D:\NexStudio\sistema ERP`, repositório `SmuriNex/sistema-E
 As exigências abaixo orientam as Fases 2 e 3. A Fase 1 não cria tabelas de
 Nota/Pagamento, não migra o Caixa e não modifica valores operacionais.
 
+> Estado atual: a Fase 2 aplicou esta estratégia às Notas, com dinheiro em
+> centavos inteiros e quantidade inteira escalonada de 0 a 6 casas. As migrations
+> `0007_billing_units` e `0008_service_notes` não convertem o Caixa legado.
+
 ## 1. Decisão monetária
 
 Novos campos monetários de Nota, itens, descontos, entrega e Pagamento serão
@@ -158,10 +162,12 @@ Notas, clientes ou vínculos retroativos a partir de descrição, valor ou data.
 ## 5. Padrão obrigatório para migrations futuras
 
 O mecanismo atual em [`app/migrations.py`](../app/migrations.py) registra
-versões em `schema_migrations` e usa `create(checkfirst=True)` para tabelas
-ausentes. Isso não transforma colunas, tipos ou constraints de uma tabela já
-existente. Nesta fase não há alteração dessa infraestrutura, nova versão de
-migration nem aplicação de migration funcional no banco operacional.
+versões em `schema_migrations`. A Fase 2 acrescenta `0007_billing_units` e
+`0008_service_notes`, com DDL/defaults versionados em
+[`app/migration_definitions.py`](../app/migration_definitions.py). `0007`
+reconstrói `services` de forma explícita para trocar o código textual por FK;
+`0008` cria Notas, itens e eventos. As definições já versionadas não dependem do
+model ou de defaults mutáveis.
 
 Cada mudança futura deverá atender a estes requisitos:
 
@@ -221,9 +227,10 @@ O hash do arquivo ajuda a provar ausência de gravação em tarefas sem migratio
 como esta Fase 1. Em migrations legítimas, o arquivo muda: a evidência de
 preservação deve ser lógica e financeira, além da integridade estrutural.
 
-## 7. Limite desta entrega
+## 7. Limite da Fase 2
 
-Entregues somente o conversor puro, seus testes e esta estratégia. Nenhum
-model, schema, migration, lançamento do Caixa ou valor do catálogo é alterado
-por estes arquivos. A criação das entidades e a integração financeira continuam
-reservadas às fases seguintes, mediante autorização do usuário.
+As novas Notas persistem dinheiro em centavos inteiros e snapshots da unidade e
+do preço do catálogo. O `Numeric(12,2)` já existente em `service_prices` e toda a
+persistência monetária do Caixa permanecem sem conversão. Esta fase não cria
+Payment, não vincula Nota ao Caixa, não infere recebimentos antigos e não produz
+`CustomerActivity`; essas integrações continuam reservadas às fases seguintes.

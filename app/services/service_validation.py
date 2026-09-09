@@ -4,9 +4,6 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 
-from app.core.service_config import BILLING_UNIT_BY_CODE
-
-
 def clean_optional(value: object, *, max_length: int) -> str | None:
     text = str(value or "").strip()
     return text[:max_length] or None
@@ -49,8 +46,8 @@ class ServiceInput:
         code = clean_optional(form.get("code"), max_length=40)
         if code:
             code = code.upper()
-        billing_unit = str(form.get("billing_unit", "")).upper()
-        if billing_unit not in BILLING_UNIT_BY_CODE:
+        billing_unit = str(form.get("billing_unit", "")).strip().upper()
+        if not re.fullmatch(r"[A-Z0-9_]{1,40}", billing_unit):
             errors["billing_unit"] = "Selecione uma forma de cobrança válida."
         try:
             category_id = int(form["category_id"]) if form.get("category_id") else None

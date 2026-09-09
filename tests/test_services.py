@@ -114,7 +114,7 @@ def test_edit_service_does_not_edit_price_and_audits_billing_unit(client, app):
     assert response.status_code == 303
     with app.state.session_factory() as session:
         item = session.get(Service, item_id)
-        assert item.name == "Serviço Editado" and item.billing_unit == "KG"
+        assert item.name == "Serviço Editado" and item.billing_unit.code == "KG"
         assert item.prices[0].amount == Decimal("30.00")
         assert session.scalar(select(AuditEvent).where(AuditEvent.action == "service.updated"))
 
@@ -174,7 +174,7 @@ def test_catalog_sorting_and_real_pagination(client, app):
 
 def test_all_billing_units_render_in_catalog(client):
     login(client, "admin@local")
-    units = {"UNIT": "Por unidade", "KG": "Por kg", "PAIR": "Por par", "METER": "Por metro", "FIXED": "Preço fixo"}
+    units = {"UNIT": "Unidade", "KG": "Quilograma", "PAIR": "Par", "METER": "Metro", "FIXED": "Preço fixo"}
     for index, code in enumerate(units):
         create_service(client, code=f"U-{index}", name=f"Cobrança {code}", billing_unit=code, force_duplicate="1")
     text = client.get("/servicos/catalogo?active=ALL").text

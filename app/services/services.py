@@ -12,8 +12,8 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from app.services.transactions import atomic_write
 
-from app.models import AuditEvent, Service, ServiceCategory, ServicePrice
-from app.repositories import ServiceCategoryRepository, ServicePriceRepository, ServiceRepository
+from app.models import AuditEvent, BillingUnit, Service, ServiceCategory, ServicePrice
+from app.repositories import BillingUnitRepository, ServiceCategoryRepository, ServicePriceRepository, ServiceRepository
 from app.repositories.services import CategoryListItem, ServiceListItem
 from app.services.service_validation import CategoryInput, ServiceInput, parse_money
 
@@ -71,6 +71,7 @@ class CatalogService:
         self.repository = ServiceRepository(session)
         self.categories = ServiceCategoryRepository(session)
         self.prices = ServicePriceRepository(session)
+        self.billing_units = BillingUnitRepository(session)
 
     def _audit(self, user_id: int, action: str, resource: str, details: dict | None = None) -> None:
         self.session.add(AuditEvent(
@@ -78,13 +79,26 @@ class CatalogService:
             details=json.dumps(details, ensure_ascii=False, default=str) if details else None,
         ))
 
-    def _validate(self, data: ServiceInput, *, exclude_id: int | None = None) -> None:
+    def _validate(
+        self,
+        data: ServiceInput,
+        *,
+        exclude_id: int | None = None,
+        current_service: Service | None = None,
+    ) -> BillingUnit:
         if data.category_id is not None and self.categories.get(data.category_id) is None:
             data.errors["category_id"] = "Categoria não encontrada."
+        billing_unit = self.billing_units.by_code(data.billing_unit)
+        if billing_unit is None or (
+            not billing_unit.is_active
+            and (current_service is None or current_service.billing_unit_id != billing_unit.id)
+        ):
+            data.errors["billing_unit"] = "Selecione uma forma de cobrança ativa."
         if data.errors:
             raise ServiceValidationError(data)
         if data.code and self.repository.by_code(data.code, exclude_id):
             raise DuplicateCodeError()
+        return billing_unit
 
     def _duplicates(self, data: ServiceInput, *, exclude_id: int | None = None) -> list[Service]:
         matches = []
@@ -97,13 +111,13 @@ class CatalogService:
 
     @atomic_write
     def create(self, data: ServiceInput, user_id: int, *, force_duplicate: bool = False) -> Service | PossibleServiceDuplicate:
-        self._validate(data)
+        billing_unit = self._validate(data)
         duplicates = self._duplicates(data)
         if duplicates and not force_duplicate:
             return PossibleServiceDuplicate(duplicates)
         service = Service(
             code=data.code, name=data.name, description=data.description, category_id=data.category_id,
-            billing_unit=data.billing_unit, is_active=data.is_active, created_by=user_id, updated_by=user_id,
+            billing_unit_id=billing_unit.id, is_active=data.is_active, created_by=user_id, updated_by=user_id,
         )
         self.session.add(service)
         try:
@@ -123,13 +137,21 @@ class CatalogService:
         service = self.repository.get(service_id)
         if service is None:
             raise ServiceNotFoundError()
-        self._validate(data, exclude_id=service_id)
+        billing_unit = self._validate(data, exclude_id=service_id, current_service=service)
         duplicates = self._duplicates(data, exclude_id=service_id)
         if duplicates and not force_duplicate:
             return PossibleServiceDuplicate(duplicates)
         changes = {}
-        for field in ("code", "name", "description", "category_id", "billing_unit", "is_active"):
-            before, after = getattr(service, field), getattr(data, field)
+        update_values = {
+            "code": data.code,
+            "name": data.name,
+            "description": data.description,
+            "category_id": data.category_id,
+            "billing_unit_id": billing_unit.id,
+            "is_active": data.is_active,
+        }
+        for field, after in update_values.items():
+            before = getattr(service, field)
             if before != after:
                 changes[field] = {"from": before, "to": after}
                 setattr(service, field, after)

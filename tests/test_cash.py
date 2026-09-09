@@ -13,6 +13,7 @@ from app import create_app
 from app.migrations import run_schema_migrations
 from app.models import (
     AuditEvent,
+    BillingUnit,
     CashCategory,
     CashMovement,
     CashPaymentMethod,
@@ -198,11 +199,14 @@ def test_cash_migrations_are_idempotent_and_preserve_customers_and_services(app)
         )
         session.add(service_category)
         session.flush()
+        billing_unit_id = session.scalar(
+            select(BillingUnit.id).where(BillingUnit.code == "UNIT")
+        )
         service = Service(
             code="KEEP-001",
             name="Serviço preservado",
             category_id=service_category.id,
-            billing_unit="UNIT",
+            billing_unit_id=billing_unit_id,
             is_active=True,
             created_by=actor,
             updated_by=actor,

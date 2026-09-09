@@ -1,0 +1,163 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+{% set note = profile.note %}
+<header class="page-header page-header--split note-detail-header">
+  <div>
+    <p class="eyebrow">SERVIÇOS › NOTA DE SERVIÇO</p>
+    <h1>Nota {{ note.number_original }}</h1>
+    <p>{{ 'Série/Bloco ' ~ note.series_original ~ ' · ' if note.series_original else '' }}{{ note.customer.name }}</p>
+    <div class="profile-badges">
+      <span class="badge badge--{{ 'neutral' if note.operational_status == 'CANCELADO' else ('success' if note.operational_status == 'ENTREGUE' else ('info' if note.operational_status == 'PRONTO' else 'warning')) }}">{{ operational_status_labels.get(note.operational_status, note.operational_status|replace('_', ' ')|title) }}</span>
+      <span class="badge badge--{{ 'success' if note.financial_status == 'PAGO' else 'warning' }}">{{ financial_status_labels.get(note.financial_status, note.financial_status|title) }}</span>
+      <span class="badge badge--{{ 'danger' if profile.deadline_code == 'ATRASADO' else ('warning' if profile.deadline_code == 'VENCE_HOJE' else ('neutral' if note.operational_status == 'CANCELADO' else 'success')) }}">{{ profile.deadline_label }}</span>
+    </div>
+  </div>
+  <div class="header-actions note-detail-actions">
+    <a class="button button--secondary" href="/servicos/notas">Voltar às Notas</a>
+    {% if note.operational_status != 'CANCELADO' and current_user.can('notes.edit') %}<a class="button button--secondary" href="/servicos/notas/{{ note.id }}/editar">Editar</a>{% endif %}
+    {% if current_user.can('notes.change_status') %}
+      {% for target_status in profile.allowed_transitions %}
+        <form method="post" action="/servicos/notas/{{ note.id }}/status" class="inline-form" data-confirm="{{ 'Iniciar a produção desta Nota?' if target_status == 'EM_ANDAMENTO' else ('Marcar esta Nota como pronta?' if target_status == 'PRONTO' else 'Confirmar a entrega desta Nota?') }}">
+          <input type="hidden" name="target_status" value="{{ target_status }}">
+          <input type="hidden" name="revision" value="{{ note.revision }}">
+          <button class="button {{ 'button--success' if target_status == 'ENTREGUE' else 'button--primary' }}" type="submit">{{ 'Iniciar produção' if target_status == 'EM_ANDAMENTO' else ('Marcar como pronta' if target_status == 'PRONTO' else 'Entregar') }}</button>
+        </form>
+      {% endfor %}
+    {% endif %}
+    {% if note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}<button class="button button--danger" type="button" data-modal-open="cancel-note">Cancelar Nota</button>{% endif %}
+  </div>
+</header>
+
+{% if saved %}<div class="alert alert--success" role="status">Nota criada com sucesso. Preços, unidades e valores foram congelados.</div>{% endif %}
+{% if updated %}<div class="alert alert--success" role="status">Nota atualizada e valores recalculados pelo sistema.</div>{% endif %}
+{% if status_changed %}<div class="alert alert--success" role="status">Status da Nota atualizado com sucesso.</div>{% endif %}
+{% if canceled %}<div class="alert alert--success" role="status">Nota cancelada e preservada no histórico.</div>{% endif %}
+{% if action_error %}<div class="alert alert--error" role="alert">{{ action_error }}</div>{% endif %}
+{% if cancel_error %}<div class="alert alert--error" role="alert">{{ cancel_error }}</div>{% endif %}
+{% if note.operational_status == 'CANCELADO' %}
+  <div class="alert alert--warning"><strong>Esta Nota está cancelada.</strong> Sua identificação, itens, snapshots e histórico continuam preservados.</div>
+{% elif note.financial_status == 'PAGO' %}
+  <div class="alert alert--info"><strong>Valores protegidos.</strong> Esta Nota está paga e seus campos financeiros não podem mais ser alterados.</div>
+{% endif %}
+
+<section class="metrics-grid metrics-grid--four compact" aria-label="Valores da Nota">
+  <article class="metric-card"><span class="metric-card__label">Serviços</span><strong class="metric-card__value">{{ note.services_subtotal_cents|money_cents }}</strong><small>{{ note.items|length }} item(ns)</small></article>
+  <article class="metric-card"><span class="metric-card__label">Desconto</span><strong class="metric-card__value">{{ note.discount_amount_cents|money_cents }}</strong><small>{{ 'Sem desconto' if not note.discount_type else ('Percentual sobre serviços' if note.discount_type == 'PERCENTUAL' else 'Valor sobre serviços') }}</small></article>
+  <article class="metric-card"><span class="metric-card__label">Entrega</span><strong class="metric-card__value">{{ note.delivery_amount_cents|money_cents }}</strong><small>{{ 'Sem entrega' if not note.delivery_enabled else ('Entrega gratuita' if note.delivery_amount_cents == 0 else 'Entrega incluída') }}</small></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Total</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>{{ 'Quitada por total zero' if note.total_cents == 0 else financial_status_labels.get(note.financial_status, note.financial_status|title) }}</small></article>
+</section>
+
+<section class="profile-grid section-block note-overview-grid">
+  <article class="panel">
+    <div class="section-heading"><div><span class="section-kicker">Atendimento</span><h2>Identificação</h2></div></div>
+    <dl class="details-list">
+      <div><dt>Número</dt><dd>{{ note.number_original }}</dd></div>
+      <div><dt>Série/Bloco</dt><dd>{{ note.series_original or 'Não informada' }}</dd></div>
+      <div><dt>Cliente</dt><dd><a class="table-action" href="/clientes/{{ note.customer.id }}">{{ note.customer.name }}</a></dd></div>
+      <div><dt>Recebimento</dt><dd>{{ note.received_at|datetime_br }}</dd></div>
+      <div><dt>Status</dt><dd>{{ operational_status_labels.get(note.operational_status, note.operational_status|replace('_', ' ')|title) }}</dd></div>
+      <div><dt>Financeiro</dt><dd>{{ financial_status_labels.get(note.financial_status, note.financial_status|title) }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel note-deadline-panel note-deadline-panel--{{ profile.deadline_code|lower }}">
+    <div class="section-heading"><div><span class="section-kicker">Produção</span><h2>Prazo para ficar pronto</h2></div></div>
+    <strong class="note-deadline-date">{{ note.expected_ready_at|datetime_br }}</strong>
+    {% if note.operational_status == 'CANCELADO' %}
+      <p>A Nota foi cancelada e não aparece entre as pendências de produção.</p>
+    {% elif profile.production_done %}
+      {% if profile.deadline_code == 'ATRASADO' %}<p>O serviço ficou pronto com {{ profile.days_late }} dia(s) de atraso. Esse resultado está congelado.</p>
+      {% elif profile.deadline_code == 'VENCE_HOJE' %}<p>O serviço ficou pronto na data prevista. Esse resultado está congelado.</p>
+      {% else %}<p>O serviço ficou pronto dentro do prazo. Esse resultado está congelado.</p>{% endif %}
+      <dl class="details-list"><div><dt>Pronto em</dt><dd>{{ note.ready_at|datetime_br }}</dd></div></dl>
+    {% else %}
+      {% if profile.deadline_code == 'ATRASADO' %}<p class="note-deadline-alert">Produção atrasada há {{ profile.days_late }} dia(s).</p>
+      {% elif profile.deadline_code == 'VENCE_HOJE' %}<p>A produção vence hoje.</p>
+      {% else %}<p>A produção está dentro do prazo.</p>{% endif %}
+    {% endif %}
+  </article>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading section-heading--split"><div><span class="section-kicker">Snapshots históricos</span><h2>Itens da Nota</h2><p>Os nomes, unidades e preços abaixo pertencem ao momento em que cada item foi salvo.</p></div></div>
+  <div class="table-shell">
+    <table class="note-detail-items">
+      <thead><tr><th>#</th><th>Serviço</th><th>Unidade congelada</th><th>Quantidade</th><th class="cell-number">Preço unitário</th><th class="cell-number">Subtotal</th></tr></thead>
+      <tbody>
+        {% for item in note.items %}
+          <tr>
+            <td>{{ item.position }}</td>
+            <td><strong>{{ item.service_name_snapshot }}</strong><small>{{ item.service_code_snapshot or 'Sem código' }}{% if item.service_category_name_snapshot %} · {{ item.service_category_name_snapshot }}{% endif %}</small>{% if item.service_description_snapshot %}<small>{{ item.service_description_snapshot }}</small>{% endif %}</td>
+            <td><strong>{{ item.billing_unit_symbol_snapshot }}</strong><small>{{ item.billing_unit_name_snapshot }} · {{ item.quantity_behavior_snapshot }}</small></td>
+            <td><strong>{{ item.quantity|string|replace('.', ',') }}</strong><small>{{ item.billing_unit_symbol_snapshot }}</small></td>
+            <td class="cell-number note-money-cell"><strong>{{ item.unit_price_cents|money_cents }}</strong><small>{{ 'preço fixo' if item.billing_unit_symbol_snapshot == '—' else '/ ' ~ item.billing_unit_symbol_snapshot }}</small></td>
+            <td class="cell-number note-money-cell"><strong>{{ item.subtotal_cents|money_cents }}</strong></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="note-detail-lower-grid section-block">
+  <article class="panel">
+    <div class="section-heading"><div><span class="section-kicker">Composição</span><h2>Totais congelados</h2></div></div>
+    <dl class="note-total-details">
+      <div><dt>Subtotal dos serviços</dt><dd>{{ note.services_subtotal_cents|money_cents }}</dd></div>
+      {% if note.discount_type %}
+        <div><dt>Desconto informado</dt><dd>{{ note.discount_input|string|replace('.', ',') ~ '%' if note.discount_type == 'PERCENTUAL' else note.discount_input|money }}</dd></div>
+        <div><dt>Base do desconto</dt><dd>{{ note.discount_base_cents|money_cents }}</dd></div>
+      {% endif %}
+      <div><dt>Desconto aplicado</dt><dd>− {{ note.discount_amount_cents|money_cents }}</dd></div>
+      <div><dt>Entrega</dt><dd>{{ note.delivery_amount_cents|money_cents }}</dd></div>
+      <div class="note-total-details__total"><dt>Total</dt><dd>{{ note.total_cents|money_cents }}</dd></div>
+    </dl>
+  </article>
+  <article class="panel">
+    <div class="section-heading"><div><span class="section-kicker">Informações adicionais</span><h2>Observações</h2></div></div>
+    {% if note.notes %}<p class="note-notes">{{ note.notes }}</p>{% else %}<div class="empty-state"><strong>Nenhuma observação.</strong><p>Esta Nota não possui informações adicionais.</p></div>{% endif %}
+  </article>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading"><div><span class="section-kicker">Histórico</span><h2>Eventos da Nota</h2></div></div>
+  <div class="timeline note-timeline">
+    {% for event in note.events %}
+      <article class="timeline-item">
+        <time>{{ event.occurred_at|datetime_br }}</time>
+        <div><strong>{{ event_type_labels.get(event.event_type, event.event_type|replace('_', ' ')|title) }}</strong><p>{{ 'Mudança registrada no atendimento.' if event.event_type == 'STATUS_CHANGED' else ('Nota cancelada e preservada.' if event.event_type == 'NOTE_CANCELLED' else ('Dados da Nota atualizados.' if event.event_type == 'NOTE_UPDATED' else 'Nota registrada no sistema.')) }}</p><small>por {{ profile.actor_names.get(event.created_by, 'Usuário local') }}</small></div>
+      </article>
+    {% else %}<p class="muted">Nenhum evento registrado.</p>{% endfor %}
+  </div>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading"><div><span class="section-kicker">Rastreabilidade</span><h2>Auditoria do registro</h2></div></div>
+  <dl class="details-list note-audit-details">
+    <div><dt>Criada por</dt><dd>{{ profile.actor_names.get(note.created_by, 'Usuário local') }}</dd></div>
+    <div><dt>Criada em</dt><dd>{{ note.created_at|datetime_br }}</dd></div>
+    <div><dt>Última alteração por</dt><dd>{{ profile.actor_names.get(note.updated_by, 'Usuário local') }}</dd></div>
+    <div><dt>Última alteração</dt><dd>{{ note.updated_at|datetime_br }}</dd></div>
+    {% if note.operational_status == 'CANCELADO' %}
+      <div><dt>Cancelada por</dt><dd>{{ profile.actor_names.get(note.canceled_by, 'Usuário local') }}</dd></div>
+      <div><dt>Cancelada em</dt><dd>{{ note.canceled_at|datetime_br }}</dd></div>
+      <div class="note-audit-reason"><dt>Motivo</dt><dd>{{ note.cancellation_reason }}</dd></div>
+    {% endif %}
+  </dl>
+</section>
+
+{% if note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}
+<div class="modal-backdrop" id="cancel-note" {% if not cancel_error %}hidden{% endif %}>
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-note-title">
+    <div class="modal__header"><div><h2 id="cancel-note-title">Cancelar Nota {{ note.number_original }}?</h2><p>{{ note.customer.name }} · {{ note.total_cents|money_cents }}</p></div><button class="icon-button" type="button" data-modal-close="cancel-note" aria-label="Fechar">×</button></div>
+    <div class="alert alert--warning">A Nota continuará no histórico e seu número permanecerá reservado. O cancelamento não devolve valores automaticamente.</div>
+    <form method="post" action="/servicos/notas/{{ note.id }}/cancelar" class="form-stack">
+      <input type="hidden" name="revision" value="{{ note.revision }}">
+      <label>Motivo do cancelamento *<textarea name="reason" maxlength="500" required placeholder="Explique por que a Nota deve ser cancelada"></textarea></label>
+      <div class="modal__actions"><button class="button button--secondary" type="button" data-modal-close="cancel-note">Voltar</button><button class="button button--danger" type="submit">Cancelar Nota</button></div>
+    </form>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

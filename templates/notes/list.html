@@ -1,0 +1,98 @@
+{% extends "layout/base.html" %}
+
+{% block content %}
+<header class="page-header page-header--split">
+  <div><p class="eyebrow">SERVIÇOS › NOTAS</p><h1>Notas de Serviço</h1><p>Pesquise atendimentos, acompanhe a produção e consulte o histórico.</p></div>
+  {% if current_user.can('notes.create') %}<a class="button button--primary" href="/servicos/nova-nota">+ Nova Nota</a>{% endif %}
+</header>
+
+<section class="panel note-filters-panel">
+  <form method="get" action="/servicos/notas" class="note-filters">
+    <label class="field field--search note-filter-search">Buscar Nota
+      <input type="search" name="q" value="{{ filters.q }}" placeholder="Número, série, cliente ou observação">
+    </label>
+    <div class="note-filter-grid">
+      <label class="field">Cliente
+        <select name="customer_id">
+          <option value="">Todos</option>
+          {% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">Status operacional
+        <select name="operational_status">
+          <option value="ALL">Todos</option>
+          {% for code, label in operational_statuses.items() %}<option value="{{ code }}" {% if filters.operational_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">Situação financeira
+        <select name="financial_status">
+          <option value="ALL">Todas</option>
+          {% for code, label in financial_statuses.items() %}<option value="{{ code }}" {% if filters.financial_status == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">Prazo de produção
+        <select name="deadline">
+          <option value="ALL">Todos</option>
+          {% for code, label in deadline_statuses.items() %}<option value="{{ code }}" {% if filters.deadline == code %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="field">Recebidas de
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label class="field">Recebidas até
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <div class="form-actions">
+        <a class="button button--secondary" href="/servicos/notas">Limpar</a>
+        <button class="button button--primary" type="submit">Aplicar filtros</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="panel section-block">
+  <div class="section-heading section-heading--split">
+    <div><span class="section-kicker">Resultado</span><h2>{{ result.total }} Nota(s) encontrada(s)</h2></div>
+    {% if result.total %}<span class="badge badge--neutral">Página {{ result.page }} de {{ result.pages }}</span>{% endif %}
+  </div>
+  <div class="table-shell">
+    <table class="customer-table notes-table">
+      <thead><tr><th>Nota</th><th>Cliente</th><th>Recebimento</th><th>Previsão</th><th>Operação</th><th>Financeiro</th><th>Prazo</th><th class="cell-number">Total</th><th>Ação</th></tr></thead>
+      <tbody>
+        {% for row in result.rows %}
+          {% set note = row.note %}
+          <tr class="note-row note-row--{{ note.operational_status|lower }}">
+            <td><strong>{{ note.number_original }}</strong><small>{{ 'Série/Bloco ' ~ note.series_original if note.series_original else 'Sem série/bloco' }}</small></td>
+            <td><strong>{{ row.customer.name }}</strong><small>Cliente #{{ row.customer.id }}</small></td>
+            <td>{{ note.received_at|datetime_br }}</td>
+            <td>{{ note.expected_ready_at|datetime_br }}</td>
+            <td><span class="badge badge--{{ 'neutral' if note.operational_status == 'CANCELADO' else ('success' if note.operational_status == 'ENTREGUE' else ('info' if note.operational_status == 'PRONTO' else 'warning')) }}">{{ note.operational_status|replace('_', ' ')|title }}</span></td>
+            <td><span class="badge badge--{{ 'success' if note.financial_status == 'PAGO' else 'warning' }}">{{ 'Pago' if note.financial_status == 'PAGO' else 'Pendente' }}</span></td>
+            <td>
+              <span class="badge badge--{{ 'danger' if row.deadline_code == 'ATRASADO' else ('warning' if row.deadline_code == 'VENCE_HOJE' else ('neutral' if note.operational_status == 'CANCELADO' else 'success')) }}">{{ row.deadline_label }}</span>
+              {% if row.days_late %}<small>{{ row.days_late }} dia(s) de atraso</small>{% endif %}
+            </td>
+            <td class="cell-number note-money-cell"><strong>{{ note.total_cents|money_cents }}</strong></td>
+            <td><a class="table-action" href="/servicos/notas/{{ note.id }}">Ver detalhes</a></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="9" class="table-empty">
+            <div class="empty-state">
+              <strong>Nenhuma Nota encontrada.</strong>
+              <p>Ajuste os filtros ou registre um novo atendimento.</p>
+              {% if current_user.can('notes.create') %}<a class="button button--primary note-empty-action" href="/servicos/nova-nota">Criar Nota</a>{% endif %}
+            </div>
+          </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if result.pages > 1 %}
+    <nav class="pagination" aria-label="Paginação das Notas">
+      <a class="button button--small button--secondary {% if result.page <= 1 %}is-disabled{% endif %}" href="{{ page_url(result.page - 1) }}" {% if result.page <= 1 %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a>
+      <span>Página {{ result.page }} de {{ result.pages }} · {{ result.total }} Nota(s)</span>
+      <a class="button button--small button--secondary {% if result.page >= result.pages %}is-disabled{% endif %}" href="{{ page_url(result.page + 1) }}" {% if result.page >= result.pages %}aria-disabled="true" tabindex="-1"{% endif %}>Próxima</a>
+    </nav>
+  {% endif %}
+</section>
+{% endblock %}

@@ -9,6 +9,7 @@ ALL_PERMISSIONS = (
     "customers.edit", "customers.deactivate", "customers.activity.create",
     "services.view", "services.create", "services.edit", "services.deactivate",
     "services.prices.manage", "services.categories.manage", "reports.view",
+    "notes.view", "notes.create", "notes.edit", "notes.change_status", "notes.cancel",
     "admin.users", "admin.permissions", "admin.settings",
 )
 

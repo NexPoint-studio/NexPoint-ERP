@@ -1,4 +1,4 @@
-# ERP — Equipe de Agentes
+# ERP — Equipe de Setores
 
 ## Projeto oficial
 
@@ -23,11 +23,11 @@ Essa pasta pertence à versão/origem anterior.
 
 # Objetivo
 
-Este projeto utiliza agentes especializados por setor.
+Este projeto utiliza setores especializados.
 
-O agente principal/coordenador deve analisar cada tarefa e utilizar somente os setores necessários.
+O SETOR DE COORDENAÇÃO deve analisar cada tarefa e utilizar somente os setores necessários.
 
-Nem toda tarefa precisa envolver todos os agentes.
+Nem toda tarefa precisa envolver todos os setores.
 
 Uma alteração pequena deve usar somente o setor responsável.
 
@@ -37,7 +37,7 @@ Uma alteração grande pode ser dividida entre vários setores.
 
 # Setores oficiais
 
-## COORDENACAO
+## SETOR DE COORDENAÇÃO
 
 Responsável principal:
 
@@ -49,20 +49,20 @@ Responsabilidades:
 - analisar o impacto da mudança;
 - dividir trabalhos grandes em tarefas menores;
 - selecionar quais setores participarão;
-- delegar trabalho para subagentes;
+- delegar trabalho aos agentes de cada setor;
 - controlar o TODO.md;
-- evitar conflitos entre agentes;
+- evitar conflitos entre setores;
 - integrar mudanças feitas pelos setores;
 - revisar o resultado global;
 - organizar Git e commits;
 - garantir que o ERP continue funcional;
 - impedir alterações fora do escopo solicitado.
 
-COORDENACAO possui visão global do projeto.
+O SETOR DE COORDENAÇÃO possui visão global do projeto.
 
 ---
 
-## BACKEND
+## SETOR DE BACKEND
 
 Responsável por:
 
@@ -70,19 +70,22 @@ Responsável por:
 - FastAPI;
 - regras de negócio;
 - services;
+- repositories;
 - routes;
 - schemas;
 - validações de negócio;
+- estados;
+- cálculos;
 - contratos entre módulos;
 - integrações internas;
 - processamento de dados;
 - fluxos operacionais.
 
-BACKEND não deve alterar banco ou frontend sem necessidade técnica justificada.
+O SETOR DE BACKEND não deve alterar banco ou interface sem necessidade técnica justificada.
 
 ---
 
-## BANCO
+## SETOR DE BANCO DE DADOS
 
 Responsável por:
 
@@ -98,6 +101,7 @@ Responsável por:
 - transações;
 - consistência dos dados;
 - desempenho de consultas.
+- persistência monetária.
 
 Regras obrigatórias:
 
@@ -110,7 +114,10 @@ Regras obrigatórias:
 
 ---
 
-## FRONTEND
+## SETOR DE INTERFACE / UX
+
+Corresponde à área que outros projetos podem chamar de HUD/UI. Neste ERP, a
+nomenclatura oficial é sempre Interface / UX.
 
 Responsável por:
 
@@ -128,11 +135,11 @@ Responsável por:
 - navegação;
 - feedback visual ao usuário.
 
-FRONTEND não deve alterar regras de negócio para resolver problemas exclusivamente visuais.
+O SETOR DE INTERFACE / UX não deve alterar regras de negócio para resolver problemas exclusivamente visuais.
 
 ---
 
-## QA
+## SETOR DE QA / TESTES
 
 Responsável por:
 
@@ -144,15 +151,17 @@ Responsável por:
 - validação de correções;
 - testes de fluxos completos;
 - testes de edge cases;
+- testes de concorrência;
+- testes de migrations;
 - validação antes de considerar uma tarefa concluída.
 
-QA deve preferencialmente identificar e documentar problemas.
+O SETOR DE QA / TESTES deve preferencialmente identificar e documentar problemas.
 
-QA não deve realizar grandes refatorações fora de seu escopo sem autorização da COORDENACAO.
+O SETOR DE QA / TESTES não deve realizar grandes refatorações fora de seu escopo sem autorização do SETOR DE COORDENAÇÃO.
 
 ---
 
-## SEGURANCA
+## SETOR DE SEGURANÇA
 
 Responsável por:
 
@@ -163,13 +172,15 @@ Responsável por:
 - controle de acesso;
 - auditoria;
 - validação de entrada;
+- proteção contra POST direto e manipulação de payload;
 - proteção de dados;
 - exposição indevida de informações;
 - funções administrativas;
 - acesso de suporte;
 - integridade de operações sensíveis.
+- cancelamentos.
 
-SEGURANCA deve revisar especialmente alterações relacionadas a:
+O SETOR DE SEGURANÇA deve revisar especialmente alterações relacionadas a:
 
 - usuários;
 - administração;
@@ -187,21 +198,21 @@ Cada setor deve trabalhar preferencialmente em sua própria área.
 
 Dois agentes não devem editar simultaneamente o mesmo arquivo sem coordenação explícita.
 
-Quando uma alteração atingir mais de um setor, COORDENACAO deve organizar a ordem de trabalho.
+Quando uma alteração atingir mais de um setor, o SETOR DE COORDENAÇÃO deve organizar a ordem de trabalho.
 
 Exemplo:
 
-BANCO
+SETOR DE BANCO DE DADOS
 ↓
-BACKEND
+SETOR DE BACKEND
 ↓
-FRONTEND
+SETOR DE INTERFACE / UX
 ↓
-QA
+SETOR DE QA / TESTES
 ↓
-SEGURANCA
+SETOR DE SEGURANÇA
 ↓
-COORDENACAO
+SETOR DE COORDENAÇÃO
 
 A ordem pode mudar conforme a tarefa.
 
@@ -320,11 +331,11 @@ Quando uma tarefa principal possui subtarefas com peso:
 
 Exemplo correto:
 
-- [ ] Criar Nota de Serviço {sector:COORDENACAO}
-  - [ ] Criar models {weight:3} {sector:BANCO}
-  - [ ] Criar regras {weight:4} {sector:BACKEND}
-  - [ ] Criar interface {weight:3} {sector:FRONTEND}
-  - [ ] Criar testes {weight:2} {sector:QA}
+- [ ] Criar Nota de Serviço {sector:SETOR_COORDENACAO}
+  - [ ] Criar models {weight:3} {sector:SETOR_BANCO_DADOS}
+  - [ ] Criar regras {weight:4} {sector:SETOR_BACKEND}
+  - [ ] Criar interface {weight:3} {sector:SETOR_INTERFACE_UX}
+  - [ ] Criar testes {weight:2} {sector:SETOR_QA_TESTES}
 
 Peso total:
 
@@ -340,12 +351,12 @@ Toda tarefa relevante pode possuir:
 
 Setores válidos:
 
-{sector:COORDENACAO}
-{sector:BACKEND}
-{sector:BANCO}
-{sector:FRONTEND}
-{sector:QA}
-{sector:SEGURANCA}
+{sector:SETOR_COORDENACAO}
+{sector:SETOR_BACKEND}
+{sector:SETOR_BANCO_DADOS}
+{sector:SETOR_INTERFACE_UX}
+{sector:SETOR_QA_TESTES}
+{sector:SETOR_SEGURANCA}
 
 Não inventar novos nomes sem atualizar este arquivo e a ferramenta de TODO.
 
@@ -432,7 +443,7 @@ Fluxo recomendado:
 
 USUÁRIO
 ↓
-COORDENACAO
+SETOR DE COORDENAÇÃO
 ↓
 planejamento
 ↓
@@ -440,11 +451,11 @@ setores necessários
 ↓
 implementação
 ↓
-QA
+SETOR DE QA / TESTES
 ↓
-SEGURANCA quando aplicável
+SETOR DE SEGURANÇA quando aplicável
 ↓
-COORDENACAO
+SETOR DE COORDENAÇÃO
 ↓
 validação final
 ↓
@@ -480,6 +491,6 @@ Uma tarefa só pode ser considerada concluída quando:
 - testes relevantes passarem;
 - regressões conhecidas forem verificadas;
 - TODO estiver atualizado;
-- COORDENACAO revisar o resultado.
+- SETOR DE COORDENAÇÃO revisar o resultado.
 
 Se algo permanecer pendente, registrar claramente no TODO.

@@ -5,6 +5,11 @@ const path = require('node:path');
 const base = 'http://127.0.0.1:8876';
 const output = path.resolve(__dirname, '../artifacts/visual');
 const assert = (ok, message) => { if (!ok) throw Error(message); };
+const localDateTime = value => {
+  const pad = number => String(number).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}` +
+    `T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+};
 
 (async () => {
   fs.mkdirSync(output, { recursive: true });
@@ -73,6 +78,29 @@ const assert = (ok, message) => { if (!ok) throw Error(message); };
     const priceHistory = await page.locator('#history-modal').textContent();
     for (const amount of ['30,00', '35,00', '40,00']) assert(priceHistory.includes(amount), 'Histórico de preço ' + amount);
 
+    await goto('/servicos/nova-nota');
+    await page.locator('[name=number]').fill('VIS-0187');
+    await page.locator('[name=series]').fill('Balcão A');
+    await page.locator('[name=customer_id]').selectOption({ label: 'Cliente visual Árvore' });
+    await page.locator('[name=expected_ready_at]').fill(localDateTime(new Date(Date.now() + 48 * 60 * 60 * 1000)));
+    await page.locator('[data-note-service-picker]').selectOption({ index: 1 });
+    await page.locator('[data-note-add-service]').click();
+    assert(await page.locator('[data-note-item]').count() === 1, 'Item da Nota não foi adicionado');
+    await page.locator('[data-note-quantity]').fill('2');
+    await page.locator('[data-note-delivery-toggle]').check();
+    await page.locator('[data-note-delivery-amount]').fill('5,00');
+    await page.locator('[data-note-discount-type]').selectOption('PERCENTUAL');
+    await page.locator('[data-note-discount-input]').fill('10');
+    assert((await page.locator('[data-note-total]').textContent()).includes('R$ 77,00'), 'Prévia exata da Nota');
+    await post(page.getByRole('button', { name: 'Salvar Nota', exact: true }), /servicos\/notas\/\d+\?saved=1$/);
+    const notePath = new URL(page.url()).pathname;
+    const noteDetail = await page.locator('body').textContent();
+    assert(noteDetail.includes('VIS-0187') && noteDetail.includes('R$ 77,00'), 'Detalhe da Nota e total');
+    await post(page.getByRole('button', { name: 'Iniciar produção', exact: true }), /status_changed=1$/);
+    await post(page.getByRole('button', { name: 'Marcar como pronta', exact: true }), /status_changed=1$/);
+    await post(page.getByRole('button', { name: 'Entregar', exact: true }), /status_changed=1$/);
+    assert((await page.locator('body').textContent()).includes('Entregue'), 'Fluxo operacional da Nota');
+
     await goto('/caixa/resumo');
     assert((await page.locator('.primary-banner__value').textContent()).includes('R$ 0,00'), 'Caixa de teste deve iniciar vazio');
     await goto('/caixa/novo-lancamento');
@@ -124,6 +152,7 @@ const assert = (ok, message) => { if (!ok) throw Error(message); };
 
     const routes = ['/clientes/lista', '/clientes/novo', '/clientes/historico', customerPath, customerPath + '/editar',
       '/servicos/catalogo', '/servicos/novo', '/servicos/categorias', '/servicos/precos', servicePath,
+      '/servicos/nova-nota', '/servicos/notas', notePath, notePath + '/editar',
       '/caixa/resumo', '/caixa/novo-lancamento', '/caixa/historico', '/caixa/relatorios', movementPath,
       '/admin/usuarios', '/admin/permissoes', '/admin/configuracoes', '/admin/sistema'];
     for (const [width, height] of [[1920,1080], [1366,768], [1280,720], [390,844]]) {
@@ -142,7 +171,7 @@ const assert = (ok, message) => { if (!ok) throw Error(message); };
         }
         assert(await page.locator('h1').count() > 0, 'Tela sem título ' + route);
         checks.push({ width, height, route, status: 'PASS' });
-        if ([1366,390].includes(width) && ['/clientes/lista','/clientes/novo','/servicos/precos','/caixa/resumo','/caixa/novo-lancamento','/caixa/historico','/caixa/relatorios'].includes(route)) {
+        if ([1366,390].includes(width) && ['/clientes/lista','/clientes/novo','/servicos/precos','/servicos/nova-nota','/servicos/notas',notePath,'/caixa/resumo','/caixa/novo-lancamento','/caixa/historico','/caixa/relatorios'].includes(route)) {
           await page.screenshot({ path: path.join(output, `${width}-${route.replaceAll('/','_')}.png`), fullPage: true });
         }
       }
@@ -158,7 +187,7 @@ const assert = (ok, message) => { if (!ok) throw Error(message); };
     assert(external.length === 0, 'Tentativas externas: ' + external.join(', '));
     assert(errors.length === 0, 'Erros de console/JS: ' + errors.join(', '));
     const results = { checks, external_requests: external.length, console_errors: errors.length,
-      balance: '1209.50', workflows: ['login', 'cliente', 'visita', 'inativar/reativar', 'telefone DDI', 'serviço', 'preços 30/35/40', 'categoria caixa', 'entrada', 'taxa', 'saída', 'cancelamento', 'relatórios', 'duplo submit', 'refresh', 'menu mobile'],
+      balance: '1209.50', workflows: ['login', 'cliente', 'visita', 'inativar/reativar', 'telefone DDI', 'serviço', 'preços 30/35/40', 'Nota com snapshot/desconto/entrega', 'status recebido/andamento/pronto/entregue', 'categoria caixa', 'entrada', 'taxa', 'saída', 'cancelamento', 'relatórios', 'duplo submit', 'refresh', 'menu mobile'],
       offline_method: 'Toda requisição fora da origem loopback foi bloqueada; nenhuma foi solicitada.' };
     fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify(results, null, 2));
     console.log(JSON.stringify({ checks: checks.length, external_requests: 0, console_errors: 0, balance: results.balance }));

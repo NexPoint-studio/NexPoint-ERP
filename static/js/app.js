@@ -196,3 +196,352 @@ document.querySelectorAll('[data-custom-period-toggle]').forEach((container) => 
   select?.addEventListener('change', refresh);
   refresh();
 });
+
+const parseNoteDecimal = (value, maxDecimalPlaces) => {
+  const raw = String(value ?? '').trim();
+  if (!/^[0-9]+(?:[.,][0-9]+)?$/.test(raw)) return null;
+  const [whole = '0', fractionRaw = ''] = raw.replace(',', '.').split('.');
+  const fraction = fractionRaw.replace(/0+$/, '');
+  if (fraction.length > maxDecimalPlaces) return null;
+  return {
+    coefficient: BigInt(`${whole}${fraction}` || '0'),
+    scale: fraction.length,
+  };
+};
+
+const notePowerOfTen = (exponent) => 10n ** BigInt(exponent);
+const noteRoundPositive = (numerator, denominator) => (
+  (numerator + (denominator / 2n)) / denominator
+);
+
+const parseNoteMoney = (value) => {
+  let raw = String(value ?? '').trim();
+  if (raw.startsWith('R$')) raw = raw.slice(2).trim();
+  if (raw.includes('R$')) return null;
+  raw = raw.replace(/\s/g, '');
+  let normalized = raw;
+  if (raw.includes(',')) {
+    if (!/^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?$/.test(raw)) return null;
+    normalized = raw.replace(/\./g, '').replace(',', '.');
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(raw)) {
+    normalized = raw.replace(/\./g, '');
+  } else if (!/^\d+(?:\.\d+)?$/.test(raw)) {
+    return null;
+  }
+  const [wholeRaw = '0', fractionRaw = ''] = normalized.split('.');
+  if (wholeRaw.length > 17) return null;
+  let cents = (BigInt(wholeRaw || '0') * 100n) + BigInt((fractionRaw + '00').slice(0, 2));
+  if ((fractionRaw[2] || '0') >= '5') cents += 1n;
+  return cents <= 9223372036854775807n ? cents : null;
+};
+
+document.querySelectorAll('[data-note-form]').forEach((form) => {
+  const itemsBody = form.querySelector('[data-note-items]');
+  const emptyState = form.querySelector('[data-note-items-empty]');
+  const itemCount = form.querySelector('[data-note-item-count]');
+  const serviceSearch = form.querySelector('[data-note-service-search]');
+  const servicePicker = form.querySelector('[data-note-service-picker]');
+  const serviceResult = form.querySelector('[data-note-service-result]');
+  const pickerMessage = form.querySelector('[data-note-picker-message]');
+  const addService = form.querySelector('[data-note-add-service]');
+  const deliveryToggle = form.querySelector('[data-note-delivery-toggle]');
+  const deliveryFields = form.querySelector('[data-note-delivery-fields]');
+  const deliveryAmount = form.querySelector('[data-note-delivery-amount]');
+  const discountType = form.querySelector('[data-note-discount-type]');
+  const discountField = form.querySelector('[data-note-discount-field]');
+  const discountLabel = form.querySelector('[data-note-discount-label]');
+  const discountInput = form.querySelector('[data-note-discount-input]');
+  const servicesSubtotalTarget = form.querySelector('[data-note-services-subtotal]');
+  const discountTarget = form.querySelector('[data-note-discount-total]');
+  const deliveryTarget = form.querySelector('[data-note-delivery-total]');
+  const totalTarget = form.querySelector('[data-note-total]');
+  const summaryMessage = form.querySelector('[data-note-summary-message]');
+  let quantitySequence = itemsBody?.querySelectorAll('[data-note-item]').length || 0;
+
+  const showPickerMessage = (message) => {
+    if (!pickerMessage) return;
+    pickerMessage.textContent = message;
+    pickerMessage.hidden = !message;
+  };
+
+  const configureQuantity = (row) => {
+    const input = row.querySelector('[data-note-quantity]');
+    if (!input) return;
+    const behavior = row.dataset.quantityBehavior;
+    const decimalPlaces = Math.max(0, Number.parseInt(row.dataset.decimalPlaces || '0', 10) || 0);
+    if (behavior === 'FIXED_ONE') {
+      input.value = '1';
+      input.readOnly = true;
+      input.setAttribute('aria-readonly', 'true');
+      input.inputMode = 'numeric';
+      input.step = '1';
+      input.min = '1';
+    } else if (behavior === 'INTEGER') {
+      input.readOnly = false;
+      input.removeAttribute('aria-readonly');
+      input.inputMode = 'numeric';
+      input.step = '1';
+      input.min = '1';
+    } else {
+      input.readOnly = false;
+      input.removeAttribute('aria-readonly');
+      input.inputMode = 'decimal';
+      input.step = decimalPlaces > 0 ? `0.${'0'.repeat(decimalPlaces - 1)}1` : '1';
+      input.min = input.step;
+    }
+  };
+
+  const updateItemCount = () => {
+    const count = itemsBody?.querySelectorAll('[data-note-item]').length || 0;
+    if (itemCount) itemCount.textContent = `${count} ${count === 1 ? 'item' : 'itens'}`;
+    if (emptyState) emptyState.hidden = count > 0;
+  };
+
+  const calculateItemSubtotal = (row) => {
+    const input = row.querySelector('[data-note-quantity]');
+    const target = row.querySelector('[data-note-item-subtotal]');
+    const behavior = row.dataset.quantityBehavior || 'DECIMAL';
+    const decimalPlaces = Math.max(0, Number.parseInt(row.dataset.decimalPlaces || '0', 10) || 0);
+    const quantity = parseNoteDecimal(input?.value, decimalPlaces);
+    const priceCents = BigInt(row.dataset.priceCents || '0');
+    let valid = quantity !== null && quantity.coefficient > 0n;
+    if (valid && behavior === 'INTEGER' && quantity.scale !== 0) valid = false;
+    if (valid && behavior === 'FIXED_ONE') valid = quantity.scale === 0 && quantity.coefficient === 1n;
+    if (!valid) {
+      if (target) target.textContent = 'Quantidade inválida';
+      row.classList.add('note-item--invalid');
+      return null;
+    }
+    const denominator = notePowerOfTen(quantity.scale);
+    const subtotal = noteRoundPositive(priceCents * quantity.coefficient, denominator);
+    if (target) target.textContent = formatCashMoney(subtotal);
+    row.classList.remove('note-item--invalid');
+    return subtotal;
+  };
+
+  const updateSummary = () => {
+    const rows = [...(itemsBody?.querySelectorAll('[data-note-item]') || [])];
+    let servicesSubtotal = 0n;
+    let itemsValid = true;
+    rows.forEach((row) => {
+      const subtotal = calculateItemSubtotal(row);
+      if (subtotal === null) itemsValid = false;
+      else servicesSubtotal += subtotal;
+    });
+
+    let delivery = 0n;
+    let deliveryValid = true;
+    if (deliveryToggle?.checked && deliveryAmount?.value.trim()) {
+      const parsed = parseNoteMoney(deliveryAmount.value);
+      if (parsed === null) deliveryValid = false;
+      else delivery = parsed;
+    }
+
+    let discount = 0n;
+    let discountValid = true;
+    if (discountType?.value === 'VALOR') {
+      const parsed = parseNoteMoney(discountInput?.value);
+      if (parsed === null) discountValid = false;
+      else discount = parsed;
+    } else if (discountType?.value === 'PERCENTUAL') {
+      const percentage = parseNoteDecimal(discountInput?.value, 4);
+      if (percentage === null || percentage.coefficient > (100n * notePowerOfTen(percentage.scale))) {
+        discountValid = false;
+      } else {
+        discount = noteRoundPositive(
+          servicesSubtotal * percentage.coefficient,
+          100n * notePowerOfTen(percentage.scale),
+        );
+      }
+    }
+
+    if (discount > servicesSubtotal) discountValid = false;
+    const previewValid = rows.length > 0 && itemsValid && deliveryValid && discountValid;
+    const total = previewValid ? servicesSubtotal - discount + delivery : 0n;
+    if (servicesSubtotalTarget) servicesSubtotalTarget.textContent = formatCashMoney(servicesSubtotal);
+    if (discountTarget) discountTarget.textContent = `− ${formatCashMoney(discountValid ? discount : 0n)}`;
+    if (deliveryTarget) deliveryTarget.textContent = formatCashMoney(deliveryValid ? delivery : 0n);
+    if (totalTarget) totalTarget.textContent = previewValid ? formatCashMoney(total) : '—';
+    if (summaryMessage) {
+      if (!rows.length) summaryMessage.textContent = 'Adicione serviços para calcular a prévia.';
+      else if (!itemsValid) summaryMessage.textContent = 'Revise as quantidades para calcular o total.';
+      else if (!discountValid) summaryMessage.textContent = 'Revise o desconto informado.';
+      else if (!deliveryValid) summaryMessage.textContent = 'Revise o valor da entrega.';
+      else if (total === 0n) summaryMessage.textContent = 'Total zero: a Nota ficará financeiramente paga, sem gerar recebimento.';
+      else summaryMessage.textContent = 'Prévia pronta. Os valores serão confirmados pelo servidor.';
+    }
+  };
+
+  const appendText = (parent, tagName, textValue, className = '') => {
+    const element = document.createElement(tagName);
+    element.textContent = textValue;
+    if (className) element.className = className;
+    parent.append(element);
+    return element;
+  };
+
+  const addSelectedService = () => {
+    const option = servicePicker?.selectedOptions[0];
+    if (!option?.value) {
+      showPickerMessage('Selecione um serviço antes de adicionar.');
+      servicePicker?.focus();
+      return;
+    }
+    const alreadyAdded = [...itemsBody.querySelectorAll('[data-note-item]')]
+      .some((row) => row.dataset.serviceId === option.value);
+    if (alreadyAdded) {
+      showPickerMessage('Este serviço já foi adicionado. Ajuste a quantidade no item existente.');
+      return;
+    }
+
+    const row = document.createElement('tr');
+    row.dataset.noteItem = '';
+    row.dataset.serviceId = option.value;
+    row.dataset.priceCents = option.dataset.priceCents || '0';
+    row.dataset.quantityBehavior = option.dataset.quantityBehavior || 'DECIMAL';
+    row.dataset.decimalPlaces = option.dataset.decimalPlaces || '0';
+
+    const serviceCell = document.createElement('td');
+    const itemId = document.createElement('input');
+    itemId.type = 'hidden';
+    itemId.name = 'item_id';
+    itemId.value = '';
+    const serviceId = document.createElement('input');
+    serviceId.type = 'hidden';
+    serviceId.name = 'service_id';
+    serviceId.value = option.value;
+    serviceCell.append(itemId, serviceId);
+    appendText(serviceCell, 'strong', option.dataset.serviceName || option.textContent.trim());
+    appendText(serviceCell, 'small', `${option.dataset.serviceCode || 'Sem código'}${option.dataset.category ? ` · ${option.dataset.category}` : ''}`);
+    row.append(serviceCell);
+
+    const unitCell = document.createElement('td');
+    appendText(unitCell, 'strong', option.dataset.unitSymbol || '—');
+    appendText(unitCell, 'small', option.dataset.unitName || 'Unidade');
+    row.append(unitCell);
+
+    const quantityCell = document.createElement('td');
+    const quantityId = `note-quantity-added-${quantitySequence += 1}`;
+    const quantityInput = document.createElement('input');
+    quantityInput.id = quantityId;
+    quantityInput.className = 'note-quantity-input';
+    quantityInput.name = 'quantity';
+    quantityInput.value = '1';
+    quantityInput.maxLength = 64;
+    quantityInput.required = true;
+    quantityInput.dataset.noteQuantity = '';
+    quantityInput.setAttribute('aria-label', `Quantidade de ${option.dataset.serviceName || 'serviço'}`);
+    quantityCell.append(quantityInput);
+    const behavior = option.dataset.quantityBehavior;
+    const decimalPlaces = option.dataset.decimalPlaces || '0';
+    appendText(
+      quantityCell,
+      'small',
+      behavior === 'FIXED_ONE' ? 'Sempre 1' : (behavior === 'INTEGER' ? 'Inteira e positiva' : `Até ${decimalPlaces} casa(s) decimal(is)`),
+    );
+    row.append(quantityCell);
+
+    const priceCell = document.createElement('td');
+    priceCell.className = 'note-money-cell';
+    priceCell.append(document.createTextNode(formatCashMoney(BigInt(option.dataset.priceCents || '0'))));
+    appendText(priceCell, 'small', option.dataset.unitSymbol === '—' ? 'preço fixo' : `/ ${option.dataset.unitSymbol || '—'}`);
+    row.append(priceCell);
+
+    const subtotalCell = document.createElement('td');
+    subtotalCell.className = 'note-money-cell';
+    const subtotal = appendText(subtotalCell, 'strong', '—');
+    subtotal.dataset.noteItemSubtotal = '';
+    appendText(subtotalCell, 'small', 'prévia');
+    row.append(subtotalCell);
+
+    const actionCell = document.createElement('td');
+    const removeButton = appendText(actionCell, 'button', 'Remover', 'link-button note-remove-item');
+    removeButton.type = 'button';
+    removeButton.dataset.noteRemoveItem = '';
+    removeButton.setAttribute('aria-label', `Remover ${option.dataset.serviceName || 'serviço'}`);
+    row.append(actionCell);
+
+    itemsBody.append(row);
+    configureQuantity(row);
+    servicePicker.value = '';
+    showPickerMessage('');
+    updateItemCount();
+    updateSummary();
+    quantityInput.focus();
+  };
+
+  const filterServices = () => {
+    const query = (serviceSearch?.value || '').trim().toLocaleLowerCase('pt-BR');
+    let visible = 0;
+    [...(servicePicker?.options || [])].forEach((option, index) => {
+      if (index === 0) return;
+      const searchable = [option.dataset.serviceName, option.dataset.serviceCode, option.dataset.category, option.dataset.unitName, option.dataset.unitSymbol]
+        .filter(Boolean).join(' ').toLocaleLowerCase('pt-BR');
+      const matches = !query || searchable.includes(query);
+      option.hidden = !matches;
+      option.disabled = !matches;
+      if (matches) visible += 1;
+    });
+    if (servicePicker?.selectedOptions[0]?.disabled) servicePicker.value = '';
+    if (serviceResult) serviceResult.textContent = `${visible} serviço(s) encontrado(s).`;
+  };
+
+  const refreshDelivery = () => {
+    if (deliveryFields) deliveryFields.hidden = !deliveryToggle?.checked;
+    if (deliveryAmount) deliveryAmount.disabled = !deliveryToggle?.checked;
+    updateSummary();
+  };
+
+  const refreshDiscount = () => {
+    const enabled = discountType?.value === 'VALOR' || discountType?.value === 'PERCENTUAL';
+    if (discountField) discountField.hidden = !enabled;
+    if (discountInput) {
+      discountInput.disabled = !enabled;
+      discountInput.placeholder = discountType?.value === 'PERCENTUAL' ? '0,00' : '0,00';
+    }
+    if (discountLabel) discountLabel.textContent = discountType?.value === 'PERCENTUAL' ? 'Percentual *' : 'Valor *';
+    updateSummary();
+  };
+
+  itemsBody?.querySelectorAll('[data-note-item]').forEach(configureQuantity);
+  itemsBody?.addEventListener('input', (event) => {
+    if (event.target.matches('[data-note-quantity]')) updateSummary();
+  });
+  itemsBody?.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('[data-note-remove-item]');
+    if (!removeButton) return;
+    removeButton.closest('[data-note-item]')?.remove();
+    updateItemCount();
+    updateSummary();
+  });
+  addService?.addEventListener('click', addSelectedService);
+  serviceSearch?.addEventListener('input', filterServices);
+  serviceSearch?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const firstMatch = [...(servicePicker?.options || [])].find((option, index) => index > 0 && !option.disabled);
+    if (firstMatch) servicePicker.value = firstMatch.value;
+    addSelectedService();
+  });
+  deliveryToggle?.addEventListener('change', refreshDelivery);
+  deliveryAmount?.addEventListener('input', updateSummary);
+  discountType?.addEventListener('change', refreshDiscount);
+  discountInput?.addEventListener('input', updateSummary);
+  form.addEventListener('submit', (event) => {
+    if (itemsBody?.querySelector('[data-note-item]')) return;
+    event.preventDefault();
+    delete form.dataset.submitting;
+    form.querySelectorAll('[aria-disabled="true"]').forEach((button) => {
+      button.disabled = false;
+      button.removeAttribute('aria-disabled');
+    });
+    showPickerMessage('Adicione ao menos um serviço antes de salvar a Nota.');
+    servicePicker?.focus();
+  }, { capture: true });
+
+  filterServices();
+  refreshDelivery();
+  refreshDiscount();
+  updateItemCount();
+  updateSummary();
+});

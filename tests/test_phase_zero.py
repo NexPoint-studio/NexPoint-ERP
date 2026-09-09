@@ -59,7 +59,9 @@ def test_registry_contains_only_four_approved_modules():
 def test_expected_contextual_tabs():
     assert [tab.name for tab in MODULE_BY_ID["cash"].tabs] == ["Resumo", "Novo lançamento", "Histórico", "Relatórios"]
     assert [tab.name for tab in MODULE_BY_ID["customers"].tabs] == ["Lista", "Novo cliente", "Histórico"]
-    assert [tab.name for tab in MODULE_BY_ID["services"].tabs] == ["Lista", "Novo serviço", "Categorias", "Preços"]
+    assert [tab.name for tab in MODULE_BY_ID["services"].tabs] == [
+        "Catálogo", "Nova Nota", "Notas de Serviço", "Novo serviço", "Categorias", "Preços"
+    ]
     assert [tab.name for tab in MODULE_BY_ID["admin"].tabs] == ["Usuários", "Permissões", "Configurações", "Sistema"]
 
 
@@ -110,6 +112,7 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
         "customer_activities", "customer_addresses", "customers",
         "feature_flags", "permissions", "role_permissions", "roles",
         "schema_migrations", "service_categories", "service_prices", "services",
+        "billing_units", "service_notes", "service_note_items", "service_note_events",
         "settings", "user_roles", "users",
     }
 
