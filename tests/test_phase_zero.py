@@ -62,9 +62,9 @@ def test_expected_contextual_tabs():
     assert [tab.name for tab in MODULE_BY_ID["services"].tabs] == [
         "Catálogo", "Nova Nota", "Notas de Serviço"
     ]
-    assert [tab.name for tab in MODULE_BY_ID["admin"].tabs] == [
+    assert [tab.name for tab in MODULE_BY_ID["admin"].tabs if tab.visible] == [
         "Visão geral", "Serviços", "Financeiro", "Pagamentos e taxas",
-        "Usuários e permissões", "Empresa", "Suporte", "Auditoria", "Sistema",
+        "Suporte", "Auditoria", "Sistema",
     ]
 
 
@@ -78,8 +78,9 @@ def test_admin_can_open_every_screen(client):
 def test_sidebar_is_neutral_and_has_only_allowed_modules(client):
     login(client, "admin@local")
     text = client.get("/caixa/resumo").text
-    for label in ("Caixa", "Clientes", "Serviços", "Administração", "SEU LOGO"):
+    for label in ("Caixa", "Clientes", "Serviços", "Administração"):
         assert label in text
+    assert "SEU LOGO" not in text
     for forbidden in ("Início", "Ordens", "Produção", "Corporativo", "Entregas"):
         assert f'>{forbidden}<' not in text
 
@@ -118,6 +119,10 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "settings", "user_roles", "users",
         "payments", "payment_terminals", "payment_fee_rules", "support_grants",
+        "admin_locks", "admin_recovery_codes", "remember_sessions",
+        "outbox_items", "diagnostic_events", "nonce_receipts",
+        "note_closures", "customer_receivables", "note_receivable_links",
+        "payment_allocations", "receivable_payments",
     }
 
 
@@ -153,13 +158,16 @@ def test_settings_uses_local_sqlite_and_ensures_data_directory(monkeypatch, tmp_
     assert (tmp_path / "data").is_dir()
 
 
-def test_no_cloud_package_or_external_runtime_reference():
+def test_no_cloud_package_or_unapproved_external_runtime_reference():
     root = Path(__file__).resolve().parents[1]
     pyproject = (root / "pyproject.toml").read_text(encoding="utf-8").lower()
     for package in ("supabase", "firebase", "cloudflare", "psycopg", "postgres"):
         assert package not in pyproject
+    # A ponte Nexa autorizada é exclusivamente server-side e fica isolada
+    # nestes dois arquivos. O restante do ERP continua local/autocontido.
+    bridge_files = {root / "app/routes/nexa.py", root / "app/services/nexa_adapter.py"}
     runtime_files = [
-        *root.joinpath("app").rglob("*.py"),
+        *(path for path in root.joinpath("app").rglob("*.py") if path not in bridge_files),
         *root.joinpath("templates").rglob("*.html"),
         *root.joinpath("static", "js").rglob("*.js"),
         root / "run_dev.py", root / "run_desktop.py",
@@ -169,6 +177,11 @@ def test_no_cloud_package_or_external_runtime_reference():
         assert forbidden not in content
     http_references = [line for line in content.splitlines() if "http://" in line]
     assert http_references and all("127.0.0.1" in line for line in http_references)
+    frontend = "\n".join(path.read_text(encoding="utf-8").lower() for path in [
+        *root.joinpath("templates").rglob("*.html"), *root.joinpath("static", "js").rglob("*.js")
+    ])
+    assert "nexa_erp_bridge_secret" not in frontend
+    assert "service_role" not in frontend
 
 
 def test_project_source_has_no_absolute_dependency_on_original_projects():

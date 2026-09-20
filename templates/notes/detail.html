@@ -9,27 +9,28 @@
     <p>{{ 'Série/Bloco ' ~ note.series_original ~ ' · ' if note.series_original else '' }}{{ note.customer.name }}</p>
     <div class="profile-badges">
       <span class="badge badge--{{ 'neutral' if note.operational_status == 'CANCELADO' else ('success' if note.operational_status == 'ENTREGUE' else ('info' if note.operational_status == 'PRONTO' else 'warning')) }}">{{ operational_status_labels.get(note.operational_status, note.operational_status|replace('_', ' ')|title) }}</span>
-      <span class="badge badge--{{ 'success' if note.financial_status == 'PAGO' else 'warning' }}">{{ financial_status_labels.get(note.financial_status, note.financial_status|title) }}</span>
+      <span class="badge badge--{{ 'success' if financial_status_derived == 'PAGO' else ('danger' if financial_status_derived == 'SALDO_DEVEDOR' else 'warning') }}">{{ financial_status_labels.get(financial_status_derived, financial_status_derived|title) }}</span>
       <span class="badge badge--{{ 'danger' if profile.deadline_code == 'ATRASADO' else ('warning' if profile.deadline_code == 'VENCE_HOJE' else ('neutral' if note.operational_status == 'CANCELADO' else 'success')) }}">{{ profile.deadline_label }}</span>
     </div>
   </div>
   <div class="header-actions note-detail-actions">
     <a class="button button--secondary" href="/servicos/notas">Voltar às Notas</a>
-    {% if note.operational_status != 'CANCELADO' and current_user.can('notes.edit') %}<a class="button button--secondary" href="/servicos/notas/{{ note.id }}/editar">Editar</a>{% endif %}
+    {% if not closure and note.operational_status != 'CANCELADO' and current_user.can('notes.edit') %}<a class="button button--secondary" href="/servicos/notas/{{ note.id }}/editar">Editar Nota</a>{% endif %}
     {% if current_user.can('notes.change_status') %}
       {% for target_status in profile.allowed_transitions %}
         <form method="post" action="/servicos/notas/{{ note.id }}/status" class="inline-form" data-confirm="{{ 'Iniciar a produção desta Nota?' if target_status == 'EM_ANDAMENTO' else ('Marcar esta Nota como pronta?' if target_status == 'PRONTO' else 'Confirmar a entrega desta Nota?') }}">
           <input type="hidden" name="target_status" value="{{ target_status }}">
           <input type="hidden" name="revision" value="{{ note.revision }}">
-          <button class="button {{ 'button--success' if target_status == 'ENTREGUE' else 'button--primary' }}" type="submit">{{ 'Iniciar produção' if target_status == 'EM_ANDAMENTO' else ('Marcar como pronta' if target_status == 'PRONTO' else ('Entregar sem receber' if note.financial_status == 'PENDENTE' else 'Entregar')) }}</button>
+          <button class="button {{ 'button--success' if target_status == 'ENTREGUE' else 'button--primary' }}" type="submit">{{ 'Iniciar produção' if target_status == 'EM_ANDAMENTO' else ('Marcar como pronta' if target_status == 'PRONTO' else ('Entregar sem receber' if note.financial_status != 'PAGO' else 'Entregar')) }}</button>
         </form>
       {% endfor %}
     {% endif %}
-    {% if note.total_cents > 0 and note.financial_status == 'PENDENTE' and note.operational_status != 'CANCELADO' and current_user.can('payments.receive') %}
+    {% if not closure and total_collectible_cents > 0 and note.operational_status != 'CANCELADO' and current_user.can('payments.receive') %}
       <a class="button button--primary" href="/servicos/notas/{{ note.id }}/pagamento">Registrar pagamento</a>
       {% if note.operational_status == 'PRONTO' and current_user.can('notes.change_status') %}<a class="button button--success" href="/servicos/notas/{{ note.id }}/pagamento?deliver=1">Entregar e receber</a>{% endif %}
     {% endif %}
-    {% if note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}<button class="button button--danger" type="button" data-modal-open="cancel-note">Cancelar Nota</button>{% endif %}
+    {% if not closure and note.operational_status != 'CANCELADO' and current_user.can('notes.change_status') %}<form method="post" action="/servicos/notas/{{ note.id }}/fechar" class="inline-form" data-confirm="Fechar esta Nota? Total: {{ note.total_cents|money_cents }}. Pago: {{ paid_cents|money_cents }}. Saldo: {{ outstanding_cents|money_cents }}. Situação: {{ financial_status_labels.get(financial_status_derived, financial_status_derived) }}. O saldo será registrado como débito, sem nova entrada de Caixa."><input type="hidden" name="request_uid" value="{{ close_request_uid }}"><button class="button button--success" type="submit">Fechar Nota</button></form>{% endif %}
+    {% if not closure and note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}<button class="button button--danger" type="button" data-modal-open="cancel-note">Cancelar Nota</button>{% endif %}
   </div>
 </header>
 
@@ -50,22 +51,79 @@
   <article class="metric-card"><span class="metric-card__label">Serviços</span><strong class="metric-card__value">{{ note.services_subtotal_cents|money_cents }}</strong><small>{{ note.items|length }} item(ns)</small></article>
   <article class="metric-card"><span class="metric-card__label">Desconto</span><strong class="metric-card__value">{{ note.discount_amount_cents|money_cents }}</strong><small>{{ 'Sem desconto' if not note.discount_type else ('Percentual sobre serviços' if note.discount_type == 'PERCENTUAL' else 'Valor sobre serviços') }}</small></article>
   <article class="metric-card"><span class="metric-card__label">Entrega</span><strong class="metric-card__value">{{ note.delivery_amount_cents|money_cents }}</strong><small>{{ 'Sem entrega' if not note.delivery_enabled else ('Entrega gratuita' if note.delivery_amount_cents == 0 else 'Entrega incluída') }}</small></article>
-  <article class="metric-card metric-card--positive"><span class="metric-card__label">Total</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>{{ 'Quitada por total zero' if note.total_cents == 0 else financial_status_labels.get(note.financial_status, note.financial_status|title) }}</small></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Total</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>{{ 'Quitada por total zero' if note.total_cents == 0 else financial_status_labels.get(financial_status_derived, financial_status_derived|title) }}</small></article>
+</section>
+{% if linked_debts %}
+<section class="panel section-block">
+  <div class="section-heading"><div><span class="section-kicker">Cobrança combinada</span><h2>Saldos anteriores vinculados</h2><p>Estes valores pertencem às Notas de origem e não aumentam o total da Nota atual. O saldo é atualizado quando há pagamento.</p></div></div>
+  <dl class="details-list">
+    {% for link, debt in linked_debts if debt %}
+    <div><dt>Nota de origem #{{ debt.source_note_id }}</dt><dd>{{ debt.remaining_amount_cents|money_cents }} em aberto · {{ 'Quitado' if debt.status == 'SETTLED' else 'Vinculado' }}</dd></div>
+    {% endfor %}
+    <div><dt>Saldo anterior em aberto</dt><dd>{{ linked_remaining_cents|money_cents }}</dd></div>
+    <div><dt>Total a cobrar agora</dt><dd>{{ total_collectible_cents|money_cents }}</dd></div>
+  </dl>
+</section>
+{% endif %}
+<section class="panel section-block" aria-label="Resumo financeiro">
+  <div class="section-heading"><div><span class="section-kicker">Financeiro</span><h2>Resumo financeiro</h2><p>Valores derivados dos recebimentos confirmados.</p></div></div>
+  <div class="metrics-grid metrics-grid--four compact">
+    <article class="metric-card"><span class="metric-card__label">Total da Nota</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong></article>
+    <article class="metric-card"><span class="metric-card__label">Total recebido</span><strong class="metric-card__value">{{ paid_cents|money_cents }}</strong></article>
+    <article class="metric-card"><span class="metric-card__label">Saldo restante</span><strong class="metric-card__value">{{ outstanding_cents|money_cents }}</strong></article>
+    <article class="metric-card"><span class="metric-card__label">Status</span><strong class="metric-card__value note-metric-text">{{ financial_status_labels.get(financial_status_derived, financial_status_derived|title) }}</strong><small>{{ 'Nota fechada' if closure else 'Nota aberta' }}</small></article>
+  </div>
 </section>
 
-{% if payment %}
+{% if closure and receivable and receivable.remaining_amount_cents > 0 and current_user.can('payments.receive') %}
 <section class="panel section-block">
-  <div class="section-heading section-heading--split"><div><span class="section-kicker">Quitação integral</span><h2>Pagamento confirmado</h2><p>Valores e identificações congelados no momento do recebimento.</p></div>{% if payment_cash and current_user.can('finance.overview.view') %}<a class="button button--secondary" href="/caixa/movimentos/{{ payment_cash.id }}">Ver entrada no Caixa</a>{% endif %}</div>
-  <dl class="details-list">
+  <div class="section-heading"><div><span class="section-kicker">Saldo devedor</span><h2>Quitar depois do fechamento</h2><p>A Nota permanece fechada. Cada valor efetivamente recebido cria um registro de quitação e uma única entrada no Caixa.</p></div></div>
+  <form method="post" action="/clientes/{{ note.customer_id }}/debitos/{{ receivable.id }}/pagar" class="form-grid">
+    <input type="hidden" name="request_uid" value="{{ receivable_payment_uid }}">
+    <input type="hidden" name="return_to" value="/servicos/notas/{{ note.id }}?payment_saved=1">
+    <label class="field">Valor recebido *<input name="amount" required inputmode="decimal" placeholder="0,00"></label>
+    <label class="field">Forma de pagamento *<select name="payment_method_id" required><option value="">Selecione</option>{% for method in payment_methods %}<option value="{{ method.id }}">{{ method.name }}</option>{% endfor %}</select></label>
+    <label class="field">Data e hora *<input type="datetime-local" name="paid_at" value="{{ receivable_paid_at }}" required></label>
+    <div class="form-actions"><button class="button button--primary" type="submit">Registrar quitação</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if payments %}
+<section class="panel section-block">
+  <div class="section-heading"><div><span class="section-kicker">Histórico financeiro</span><h2>Pagamentos confirmados</h2><p>Cada recebimento possui registro e movimento de Caixa próprios.</p></div></div>
+  {% for payment in payments %}<dl class="details-list">
     <div><dt>Forma</dt><dd>{{ payment.method_name_snapshot }}</dd></div>
     {% if payment.card_mode_snapshot %}<div><dt>Modalidade</dt><dd>{{ 'Débito' if payment.card_mode_snapshot == 'DEBIT' else 'Crédito' }}</dd></div>{% endif %}
     {% if payment.installments %}<div><dt>Parcelas</dt><dd>{{ payment.installments }}x</dd></div>{% endif %}
     {% if payment.terminal_name_snapshot %}<div><dt>Terminal</dt><dd>{{ payment.terminal_name_snapshot }}</dd></div>{% endif %}
     <div><dt>Recebido em</dt><dd>{{ payment.paid_at|datetime_br }}</dd></div>
+    <div><dt>Status</dt><dd>Confirmado</dd></div>
+    <div><dt>Origem</dt><dd>Recebimento da Nota</dd></div>
+    <div><dt>Registrado por</dt><dd>{{ payment_actor_names.get(payment.created_by, 'Usuário local') }}</dd></div>
+    {% if payment.notes %}<div><dt>Observação</dt><dd>{{ payment.notes }}</dd></div>{% endif %}
     <div><dt>Valor bruto</dt><dd>{{ payment.gross_amount_cents|money_cents }}</dd></div>
+    {% if payment_allocations.get(payment.id) %}
+      {% for allocation in payment_allocations[payment.id] %}<div><dt>{{ 'Nota atual' if allocation.receivable_id is none else 'Saldo anterior #' ~ allocation.receivable_id }}</dt><dd>{{ allocation.amount_cents|money_cents }}</dd></div>{% endfor %}
+    {% else %}<div><dt>Nota atual</dt><dd>{{ payment.gross_amount_cents|money_cents }}</dd></div>{% endif %}
     <div><dt>Taxa</dt><dd>{{ payment.fee_amount_cents|money_cents }}</dd></div>
     <div><dt>Impacto líquido</dt><dd>{{ payment.net_amount_cents|money_cents }}</dd></div>
-  </dl>
+    {% if payment_cash.get(payment.id) and current_user.can('finance.overview.view') %}<div><dt>Caixa</dt><dd><a href="/caixa/movimentos/{{ payment_cash[payment.id].id }}">Ver movimento</a></dd></div>{% endif %}
+  </dl>{% endfor %}
+</section>
+{% endif %}
+
+{% if receivable_payments %}
+<section class="panel section-block">
+  <div class="section-heading"><div><span class="section-kicker">Histórico financeiro</span><h2>Quitações do saldo devedor</h2><p>Recebimentos feitos após o fechamento da Nota.</p></div></div>
+  {% for debt_payment in receivable_payments %}<dl class="details-list">
+    <div><dt>Forma</dt><dd>{{ debt_payment.method_name_snapshot }}</dd></div>
+    <div><dt>Recebido em</dt><dd>{{ debt_payment.paid_at|datetime_br }}</dd></div>
+    <div><dt>Valor</dt><dd>{{ debt_payment.amount_cents|money_cents }}</dd></div>
+    <div><dt>Status</dt><dd>Confirmado</dd></div>
+    <div><dt>Origem</dt><dd>Quitação de saldo devedor</dd></div>
+    <div><dt>Registrado por</dt><dd>{{ payment_actor_names.get(debt_payment.created_by, 'Usuário local') }}</dd></div>
+  </dl>{% endfor %}
 </section>
 {% endif %}
 
@@ -78,7 +136,7 @@
       <div><dt>Cliente</dt><dd><a class="table-action" href="/clientes/{{ note.customer.id }}">{{ note.customer.name }}</a></dd></div>
       <div><dt>Recebimento</dt><dd>{{ note.received_at|datetime_br }}</dd></div>
       <div><dt>Status</dt><dd>{{ operational_status_labels.get(note.operational_status, note.operational_status|replace('_', ' ')|title) }}</dd></div>
-      <div><dt>Financeiro</dt><dd>{{ financial_status_labels.get(note.financial_status, note.financial_status|title) }}</dd></div>
+      <div><dt>Financeiro</dt><dd>{{ financial_status_labels.get(financial_status_derived, financial_status_derived|title) }}</dd></div>
     </dl>
   </article>
 
@@ -147,7 +205,7 @@
     {% for event in note.events %}
       <article class="timeline-item">
         <time>{{ event.occurred_at|datetime_br }}</time>
-        <div><strong>{{ event_type_labels.get(event.event_type, event.event_type|replace('_', ' ')|title) }}</strong><p>{{ 'Pagamento integral confirmado e vinculado ao Caixa.' if event.event_type == 'PAYMENT_RECEIVED' else ('Mudança registrada no atendimento.' if event.event_type == 'STATUS_CHANGED' else ('Nota cancelada e preservada.' if event.event_type == 'NOTE_CANCELLED' else ('Dados da Nota atualizados.' if event.event_type == 'NOTE_UPDATED' else 'Nota registrada no sistema.'))) }}</p><small>por {{ profile.actor_names.get(event.created_by, 'Usuário local') }}</small></div>
+        <div><strong>{{ event_type_labels.get(event.event_type, event.event_type|replace('_', ' ')|title) }}</strong><p>{{ 'Pagamento confirmado e vinculado ao Caixa.' if event.event_type == 'PAYMENT_RECEIVED' else ('Mudança registrada no atendimento.' if event.event_type == 'STATUS_CHANGED' else ('Nota cancelada e preservada.' if event.event_type == 'NOTE_CANCELLED' else ('Dados da Nota atualizados.' if event.event_type == 'NOTE_UPDATED' else 'Nota registrada no sistema.'))) }}</p><small>por {{ profile.actor_names.get(event.created_by, 'Usuário local') }}</small></div>
       </article>
     {% else %}<p class="muted">Nenhum evento registrado.</p>{% endfor %}
   </div>
@@ -168,7 +226,7 @@
   </dl>
 </section>
 
-{% if note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}
+{% if not closure and note.operational_status != 'CANCELADO' and current_user.can('notes.cancel') %}
 <div class="modal-backdrop" id="cancel-note" {% if not cancel_error %}hidden{% endif %}>
   <section class="modal" role="dialog" aria-modal="true" aria-labelledby="cancel-note-title">
     <div class="modal__header"><div><h2 id="cancel-note-title">Cancelar Nota {{ note.number_original }}?</h2><p>{{ note.customer.name }} · {{ note.total_cents|money_cents }}</p></div><button class="icon-button" type="button" data-modal-close="cancel-note" aria-label="Fechar">×</button></div>

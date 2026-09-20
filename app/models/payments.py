@@ -190,12 +190,11 @@ class Payment(Base):
             "and reversal_reason is not null and length(trim(reversal_reason)) between 1 and 500)",
             name="ck_payments_reversal",
         ),
-        Index(
-            "uq_payments_confirmed_service_note",
-            "service_note_id",
-            unique=True,
-            sqlite_where=text("status = 'CONFIRMED'"),
+        CheckConstraint(
+            "notes is null or length(notes) <= 1000",
+            name="ck_payments_notes",
         ),
+        Index("ix_payments_note_status_paid", "service_note_id", "status", "paid_at"),
         Index("ix_payments_customer_paid", "customer_id", "paid_at"),
         Index("ix_payments_method_paid", "payment_method_id", "paid_at"),
         Index("ix_payments_status_paid", "status", "paid_at"),
@@ -228,6 +227,7 @@ class Payment(Base):
     fee_amount_cents: Mapped[int] = mapped_column(Integer, default=0)
     net_amount_cents: Mapped[int] = mapped_column(Integer)
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

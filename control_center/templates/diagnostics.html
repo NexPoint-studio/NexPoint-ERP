@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">OBSERVABILIDADE</p>
+    <h1>Diagnóstico e logs</h1>
+    <p>Eventos técnicos sanitizados, correlações e fingerprints recebidos das instalações.</p>
+  </div>
+  <span class="result-count">{{ events|length }} evento{% if events|length != 1 %}s{% endif %}</span>
+</header>
+
+<form method="get" class="diagnostic-filter-grid" aria-label="Filtros do explorador de logs">
+  <label>Empresa
+    <select name="tenant">
+      <option value="">Todas</option>
+      {% for item in tenants %}<option value="{{ item.id }}" {% if selected.tenant == item.id %}selected{% endif %}>{{ item.display_name }}{% if item.tenant_type == 'TEST' %} · TESTE{% endif %}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Instalação
+    <select name="installation">
+      <option value="">Todas</option>
+      {% for item in installations %}<option value="{{ item.id }}" {% if selected.installation == item.id %}selected{% endif %}>{{ item.installation_id }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Início (UTC)<input type="datetime-local" name="inicio" value="{{ selected.inicio }}"></label>
+  <label>Fim (UTC)<input type="datetime-local" name="fim" value="{{ selected.fim }}"></label>
+  <label>Severidade
+    <select name="severity"><option value="">Todas</option>{% for value,label in observability_level_labels.items() %}<option value="{{ value }}" {% if selected.severity == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+  </label>
+  <label>Módulo<input name="module" value="{{ selected.module }}" maxlength="128" placeholder="payments"></label>
+  <label>Componente<input name="component" value="{{ selected.component }}" maxlength="128" placeholder="sync"></label>
+  <label>Tipo de evento<input name="event_type" value="{{ selected.event_type }}" maxlength="128" placeholder="sync.retry"></label>
+  <label>Status<input name="status" value="{{ selected.status }}" maxlength="128" placeholder="failed"></label>
+  <label>Fingerprint<input name="fingerprint" value="{{ selected.fingerprint }}" maxlength="128"></label>
+  <label>Correlation ID<input name="correlation" value="{{ selected.correlation }}" maxlength="128"></label>
+  <label class="diagnostic-filter-grid__search">Busca<input name="q" value="{{ selected.q }}" maxlength="120" placeholder="erro, operação ou identificador"></label>
+  <div class="filter-actions"><button class="button button--primary" type="submit">Aplicar filtros</button><a class="button button--secondary" href="/diagnostico">Limpar</a></div>
+</form>
+
+{% if fingerprints %}
+<section class="fingerprint-strip" aria-label="Fingerprints recentes">
+  {% for item in fingerprints %}
+  <a href="/fingerprints/{{ item.fingerprint }}">
+    <span class="badge badge--{{ item.latest_level|lower }}">{{ item.latest_level }}</span>
+    <code>{{ item.fingerprint }}</code>
+    <small>{{ item.occurrence_count }} ocorrência{% if item.occurrence_count != 1 %}s{% endif %}</small>
+  </a>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="panel table-wrap diagnostic-table">
+  <table>
+    <thead><tr><th>Horário</th><th>Nível</th><th>Empresa / instalação</th><th>Módulo / componente</th><th>Evento / operação</th><th>Status</th><th>Correlação</th></tr></thead>
+    <tbody>
+    {% for item in events %}
+      {% set tenant_item = tenant_details.get(item.tenant_id) %}
+      {% set installation_item = installation_details.get(item.installation_id) %}
+      <tr>
+        <td><a href="/diagnostico/{{ item.event_id }}"><strong>{{ item.timestamp|datetime_br }}</strong></a><small>{{ item.duration_ms|string + ' ms' if item.duration_ms is not none else item.event_id }}</small></td>
+        <td><span class="badge badge--{{ item.level|lower }}">{{ item.level }}</span></td>
+        <td><strong>{{ tenant_names.get(item.tenant_id, item.tenant_id) }}</strong>{% if tenant_item and tenant_item.tenant_type == 'TEST' %}<small class="test-inline">TESTE</small>{% endif %}<small>{{ installation_item.installation_id if installation_item else item.installation_id }}</small></td>
+        <td>{{ item.module }}<small>{{ item.component }}</small></td>
+        <td><a href="/diagnostico/{{ item.event_id }}">{{ item.event_type }}</a><small>{{ item.operation }}</small></td>
+        <td><span class="status-text">{{ item.status }}</span>{% if item.error_code %}<small>{{ item.error_code }}</small>{% endif %}</td>
+        <td>{% if item.correlation_id %}<a href="/diagnostico?correlation={{ item.correlation_id }}"><code>{{ item.correlation_id }}</code></a>{% else %}—{% endif %}{% if item.fingerprint %}<small><a href="/fingerprints/{{ item.fingerprint }}">{{ item.fingerprint }}</a></small>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty-row">Nenhum evento corresponde aos filtros selecionados.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

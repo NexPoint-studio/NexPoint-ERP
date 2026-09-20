@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">VISÃO GERAL</p><h1>Operação dos ERPs</h1><p>Indicadores técnicos derivados do repositório local do Control Center.</p></div>{% if has_demo_data %}<span class="demo-label">Dados fictícios identificados como DEMO</span>{% endif %}</header>
+<section class="metric-grid">
+  <article class="metric"><span>Empresas</span><strong>{{ summary.total_tenants }}</strong><small>{{ summary.active_tenants }} ativas · {{ summary.inactive_tenants }} inativas</small></article>
+  <article class="metric"><span>ERPs recentes</span><strong>{{ summary.recent_installations }}</strong><small>{{ summary.stale_installations }} sem contato · {{ summary.different_versions }} versões</small></article>
+  <article class="metric"><span>Chamados abertos</span><strong>{{ summary.open_tickets }}</strong><small>{{ summary.in_progress_tickets }} em andamento · {{ summary.waiting_customer_tickets }} aguardando</small></article>
+  <article class="metric metric--alert"><span>Riscos altos</span><strong>{{ summary.high_risks + summary.critical_risks }}</strong><small>{{ summary.critical_risks }} críticos · {{ summary.recent_incidents }} incidentes recentes</small></article>
+</section>
+<section class="split-grid">
+  <article class="panel"><header class="panel-heading"><div><h2>Empresas que pedem atenção</h2><p>Saúde, contato e chamados em uma única leitura.</p></div><a href="/empresas">Ver todas</a></header>
+    <div class="table-wrap"><table><thead><tr><th>Empresa</th><th>Status</th><th>Saúde</th><th>Chamados</th><th>Risco</th></tr></thead><tbody>
+    {% for row in tenant_overviews %}<tr><td><a href="/empresas/{{ row.tenant.id }}"><strong>{{ row.tenant.display_name }}</strong></a>{% if row.tenant.tenant_type == 'TEST' %}<small class="test-inline">TESTE</small>{% elif row.tenant.is_demo %}<small class="demo-inline">DEMO</small>{% endif %}</td><td><span class="badge badge--{{ row.tenant.status }}">{{ tenant_status_labels[row.tenant.status] }}</span></td><td><span class="badge badge--{{ row.tenant.health_status }}">{{ health_labels[row.tenant.health_status] }}</span></td><td>{{ row.open_ticket_count }}</td><td>{{ risk_labels.get(row.current_risk_level, row.current_risk_level) }}</td></tr>{% else %}<tr><td colspan="5" class="empty-row">Nenhuma empresa cadastrada.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </article>
+  <article class="panel"><header class="panel-heading"><div><h2>Chamados recentes</h2><p>Fila administrativa da NexPoint.</p></div><a href="/chamados">Abrir fila</a></header>
+    <div class="ticket-stack">{% for ticket in recent_tickets %}<a href="/chamados/{{ ticket.id }}" class="ticket-row"><div><strong>{{ ticket.protocol }}</strong><span>{{ ticket.subject }}</span></div><div><span class="badge badge--{{ ticket.status }}">{{ ticket_status_labels[ticket.status] }}</span><small>{{ ticket.updated_at|datetime_br }}</small></div></a>{% else %}<p class="empty-copy">Nenhum chamado na fila.</p>{% endfor %}</div>
+  </article>
+</section>
+{% endblock %}

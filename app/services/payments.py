@@ -11,15 +11,18 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.money import cents_to_decimal, decimal_to_cents
+from app.core.money import MAX_CASH_CENTS, cents_to_decimal, decimal_to_cents
 from app.models import AuditEvent, CashMovement, Payment, ServiceNote, ServiceNoteEvent
+from app.models.receivables import PaymentAllocation
+from app.observability.context import emit_observability_event
 from app.repositories.payments import PaymentRepository
+from app.repositories.receivables import ReceivableRepository
+from app.services.receivables import ReceivableService
 from app.services.payment_validation import PaymentInput
 from app.services.transactions import atomic_write
 from app.services.authorization import require_active_actor_permission
 
 
-MAX_CASH_CENTS = 99_999_999_999_999
 FEE_PERCENT_DENOMINATOR = Decimal(1_000_000)
 
 
@@ -103,7 +106,7 @@ class PaymentService:
         ))
 
     @staticmethod
-    def _fingerprint(note_id: int, data: PaymentInput, deliver: bool) -> dict[str, object]:
+    def _fingerprint(note_id: int, data: PaymentInput, deliver: bool, amount_cents: int) -> dict[str, object]:
         return {
             "service_note_id": note_id,
             "payment_method_id": data.payment_method_id,
@@ -113,15 +116,18 @@ class PaymentService:
             "paid_at": _utc_naive(data.paid_at).isoformat(timespec="seconds"),
             "revision": data.revision,
             "deliver": deliver,
+            "amount_cents": amount_cents,
+            "has_notes": bool(data.notes),
         }
 
     def _existing_result(
         self,
         existing: Payment,
         requested_fingerprint: dict[str, object],
+        requested_notes: str | None,
     ) -> PaymentResult:
         persisted = self.repository.request_fingerprint(existing.id)
-        if persisted != requested_fingerprint:
+        if persisted != requested_fingerprint or existing.notes != requested_notes:
             raise PaymentConflictError(
                 "Esta identificação de pagamento já foi usada com dados diferentes."
             )
@@ -131,6 +137,20 @@ class PaymentService:
                 "O pagamento existente não possui sua movimentação financeira vinculada."
             )
         self.session.commit()
+        emit_observability_event(
+            module="payment", component="payment_service",
+            event_type="payment.idempotent_duplicate", operation="receive",
+            status="idempotent", user_id=existing.created_by,
+            severity="WARNING", error_code="duplicate_request",
+            sync_required=True,
+        )
+        emit_observability_event(
+            module="cash", component="payment_service",
+            event_type="cash.entry.prevented_duplicate", operation="payment_entry",
+            status="prevented", user_id=existing.created_by,
+            severity="WARNING", error_code="duplicate_request",
+            sync_required=True,
+        )
         return PaymentResult(existing, movement, True)
 
     @staticmethod
@@ -192,33 +212,53 @@ class PaymentService:
         actor_id: int,
         *,
         deliver: bool = False,
+        amount_cents: int | None = None,
+        begin_immediate: bool = True,
     ) -> PaymentResult:
-        self._begin_immediate()
+        if not isinstance(begin_immediate, bool):
+            raise PaymentValidationError("O controle transacional do pagamento é inválido.")
+        if begin_immediate:
+            self._begin_immediate()
+        elif not self.session.in_transaction():
+            raise RuntimeError("O pagamento inicial exige uma transação de criação ativa.")
         require_active_actor_permission(self.session, actor_id, "payments.receive")
+        emit_observability_event(
+            module="payment", component="payment_service",
+            event_type="payment.requested", operation="receive",
+            status="started", user_id=actor_id, sync_required=True,
+        )
         if deliver:
             require_active_actor_permission(self.session, actor_id, "notes.change_status")
         if data.errors:
             raise PaymentValidationError("Revise os dados do pagamento.", errors=data.errors)
         if not isinstance(deliver, bool):
             raise PaymentValidationError("A ação de entrega é inválida.")
-        fingerprint = self._fingerprint(note_id, data, deliver)
+        if amount_cents is not None and (not isinstance(amount_cents, int) or isinstance(amount_cents, bool)):
+            raise PaymentValidationError("Informe um valor monetário válido.", errors={"amount": "Valor inválido."})
+        requested_amount = amount_cents
+        fingerprint = self._fingerprint(note_id, data, deliver, requested_amount or 0)
         existing = self.repository.by_request_uid(data.request_uid)
         if existing is not None:
-            return self._existing_result(existing, fingerprint)
+            if requested_amount is None:
+                fingerprint["amount_cents"] = existing.gross_amount_cents
+            return self._existing_result(existing, fingerprint, data.notes)
 
         note = self.repository.note(note_id)
         if note is None:
             raise PaymentNoteNotFoundError("Nota não encontrada.")
-        if note.total_cents == 0:
-            raise PaymentStateError(
-                "Notas com total zero já são quitadas sem Pagamento ou Caixa."
-            )
         if note.total_cents < 0 or note.total_cents > MAX_CASH_CENTS:
             raise PaymentStateError("O total da Nota excede o limite monetário do Caixa.")
-        if note.financial_status != "PENDENTE" or note.financial_settlement_reason is not None:
-            raise PaymentConflictError("Esta Nota já foi quitada.")
-        if self.repository.confirmed_for_note(note.id) is not None:
-            raise PaymentConflictError("Esta Nota já possui um pagamento confirmado.")
+        receivables = ReceivableRepository(self.session)
+        linked_debts = []
+        for link in receivables.links(note.id):
+            debt = receivables.get(link.receivable_id)
+            if debt is None or debt.customer_id != note.customer_id:
+                raise PaymentConsistencyError("O vínculo de saldo anterior está inconsistente.")
+            if debt.remaining_amount_cents > 0:
+                linked_debts.append(debt)
+        if note.total_cents == 0 and not linked_debts:
+            raise PaymentStateError("Notas com total zero já são quitadas sem Pagamento ou Caixa.")
+        linked_debts.sort(key=lambda debt: (debt.created_at, debt.id))
         if note.operational_status == "CANCELADO":
             raise PaymentStateError("Notas canceladas não podem receber pagamento.")
         if deliver and note.operational_status != "PRONTO":
@@ -261,9 +301,24 @@ class PaymentService:
             installments=data.installments,
             paid_at=paid_at,
         )
+        already_paid_cents = self.repository.paid_cents_for_note(note.id)
+        outstanding_cents = int(note.total_cents) - already_paid_cents
+        if outstanding_cents < 0:
+            raise PaymentConsistencyError("Os pagamentos da Nota superam seu total.")
+        linked_outstanding_cents = sum(debt.remaining_amount_cents for debt in linked_debts)
+        total_collectible_cents = outstanding_cents + linked_outstanding_cents
+        if total_collectible_cents <= 0:
+            raise PaymentConflictError("Esta cobrança já foi quitada.")
+        gross_cents = total_collectible_cents if requested_amount is None else requested_amount
+        if gross_cents <= 0:
+            raise PaymentValidationError("Informe um valor maior que zero.", errors={"amount": "Informe um valor maior que zero."})
+        if gross_cents > total_collectible_cents or gross_cents > MAX_CASH_CENTS:
+            raise PaymentValidationError("O pagamento não pode superar o saldo da cobrança.", errors={"amount": "O valor supera o saldo da Nota e dos débitos vinculados."})
+        if deliver and gross_cents != total_collectible_cents:
+            raise PaymentStateError("Entregar e receber exige a quitação de toda a cobrança.")
+        fingerprint["amount_cents"] = gross_cents
         percentage_scaled = fee_rule.fee_percentage_scaled if fee_rule else 0
         fixed_fee_cents = fee_rule.fixed_fee_cents if fee_rule else 0
-        gross_cents = int(note.total_cents)
         fee_cents = self._fee_amount(gross_cents, percentage_scaled, fixed_fee_cents)
         net_cents = gross_cents - fee_cents
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -287,6 +342,7 @@ class PaymentService:
             fee_amount_cents=fee_cents,
             net_amount_cents=net_cents,
             paid_at=paid_at,
+            notes=data.notes,
             created_by=actor_id,
             created_at=now,
         )
@@ -294,9 +350,38 @@ class PaymentService:
         self.session.flush()
         self._checkpoint("after_payment")
 
+        remaining_to_allocate = gross_cents
+        allocation_details: list[dict[str, int | None]] = []
+        for debt in linked_debts:
+            amount = min(remaining_to_allocate, debt.remaining_amount_cents)
+            if not amount:
+                continue
+            self.session.add(PaymentAllocation(
+                payment_id=payment.id, receivable_id=debt.id,
+                amount_cents=amount, created_at=now,
+            ))
+            debt.remaining_amount_cents -= amount
+            debt.status = "SETTLED" if debt.remaining_amount_cents == 0 else "PARTIALLY_PAID"
+            debt.updated_at = now
+            ReceivableService(self.session).refresh_source_note_status(debt, actor_id, now)
+            allocation_details.append({"receivable_id": debt.id, "amount_cents": amount})
+            remaining_to_allocate -= amount
+            if not remaining_to_allocate:
+                break
+        current_note_amount = remaining_to_allocate
+        if current_note_amount:
+            self.session.add(PaymentAllocation(
+                payment_id=payment.id, receivable_id=None,
+                amount_cents=current_note_amount, created_at=now,
+            ))
+            allocation_details.append({"receivable_id": None, "amount_cents": current_note_amount})
+        if current_note_amount > outstanding_cents:
+            raise PaymentConsistencyError("A alocação ultrapassa o saldo da Nota.")
+        fully_paid = already_paid_cents + current_note_amount == int(note.total_cents)
+        financial_status = "PAGO" if fully_paid else ("PARCIAL" if already_paid_cents + current_note_amount else "PENDENTE")
         values: dict[str, object] = {
-            "financial_status": "PAGO",
-            "financial_settlement_reason": "PAYMENT",
+            "financial_status": financial_status,
+            "financial_settlement_reason": ("ZERO_TOTAL" if note.total_cents == 0 else "PAYMENT") if fully_paid else None,
             "revision": note.revision + 1,
             "updated_by": actor_id,
             "updated_at": now,
@@ -306,7 +391,7 @@ class PaymentService:
         note_conditions = [
             ServiceNote.id == note.id,
             ServiceNote.revision == note.revision,
-            ServiceNote.financial_status == "PENDENTE",
+            ServiceNote.financial_status == note.financial_status,
         ]
         if deliver:
             note_conditions.append(ServiceNote.operational_status == "PRONTO")
@@ -357,6 +442,7 @@ class PaymentService:
             "gross_amount_cents": gross_cents,
             "fee_amount_cents": fee_cents,
             "net_amount_cents": net_cents,
+            "allocations": allocation_details,
         }, now)
         if deliver:
             self._event(note.id, "STATUS_CHANGED", actor_id, {
@@ -369,6 +455,7 @@ class PaymentService:
             "fee_amount_cents": fee_cents,
             "net_amount_cents": net_cents,
             "fee_rule_id": fee_rule.id if fee_rule else None,
+            "allocations": allocation_details,
         })
         self._audit(actor_id, "cash_movement.system_created", f"cash_movements/{movement.id}", {
             "payment_id": payment.id,
@@ -378,9 +465,19 @@ class PaymentService:
             self.session.commit()
         except IntegrityError as exc:
             text = str(getattr(exc, "orig", exc)).casefold()
-            if "request_uid" in text or "service_note" in text or "source_type" in text:
+            if "request_uid" in text or "source_type" in text:
                 raise PaymentConflictError(
                     "O pagamento já foi processado por outra solicitação."
                 ) from None
             raise
+        emit_observability_event(
+            module="payment", component="payment_service",
+            event_type="payment.recorded", operation="receive",
+            status="completed", user_id=actor_id, sync_required=True,
+        )
+        emit_observability_event(
+            module="cash", component="payment_service",
+            event_type="cash.entry.created", operation="payment_entry",
+            status="completed", user_id=actor_id, sync_required=True,
+        )
         return PaymentResult(payment, movement, False)

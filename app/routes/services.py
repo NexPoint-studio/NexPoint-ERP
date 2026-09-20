@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
+from app.services.admin_lock import require_admin_unlock
 from app.repositories import BillingUnitRepository
 from app.routes.helpers import navigation_context, templates
 from app.services.service_validation import CategoryInput, ServiceInput
@@ -15,7 +16,9 @@ from app.services.services import (
 
 
 router = APIRouter(prefix="/servicos")
-admin_router = APIRouter(prefix="/admin/servicos")
+admin_router = APIRouter(
+    prefix="/admin/servicos", dependencies=[Depends(require_admin_unlock)]
+)
 
 
 def _context(request: Request, session, tab_id: str, **extra):
@@ -56,7 +59,7 @@ def catalog(request: Request, q: str = "", category: str = "ALL", billing_unit: 
 
 
 @admin_router.get("/novo")
-@router.get("/novo")
+@router.get("/novo", dependencies=[Depends(require_admin_unlock)])
 def new_service(request: Request):
     require_permission(request, "admin.services.create")
     with request.app.state.session_factory() as session:
@@ -71,7 +74,7 @@ def new_service(request: Request):
 
 
 @admin_router.post("/novo")
-@router.post("/novo")
+@router.post("/novo", dependencies=[Depends(require_admin_unlock)])
 async def create_service(request: Request):
     user = require_permission(request, "admin.services.create")
     raw = {key: str(value) for key, value in (await request.form()).items()}
@@ -100,7 +103,7 @@ async def create_service(request: Request):
 
 
 @admin_router.get("/categorias")
-@router.get("/categorias")
+@router.get("/categorias", dependencies=[Depends(require_admin_unlock)])
 def categories(request: Request, edit: int | None = None):
     require_permission(request, "admin.services.categories.manage")
     with request.app.state.session_factory() as session:
@@ -113,7 +116,7 @@ def categories(request: Request, edit: int | None = None):
 
 
 @admin_router.post("/categorias")
-@router.post("/categorias")
+@router.post("/categorias", dependencies=[Depends(require_admin_unlock)])
 async def category_create(request: Request):
     user = require_permission(request, "admin.services.categories.manage")
     raw = {key: str(value) for key, value in (await request.form()).items()}
@@ -135,7 +138,7 @@ async def category_create(request: Request):
 
 
 @admin_router.post("/categorias/{category_id}/editar")
-@router.post("/categorias/{category_id}/editar")
+@router.post("/categorias/{category_id}/editar", dependencies=[Depends(require_admin_unlock)])
 async def category_update(request: Request, category_id: int):
     user = require_permission(request, "admin.services.categories.manage")
     raw = {key: str(value) for key, value in (await request.form()).items()}
@@ -159,7 +162,7 @@ async def category_update(request: Request, category_id: int):
 
 
 @admin_router.post("/categorias/{category_id}/status")
-@router.post("/categorias/{category_id}/status")
+@router.post("/categorias/{category_id}/status", dependencies=[Depends(require_admin_unlock)])
 async def category_status(request: Request, category_id: int):
     user = require_permission(request, "admin.services.categories.manage")
     form = await request.form()
@@ -172,7 +175,7 @@ async def category_status(request: Request, category_id: int):
 
 
 @admin_router.get("/precos")
-@router.get("/precos")
+@router.get("/precos", dependencies=[Depends(require_admin_unlock)])
 def prices(request: Request, q: str = "", category: str = "ALL", billing_unit: str = "ALL", active: str = "ALL", history: int | None = None, page: int = 1):
     require_permission(request, "admin.services.prices.manage")
     with request.app.state.session_factory() as session:
@@ -189,7 +192,7 @@ def prices(request: Request, q: str = "", category: str = "ALL", billing_unit: s
 
 
 @admin_router.post("/{service_id}/preco")
-@router.post("/{service_id}/preco")
+@router.post("/{service_id}/preco", dependencies=[Depends(require_admin_unlock)])
 async def change_price(request: Request, service_id: int):
     user = require_permission(request, "admin.services.prices.manage")
     form = await request.form()
@@ -219,7 +222,7 @@ def detail(request: Request, service_id: int, saved: int = 0, price_saved: int =
 
 
 @admin_router.get("/{service_id}/editar")
-@router.get("/{service_id}/editar")
+@router.get("/{service_id}/editar", dependencies=[Depends(require_admin_unlock)])
 def edit_service(request: Request, service_id: int):
     require_permission(request, "admin.services.edit")
     with request.app.state.session_factory() as session:
@@ -239,7 +242,7 @@ def edit_service(request: Request, service_id: int):
 
 
 @admin_router.post("/{service_id}/editar")
-@router.post("/{service_id}/editar")
+@router.post("/{service_id}/editar", dependencies=[Depends(require_admin_unlock)])
 async def update_service(request: Request, service_id: int):
     user = require_permission(request, "admin.services.edit")
     raw = {key: str(value) for key, value in (await request.form()).items()}
@@ -275,7 +278,7 @@ async def update_service(request: Request, service_id: int):
 
 
 @admin_router.post("/{service_id}/status")
-@router.post("/{service_id}/status")
+@router.post("/{service_id}/status", dependencies=[Depends(require_admin_unlock)])
 async def service_status(request: Request, service_id: int):
     user = require_permission(request, "admin.services.deactivate")
     form = await request.form()

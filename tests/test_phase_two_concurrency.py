@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app import create_app
 from app.core.database import build_engine
 from app.core.permissions import ALL_PERMISSIONS
+from app.migrations import SUPPORTED_SCHEMA_VERSIONS
 from app.models import ServiceNote, User
 from app.models.services import BILLING_UNIT_DEFAULTS
 from app.services.note_validation import NoteInput
@@ -108,7 +109,7 @@ def test_concurrent_database_initialization_is_serialized(tmp_path):
     with engine.connect() as connection:
         assert connection.exec_driver_sql(
             "select count(*), count(distinct version) from schema_migrations"
-        ).one() == (12, 12)
+        ).one() == (len(SUPPORTED_SCHEMA_VERSIONS), len(SUPPORTED_SCHEMA_VERSIONS))
         assert connection.exec_driver_sql(
             "select count(*), count(distinct code) from permissions"
         ).one() == (len(ALL_PERMISSIONS), len(ALL_PERMISSIONS))

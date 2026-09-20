@@ -20,6 +20,7 @@ from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
 from app.repositories import ConfigurationRepository
 from app.routes.helpers import navigation_context, runtime_timezone, templates
+from app.services.admin_lock import require_admin_unlock
 from app.services.cash import (
     CashCategoryNotFoundError,
     CashMovementNotFoundError,
@@ -84,7 +85,10 @@ def _require_movement_scope(request: Request):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     if not (user.can("finance.overview.view") or user.can("cash.operations.view")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
-    return user, user.can("finance.overview.view")
+    full_access = user.can("finance.overview.view")
+    if full_access:
+        require_admin_unlock(request)
+    return user, full_access
 
 
 def _movement_in_scope(service: CashService, movement_id: int, user, full_access: bool):
@@ -155,6 +159,7 @@ def _form_context(
 @router.get("/resumo")
 def summary(request: Request):
     require_permission(request, "finance.overview.view")
+    require_admin_unlock(request)
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
         return templates.TemplateResponse(request, "cash/summary.html", _context(
@@ -271,6 +276,7 @@ def history(
     per_page: int = 25,
 ):
     require_permission(request, "finance.overview.view")
+    require_admin_unlock(request)
     period_error = ""
     response_status = 200
     with request.app.state.session_factory() as session:
@@ -326,6 +332,7 @@ def history(
 @router.get("/relatorios")
 def reports(request: Request, period: str = "month", start: str = "", end: str = ""):
     require_permission(request, "finance.reports.view")
+    require_admin_unlock(request)
     period_error = ""
     response_status = 200
     with request.app.state.session_factory() as session:

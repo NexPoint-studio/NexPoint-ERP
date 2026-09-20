@@ -10,8 +10,11 @@ from app.core.modules import MODULE_BY_ID
 from app.core.note_config import FINANCIAL_STATUS_LABELS, OPERATIONAL_STATUS_LABELS
 from app.core.permissions import require_permission
 from app.repositories.payments import PaymentRepository
+from app.repositories.receivables import ReceivableRepository
+from app.observability.context import emit_observability_event
 from app.routes.helpers import navigation_context, runtime_timezone, templates
-from app.services.cash_validation import local_now
+from app.core.money import decimal_to_cents
+from app.services.cash_validation import local_now, parse_money
 from app.services.payment_validation import PaymentInput
 from app.services.payments import (
     PaymentConflictError,
@@ -26,7 +29,7 @@ from app.services.payments import (
 router = APIRouter(prefix="/servicos/notas")
 ALLOWED_PAYMENT_FIELDS = frozenset({
     "request_uid", "payment_method_id", "terminal_id", "card_mode",
-    "installments", "paid_at", "revision", "deliver", "submit",
+    "installments", "paid_at", "revision", "deliver", "amount", "notes", "submit",
 })
 
 
@@ -61,6 +64,15 @@ def _form_response(
     status_code: int = 200,
 ):
     repository = PaymentRepository(session)
+    paid_cents = repository.paid_cents_for_note(note.id)
+    outstanding_cents = max(0, note.total_cents - paid_cents)
+    linked_debts = [
+        ReceivableRepository(session).get(link.receivable_id)
+        for link in ReceivableRepository(session).links(note.id)
+    ]
+    linked_outstanding_cents = sum(debt.remaining_amount_cents for debt in linked_debts if debt is not None)
+    form_values = data.as_form(runtime_timezone(request, session))
+    form_values["amount"] = getattr(data, "amount", "")
     return templates.TemplateResponse(
         request,
         "payments/form.html",
@@ -68,27 +80,31 @@ def _form_response(
             request,
             session,
             note=note,
-            form=data.as_form(runtime_timezone(request, session)),
+            form=form_values,
             deliver=deliver,
             errors=errors,
             payment_methods=repository.payment_methods(active_only=True),
             terminals=repository.terminals(active_only=True),
+            paid_cents=paid_cents,
+            outstanding_cents=outstanding_cents,
+            linked_outstanding_cents=linked_outstanding_cents,
+            total_collectible_cents=outstanding_cents + linked_outstanding_cents,
             page_title=("Entregar e receber" if deliver else "Registrar pagamento"),
         ),
         status_code=status_code,
     )
 
 
-def _assert_payable(note, *, deliver: bool) -> None:
-    if note.total_cents == 0:
-        raise HTTPException(
-            status_code=409,
-            detail="A Nota de total zero já está quitada sem pagamento.",
-        )
-    if note.financial_status != "PENDENTE":
-        raise HTTPException(status_code=409, detail="Esta Nota já está paga.")
+def _assert_payable(note, *, deliver: bool, linked_due_cents: int, own_due_cents: int) -> None:
+    if own_due_cents + linked_due_cents <= 0:
+        raise HTTPException(status_code=409, detail="Esta cobrança já está paga.")
     if note.operational_status == "CANCELADO":
         raise HTTPException(status_code=409, detail="Notas canceladas não podem ser pagas.")
+    if note.operational_status == "FECHADO":
+        raise HTTPException(
+            status_code=409,
+            detail="Use a quitação do saldo devedor para uma Nota fechada.",
+        )
     if deliver and note.operational_status != "PRONTO":
         raise HTTPException(
             status_code=409,
@@ -109,7 +125,13 @@ def payment_form(request: Request, note_id: int, deliver: int = 0):
         note = PaymentRepository(session).note(note_id)
         if note is None:
             _not_found()
-        _assert_payable(note, deliver=bool(deliver))
+        own_due_cents = max(0, note.total_cents - PaymentRepository(session).paid_cents_for_note(note.id))
+        debts = ReceivableRepository(session)
+        linked_due_cents = sum(
+            debt.remaining_amount_cents for link in debts.links(note.id)
+            if (debt := debts.get(link.receivable_id)) is not None
+        )
+        _assert_payable(note, deliver=bool(deliver), linked_due_cents=linked_due_cents, own_due_cents=own_due_cents)
         current_utc = local_now(timezone_name).astimezone(timezone.utc).replace(tzinfo=None)
         received_at = note.received_at
         if received_at.tzinfo is not None:
@@ -140,6 +162,23 @@ async def receive_payment(request: Request, note_id: int):
             detail="O formulário contém campos de pagamento não permitidos.",
         )
     raw = {str(key): str(value) for key, value in form.items()}
+    # Chamadas anteriores ao suporte a pagamentos parciais não enviavam o
+    # campo ``amount``. Nesse caso, o serviço preserva o contrato histórico e
+    # recebe todo o saldo cobrável. Se o campo estiver presente, inclusive em
+    # branco, ele continua sujeito à validação monetária normal.
+    if "amount" not in raw:
+        amount_cents = None
+        amount_error = ""
+    else:
+        try:
+            amount_cents = decimal_to_cents(
+                parse_money(raw.get("amount"), label="valor recebido")
+            )
+        except ValueError as exc:
+            amount_cents = None
+            amount_error = str(exc)
+        else:
+            amount_error = ""
     deliver_raw = raw.get("deliver", "0")
     if deliver_raw not in {"0", "1"}:
         raise HTTPException(status_code=422, detail="Ação de entrega é inválida.")
@@ -150,15 +189,23 @@ async def receive_payment(request: Request, note_id: int):
     with request.app.state.session_factory() as session:
         timezone_name = runtime_timezone(request, session)
         data = PaymentInput.from_form(raw, timezone_name)
+        if amount_error:
+            data.errors["amount"] = amount_error
         # A leitura da configuração abre uma transação implícita. O
         # serviço financeiro inicia seu próprio BEGIN IMMEDIATE abaixo.
         session.rollback()
         service = PaymentService(session)
         try:
-            service.receive(note_id, data, actor.id, deliver=deliver)
+            service.receive(note_id, data, actor.id, deliver=deliver, amount_cents=amount_cents)
         except PaymentNoteNotFoundError:
             _not_found()
         except PaymentValidationError as exc:
+            emit_observability_event(
+                module="payment", component="payments_route",
+                event_type="payment.rejected", operation="receive",
+                status="rejected", user_id=actor.id, severity="WARNING",
+                error_code="validation_error", sync_required=True,
+            )
             note = PaymentRepository(session).note(note_id)
             if note is None:
                 _not_found()
@@ -172,6 +219,14 @@ async def receive_payment(request: Request, note_id: int):
                 status_code=422,
             )
         except (PaymentStateError, PaymentConflictError, PaymentConsistencyError) as exc:
+            emit_observability_event(
+                module="payment", component="payments_route",
+                event_type="payment.rejected", operation="receive",
+                status="rejected", user_id=actor.id, severity="WARNING",
+                error_code=("payment_conflict" if isinstance(exc, PaymentConflictError)
+                            else "payment_state_rejected"),
+                sync_required=True,
+            )
             note = PaymentRepository(session).note(note_id)
             if note is None:
                 _not_found()

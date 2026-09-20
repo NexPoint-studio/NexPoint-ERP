@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from app.core.database import build_engine, build_session_factory
+from app.migration_definitions import SERVICE_NOTES_0008_STATEMENTS
 from app.migrations import MigrationInvariantError, run_schema_migrations
 from app.services.bootstrap import initialize_database
 
@@ -103,6 +104,38 @@ def _downgrade_to_phase_two(engine) -> None:
         connection.commit()
         connection.exec_driver_sql("begin immediate")
         try:
+            # A fixture volta primeiro da evolucao 0013 ao contrato 0012.
+            for table in (
+                "admin_recovery_codes",
+                "receivable_payments", "payment_allocations", "note_receivable_links",
+                "customer_receivables", "note_closures", "nonce_receipts",
+                "diagnostic_events", "outbox_items", "admin_locks",
+            ):
+                connection.exec_driver_sql(f'drop table "{table}"')
+            connection.exec_driver_sql("drop index ix_payments_note_status_paid")
+            connection.exec_driver_sql(
+                SERVICE_NOTES_0008_STATEMENTS[0].replace(
+                    "CREATE TABLE service_notes (", "CREATE TABLE service_notes__phase2 (", 1
+                )
+            )
+            note_columns = [
+                str(row[1]) for row in connection.exec_driver_sql('pragma table_info("service_notes")')
+            ]
+            projection = ", ".join(f'"{name}"' for name in note_columns)
+            connection.exec_driver_sql(
+                f'insert into service_notes__phase2 ({projection}) '
+                f'select {projection} from service_notes'
+            )
+            connection.exec_driver_sql("drop table service_notes")
+            connection.exec_driver_sql("alter table service_notes__phase2 rename to service_notes")
+            for statement in SERVICE_NOTES_0008_STATEMENTS:
+                if statement.startswith("CREATE INDEX ") and " ON service_notes " in statement:
+                    connection.exec_driver_sql(statement)
+            connection.exec_driver_sql(
+                "delete from schema_migrations where version in "
+                "('0013_offline_finance_admin', '0014_functional_ux_recovery', "
+                "'0015_remember_sessions')"
+            )
             connection.exec_driver_sql(
                 "delete from schema_migrations where version in (?, ?, ?)",
                 PHASE_THREE_VERSIONS,
@@ -294,16 +327,29 @@ def test_payment_constraints_enforce_cents_snapshots_and_idempotency(tmp_path):
             (method_id, actor_id),
         )
 
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "insert into payments (request_uid, service_note_id, customer_id, payment_method_id, "
+            "status, method_name_snapshot, method_kind_snapshot, gross_amount_cents, "
+            "fee_percentage_scaled, fixed_fee_cents, fee_amount_cents, net_amount_cents, "
+            "paid_at, created_by, created_at) select "
+            "'00000000-0000-0000-0000-000000000002', service_note_id, customer_id, "
+            "payment_method_id, 'CONFIRMED', method_name_snapshot, method_kind_snapshot, "
+            "1, 0, 0, 0, 1, paid_at, created_by, created_at "
+            "from payments where id = 1"
+        )
+        assert connection.exec_driver_sql(
+            "select count(*) from payments where service_note_id = 701 and status = 'CONFIRMED'"
+        ).scalar_one() == 2
     _invalid_statement(
         engine,
         "insert into payments (request_uid, service_note_id, customer_id, payment_method_id, "
         "status, method_name_snapshot, method_kind_snapshot, gross_amount_cents, "
         "fee_percentage_scaled, fixed_fee_cents, fee_amount_cents, net_amount_cents, "
         "paid_at, created_by, created_at) select "
-        "'00000000-0000-0000-0000-000000000002', service_note_id, customer_id, "
-        "payment_method_id, 'CONFIRMED', method_name_snapshot, method_kind_snapshot, "
-        "gross_amount_cents, 0, 0, 0, gross_amount_cents, paid_at, created_by, created_at "
-        "from payments where id = 1",
+        "request_uid, service_note_id, customer_id, payment_method_id, 'CONFIRMED', "
+        "method_name_snapshot, method_kind_snapshot, 1, 0, 0, 0, 1, paid_at, "
+        "created_by, created_at from payments where id = 1",
     )
     with engine.begin() as connection:
         connection.exec_driver_sql(
@@ -448,7 +494,7 @@ def test_failure_in_phase_three_rolls_back_every_migration_step(tmp_path, monkey
 def test_reexecution_detects_missing_phase_three_partial_index(tmp_path):
     engine = _initialized_engine(tmp_path / "missing-index.sqlite3")
     with engine.begin() as connection:
-        connection.exec_driver_sql("drop index uq_payments_confirmed_service_note")
+        connection.exec_driver_sql("drop index uq_payment_allocations_current_note")
     with pytest.raises(MigrationInvariantError, match="unicidades esperadas"):
         run_schema_migrations(engine)
     engine.dispose()

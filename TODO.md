@@ -1,6 +1,6 @@
 # ERP — Tarefa Atual
 
-> Fase 4/4 — Fechamento administrativo, configurações e robustez.
+> Ajuste final de UX e segurança antes da auditoria ASTRA. Escopo exclusivo: simplificar a recuperação do Admin Lock e adicionar “Manter conectado neste dispositivo”.
 
 ## A Fazer
 
@@ -8,20 +8,19 @@
 
 ## Concluídas
 
-- [x] Implementar Fase 4 {sector:SETOR_COORDENACAO}
-  - [x] Auditar implementação existente das Fases 1 a 3 {weight:3} {sector:SETOR_COORDENACAO}
-  - [x] Finalizar validações e auditoria dos dados da Empresa {weight:3} {sector:SETOR_BACKEND}
-  - [x] Revisar proteção de usuários, papéis e permissões {weight:4} {sector:SETOR_SEGURANCA}
-  - [x] Criar model e migration de autorização temporária de suporte {weight:5} {sector:SETOR_BANCO_DADOS}
-  - [x] Implementar gestão segura e auditável de suporte {weight:5} {sector:SETOR_SEGURANCA}
-  - [x] Criar consulta administrativa da auditoria {weight:4} {sector:SETOR_BACKEND}
-  - [x] Implementar backup SQLite local consistente {weight:6} {sector:SETOR_BANCO_DADOS}
-  - [x] Implementar restauração validada com rollback de segurança {weight:8} {sector:SETOR_SEGURANCA}
-  - [x] Finalizar informações locais de sistema, versão e atualização {weight:4} {sector:SETOR_BACKEND}
-  - [x] Integrar as novas áreas à interface administrativa {weight:5} {sector:SETOR_INTERFACE_UX}
-  - [x] Revisar configurações financeiras e integridade histórica {weight:3} {sector:SETOR_SEGURANCA}
-  - [x] Criar testes de unidade, integração, permissões e falhas {weight:8} {sector:SETOR_QA_TESTES}
-  - [x] Validar migration e preservação do banco operacional {weight:5} {sector:SETOR_QA_TESTES}
-  - [x] Atualizar documentação técnica e operacional {weight:3} {sector:SETOR_COORDENACAO}
-  - [x] Executar regressão completa e validações finais {weight:4} {sector:SETOR_QA_TESTES}
-  - [x] Revisar Git e criar o commit local da Fase 4 {weight:2} {sector:SETOR_COORDENACAO}
+- [x] Simplificar a recuperação da Administração {sector:SETOR_COORDENACAO}
+  - [x] Remover recovery codes e opções técnicas da experiência do cliente {weight:7} {sector:SETOR_INTERFACE_UX}
+  - [x] Manter somente solicitação NexPoint com fila offline {weight:8} {sector:SETOR_BACKEND}
+  - [x] Automatizar entrega e consumo da autorização de redefinição {weight:10} {sector:SETOR_SEGURANCA}
+  - [x] Ajustar Control Center, auditoria, observabilidade e sanitizer {weight:8} {sector:SETOR_SEGURANCA}
+- [x] Implementar “Manter conectado neste dispositivo” {sector:SETOR_COORDENACAO}
+  - [x] Criar sessão persistente hasheada, expirável, revogável e rotacionável {weight:10} {sector:SETOR_BACKEND}
+  - [x] Adicionar checkbox simples à tela de login {weight:3} {sector:SETOR_INTERFACE_UX}
+  - [x] Revogar no logout, senha alterada e usuário inativo {weight:7} {sector:SETOR_SEGURANCA}
+  - [x] Cobrir reabertura, expiração, adulteração, offline e separação do Admin Lock {weight:8} {sector:SETOR_QA_TESTES}
+- [x] Validar integração e encerrar a tarefa {sector:SETOR_COORDENACAO}
+  - [x] Atualizar documentação e decisões de segurança/offline {weight:4} {sector:SETOR_COORDENACAO}
+  - [x] Executar suítes completas, Doctor, migrations e testes de segurança {weight:10} {sector:SETOR_QA_TESTES}
+  - [x] Validar pywebview/WebView2, reabertura, reset autorizado e logout {weight:7} {sector:SETOR_QA_TESTES}
+  - [x] Corrigir e testar a idempotência dos eventos de risco da Outbox {weight:3} {sector:SETOR_BACKEND}
+  - [x] Revisar Git e confirmar ausência de secrets/artefatos {weight:4} {sector:SETOR_COORDENACAO}

@@ -19,7 +19,7 @@
 
 <section class="panel">
   {% if result.rows %}
-  <div class="table-wrap"><table>
+  <div class="table-shell"><table class="audit-table">
     <thead><tr><th>Data</th><th>Responsável</th><th>Ação</th><th>Recurso</th><th>Detalhes</th></tr></thead>
     <tbody>{% for row in result.rows %}<tr>
       <td>{{ row.event.created_at|datetime_br }}</td>

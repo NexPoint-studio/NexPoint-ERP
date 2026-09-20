@@ -13,6 +13,7 @@ from app.models import AuditEvent, Permission, Role, SupportGrant, User
 from app.repositories import AuthRepository
 from app.routes.support import router as support_router
 from app.services.auth import AuthService
+from app.services.admin_lock import AdminLockService
 from app.services.cash_validation import local_now
 from app.services.support import (
     SupportAuthorizationError,
@@ -20,7 +21,7 @@ from app.services.support import (
     SupportService,
     SupportValidationError,
 )
-from tests.conftest import TEST_CREDENTIALS, login
+from tests.conftest import ADMIN_LOCK_TEST_PASSWORD, TEST_CREDENTIALS, login
 
 
 LOCAL_TIMEZONE = "America/Sao_Paulo"
@@ -410,6 +411,12 @@ def test_support_http_scope_is_read_only_and_expires_immediately_after_revocatio
     owner_id = _owner_id(app)
     current = local_now(LOCAL_TIMEZONE).replace(second=0, microsecond=0)
     with app.state.session_factory() as session:
+        AdminLockService(session).configure(
+            owner_id,
+            ADMIN_LOCK_TEST_PASSWORD,
+            ADMIN_LOCK_TEST_PASSWORD,
+            15,
+        )
         grant = SupportService(session).create_grant(
             _grant_form(
                 support_user_id,
@@ -424,6 +431,17 @@ def test_support_http_scope_is_read_only_and_expires_immediately_after_revocatio
     assert client.post(
         "/login",
         data={"email": "suporte-http@local", "password": support_password},
+        follow_redirects=False,
+    ).status_code == 303
+    locked = client.get("/admin/visao-geral", follow_redirects=False)
+    assert locked.status_code == 303
+    assert locked.headers["location"].startswith("/admin/cadeado/desbloquear")
+    assert client.post(
+        "/admin/cadeado/desbloquear",
+        data={
+            "password": ADMIN_LOCK_TEST_PASSWORD,
+            "next": "/admin/visao-geral",
+        },
         follow_redirects=False,
     ).status_code == 303
     for path in ("/admin/visao-geral", "/admin/auditoria", "/admin/sistema"):

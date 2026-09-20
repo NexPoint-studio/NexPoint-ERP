@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
+from app.services.admin_lock import require_admin_unlock
 from app.repositories import AuthRepository
 from app.routes.helpers import navigation_context, runtime_timezone, templates
 from app.services.audit import AuditService
 
 
-router = APIRouter(prefix="/admin")
+router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin_unlock)])
 
 
 @router.get("/auditoria")

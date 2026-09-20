@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+{% from "components/ui.html" import customer_picker %}
 
 {% block content %}
 {% set financial_locked = editing and note and note.financial_status == 'PAGO' %}
@@ -41,6 +42,7 @@
       {% if errors.get('notes') %}<small class="field-error">{{ errors.get('notes') }}</small>{% endif %}
     </label>
   </section>
+
   <div class="form-actions form-actions--sticky">
     <a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Cancelar</a>
     <button class="button button--primary" type="submit">Salvar observações</button>
@@ -52,6 +54,7 @@
   class="customer-form note-form"
   action="{{ '/servicos/notas/' ~ note.id ~ '/editar' if editing else '/servicos/nova-nota' }}"
   data-note-form
+  {% if not editing %}data-payment-form{% endif %}
 >
   {% if editing %}<input type="hidden" name="revision" value="{{ form.revision or note.revision }}">{% endif %}
   <section class="panel form-section">
@@ -66,17 +69,22 @@
         <input name="series" value="{{ form.series or '' }}" maxlength="80" autocomplete="off" placeholder="Opcional">
         {% if errors.get('series') %}<small class="field-error">{{ errors.get('series') }}</small>{% endif %}
       </label>
-      <label class="field field--wide">Cliente *
-        <select name="customer_id" required>
-          <option value="">Selecione o cliente</option>
-          {% for customer in customers %}
-            <option value="{{ customer.id }}" {% if form.customer_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}{% if not customer.is_active %} (inativo){% endif %}</option>
-          {% endfor %}
-        </select>
+      <div class="field--wide">
+        {{ customer_picker(customers, form.customer_id, 'note-customer-id', 'Cliente *', true, true, 'Selecione o cliente') }}
         {% if errors.get('customer_id') %}<small class="field-error">{{ errors.get('customer_id') }}</small>{% endif %}
-      </label>
+      </div>
     </div>
   </section>
+
+  {% if not editing %}
+  <section class="panel form-section" data-note-receivables data-endpoint="/servicos/notas/debitos" {% if not open_receivables %}hidden{% endif %}>
+    <div class="section-heading"><div><span class="section-kicker">Saldo anterior</span><h2>Débitos em aberto</h2><p>Este cliente possui saldo devedor anterior. A inclusão é opcional; a dívida original permanece como fonte de verdade.</p></div></div>
+    <div data-note-receivables-list>
+      {% for debt in open_receivables %}<label class="checkbox-row"><input type="checkbox" name="receivable_ids" value="{{ debt.id }}" {% if debt.id in selected_receivable_ids %}checked{% endif %}> Incluir saldo da Nota #{{ debt.source_note_id }} · {{ debt.remaining_amount_cents|money_cents }}</label>{% endfor %}
+    </div>
+    {% if errors.get('receivable_ids') %}<small class="field-error">{{ errors.get('receivable_ids') }}</small>{% endif %}
+  </section>
+  {% endif %}
 
   <section class="panel form-section">
     <div class="section-heading"><div><span class="section-kicker">Prazo de produção</span><h2>Recebimento e previsão</h2></div></div>
@@ -237,6 +245,55 @@
       <small>O servidor recalcula todos os valores antes de salvar.</small>
     </aside>
   </section>
+
+  {% if not editing %}
+  {% set initial_payment_enabled = form.initial_payment_enabled == '1' %}
+  <section class="panel form-section" data-note-initial-payment>
+    <div class="section-heading section-heading--split">
+      <div><span class="section-kicker">Pagamento</span><h2>Recebimento inicial</h2><p>A Nota pode ser salva sem recebimento ou com a primeira parcela na mesma operação.</p></div>
+      <label class="checkbox-row"><input type="checkbox" name="initial_payment_enabled" value="1" data-note-initial-payment-toggle {% if initial_payment_enabled %}checked{% endif %}> Registrar pagamento agora</label>
+    </div>
+    {% if errors.get('initial_payment_form') %}<div class="alert alert--error" role="alert">{{ errors.get('initial_payment_form') }}</div>{% endif %}
+    <div class="metrics-grid metrics-grid--four compact" aria-live="polite">
+      <article class="metric-card"><span class="metric-card__label">Total da Nota</span><strong class="metric-card__value" data-initial-payment-total>R$ 0,00</strong></article>
+      <article class="metric-card"><span class="metric-card__label">Recebido agora</span><strong class="metric-card__value" data-initial-payment-received>R$ 0,00</strong></article>
+      <article class="metric-card"><span class="metric-card__label">Saldo</span><strong class="metric-card__value" data-initial-payment-balance>R$ 0,00</strong></article>
+      <article class="metric-card"><span class="metric-card__label">Situação</span><strong class="metric-card__value note-metric-text" data-initial-payment-status>Não pago</strong></article>
+    </div>
+    <div data-note-initial-payment-fields {% if not initial_payment_enabled %}hidden{% endif %}>
+      <input type="hidden" name="initial_payment_request_uid" value="{{ form.initial_payment_request_uid }}" data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>
+      <div class="form-grid">
+        <label class="field">Valor recebido *
+          <input name="initial_payment_amount" inputmode="decimal" value="{{ form.initial_payment_amount or '' }}" placeholder="0,00" data-initial-payment-amount data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>
+          {% if errors.get('initial_payment_amount') %}<small class="field-error">{{ errors.get('initial_payment_amount') }}</small>{% endif %}
+        </label>
+        <label class="field">Forma de pagamento *
+          <select name="initial_payment_method_id" data-payment-method data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>
+            <option value="">Selecione</option>
+            {% for method in payment_methods %}<option value="{{ method.id }}" data-method-kind="{{ method.method_kind }}" {% if form.initial_payment_method_id|string == method.id|string %}selected{% endif %}>{{ method.name }}</option>{% endfor %}
+          </select>
+          {% if errors.get('initial_payment_payment_method_id') %}<small class="field-error">{{ errors.get('initial_payment_payment_method_id') }}</small>{% endif %}
+        </label>
+        <label class="field">Data e hora *
+          <input type="datetime-local" name="initial_payment_paid_at" value="{{ form.initial_payment_paid_at }}" data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>
+          {% if errors.get('initial_payment_paid_at') %}<small class="field-error">{{ errors.get('initial_payment_paid_at') }}</small>{% endif %}
+        </label>
+        <label class="field field--wide">Observação
+          <textarea name="initial_payment_notes" maxlength="1000" placeholder="Informação opcional sobre este recebimento" data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>{{ form.initial_payment_notes or '' }}</textarea>
+          {% if errors.get('initial_payment_notes') %}<small class="field-error">{{ errors.get('initial_payment_notes') }}</small>{% endif %}
+        </label>
+      </div>
+      <div class="note-conditional-field" data-card-payment-fields hidden>
+        <div class="form-grid">
+          <label class="field">Terminal *<select name="initial_payment_terminal_id" data-card-payment-input data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}><option value="">Selecione</option>{% for terminal in payment_terminals %}<option value="{{ terminal.id }}" {% if form.initial_payment_terminal_id|string == terminal.id|string %}selected{% endif %}>{{ terminal.name }} · {{ terminal.code }}</option>{% endfor %}</select>{% if errors.get('initial_payment_terminal_id') %}<small class="field-error">{{ errors.get('initial_payment_terminal_id') }}</small>{% endif %}</label>
+          <label class="field">Modalidade *<select name="initial_payment_card_mode" data-card-mode data-card-payment-input data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}><option value="">Selecione</option><option value="DEBIT" {% if form.initial_payment_card_mode == 'DEBIT' %}selected{% endif %}>Débito</option><option value="CREDIT" {% if form.initial_payment_card_mode == 'CREDIT' %}selected{% endif %}>Crédito</option></select>{% if errors.get('initial_payment_card_mode') %}<small class="field-error">{{ errors.get('initial_payment_card_mode') }}</small>{% endif %}</label>
+          <label class="field">Parcelas *<input type="number" name="initial_payment_installments" min="1" max="999" value="{{ form.initial_payment_installments or '1' }}" data-card-payment-input data-initial-payment-input {% if not initial_payment_enabled %}disabled{% endif %}>{% if errors.get('initial_payment_installments') %}<small class="field-error">{{ errors.get('initial_payment_installments') }}</small>{% endif %}</label>
+        </div>
+      </div>
+      <p class="panel-note">O recebimento confirmado cria exatamente um Payment e uma entrada de Caixa. Se qualquer etapa falhar, a Nota também não será salva.</p>
+    </div>
+  </section>
+  {% endif %}
 
   <section class="panel form-section">
     <div class="section-heading"><div><span class="section-kicker">Informações adicionais</span><h2>Observações</h2></div></div>

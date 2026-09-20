@@ -521,11 +521,11 @@ class PaymentConfigurationService:
                 errors["installments"] = "Débito não aceita quantidade de parcelas na regra."
         elif method is not None:
             if terminal_id is not None:
-                errors["terminal_id"] = "Terminal só pode ser usado em forma do tipo Cartão."
+                errors["terminal_id"] = "Terminal somente pode ser usado em forma do tipo Cartão."
             if card_mode is not None:
-                errors["card_mode"] = "Modalidade só pode ser usada em forma do tipo Cartão."
+                errors["card_mode"] = "Modalidade somente pode ser usada em forma do tipo Cartão."
             if installments is not None:
-                errors["installments"] = "Parcelas só podem ser usadas em forma do tipo Cartão."
+                errors["installments"] = "Parcelas somente podem ser usadas em forma do tipo Cartão."
 
         if valid_from is not None and valid_until is not None and valid_until <= valid_from:
             errors["valid_until"] = "A vigência final deve ser posterior à inicial."

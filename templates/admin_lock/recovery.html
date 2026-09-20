@@ -1,0 +1,41 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header">
+  <p class="eyebrow">ADMINISTRAÇÃO PROTEGIDA</p>
+  {% if authorization_available %}
+  <h1>Recuperação autorizada</h1>
+  <p>A NexPoint autorizou a redefinição da senha da Administração.</p>
+  {% else %}
+  <h1>Esqueceu a senha da Administração?</h1>
+  <p>Envie uma solicitação segura à NexPoint. Você pode continuar usando as demais áreas permitidas do ERP.</p>
+  {% endif %}
+</header>
+{% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+{% if authorization_available %}
+<section class="panel section-block">
+  <form method="post" action="/admin/cadeado/recuperar/redefinir" class="form-stack">
+    <label>Nova senha<input type="password" name="new_password" minlength="8" maxlength="256" autocomplete="new-password" required autofocus></label>
+    <label>Confirmar nova senha<input type="password" name="confirmation" minlength="8" maxlength="256" autocomplete="new-password" required></label>
+    <div class="form-actions">
+      <button class="button button--primary" name="submit" value="reset" type="submit">Definir nova senha</button>
+      <a class="button button--secondary" href="/admin/cadeado/desbloquear">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% else %}
+<section class="panel section-block" data-admin-recovery-poll data-status-url="/admin/cadeado/recuperar/status">
+  {% if support_status == 'pending' %}
+  <div class="alert alert--info" role="status">
+    <strong>Solicitação salva.</strong>
+    Ela será enviada à NexPoint automaticamente quando a conexão estiver disponível.
+  </div>
+  {% endif %}
+  <p class="long-copy">A recuperação precisa de autorização da NexPoint e não pode ser concluída totalmente offline. Nenhuma senha, hash ou credencial é enviada.</p>
+  <form method="post" action="/admin/cadeado/recuperar/suporte" class="form-stack">
+    <button class="button button--primary" type="submit">Solicitar recuperação à NexPoint</button>
+  </form>
+  <p class="trust-note">Quando a autorização chegar, esta tela mostrará somente os campos para criar a nova senha.</p>
+  <a class="button button--secondary" href="/">Voltar ao ERP</a>
+</section>
+{% endif %}
+{% endblock %}

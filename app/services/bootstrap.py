@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 import secrets
+import re
 
 from app.core.config import Settings
 from app.core.database import Base
@@ -49,14 +50,27 @@ def initialize_database(
     factory: sessionmaker[Session],
     credentials: dict[str, str],
     settings: Settings,
+    *,
+    control_center_identity: str | None = None,
 ) -> None:
+    identity = (
+        secrets.token_hex(32)
+        if control_center_identity is None
+        else str(control_center_identity).strip().lower()
+    )
+    if not re.fullmatch(r"[0-9a-f]{64}", identity):
+        raise ValueError("A identidade persistente do ERP deve ser hexadecimal.")
     domain_tables = {
         "customers", "customer_addresses", "customer_activities",
         "service_categories", "services", "service_prices",
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "cash_categories", "cash_payment_methods", "cash_movements",
         "payment_terminals", "payment_fee_rules", "payments",
+        "note_closures", "customer_receivables", "note_receivable_links",
+        "payment_allocations", "receivable_payments",
         "support_grants",
+        "admin_locks", "admin_recovery_codes", "remember_sessions",
+        "outbox_items", "diagnostic_events", "nonce_receipts",
     }
     infrastructure = [table for name, table in Base.metadata.tables.items() if name not in domain_tables]
     # Infraestrutura e domínio compartilham o mesmo lock SQLite de inicialização;
@@ -145,6 +159,10 @@ def initialize_database(
         defaults = {
             "app.name": settings.app_name,
             "app.version": settings.version,
+            # Identidade opaca e imutavel do conjunto de dados. Por viver no
+            # SQLite operacional, acompanha backups/restauracoes e impede que
+            # o sidecar confunda empresas apenas porque usam o mesmo caminho.
+            "system.control_center_identity": identity,
             "company.name": settings.company_name,
             "company.trade_name": "",
             "company.document": "",

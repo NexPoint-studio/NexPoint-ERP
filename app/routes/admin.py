@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
@@ -20,11 +20,12 @@ from app.services.admin import (
     AdminValidationError,
     OWNER_ROLE_CODE,
 )
+from app.services.admin_lock import require_admin_unlock
 from app.services.cash import CashReportService
 from app.services.cash_validation import local_now
 
 
-router = APIRouter(prefix="/admin")
+router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin_unlock)])
 
 
 def _context(request: Request, session, tab_id: str, **extra):

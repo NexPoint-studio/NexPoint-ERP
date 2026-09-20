@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.core.money import cents_to_decimal
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
+from app.services.admin_lock import require_admin_unlock
 from app.routes.helpers import navigation_context, runtime_timezone, templates
 from app.services.cash_validation import local_now
 from app.services.payment_configuration import (
@@ -20,7 +21,7 @@ from app.services.payment_configuration import (
 )
 
 
-router = APIRouter(prefix="/admin/pagamentos")
+router = APIRouter(prefix="/admin/pagamentos", dependencies=[Depends(require_admin_unlock)])
 METHOD_FIELDS = frozenset({"name", "method_kind", "sort_order", "is_active", "submit"})
 TERMINAL_FIELDS = frozenset({"code", "name", "description", "sort_order", "is_active", "submit"})
 RULE_FIELDS = frozenset({

@@ -18,8 +18,9 @@ SQLite local
 
 As telas não acessam o banco diretamente. As rotas cuidam de HTTP, sessão e
 permissões; os serviços concentram regras e limites transacionais; os
-repositórios isolam consultas e persistência. Não existe adaptador remoto nesta
-versão.
+repositórios isolam consultas e persistência. Adaptadores locais conectam a
+Outbox ao sidecar isolado do Control Center e a interface same-origin à ponte
+assinada da Nexa. Nenhum deles concede acesso direto ao SQLite operacional.
 
 ## Execução local
 
@@ -27,7 +28,9 @@ versão.
 - o banco operacional fica em `data/erp.sqlite3` e não é versionado;
 - configuração sensível fica em `.env.local`, também não versionado;
 - HTML, CSS, JavaScript, fontes e imagens são locais;
-- não há SDK, token, autenticação, storage ou sincronização de nuvem.
+- Outbox, Control Center e observabilidade persistem em armazenamento local
+  isolado; esta versão não depende de SDK, storage ou sincronização de nuvem;
+- a ponte opcional da Nexa usa HMAC, payload sanitizado e política read-only.
 
 ## Núcleo reutilizável
 
@@ -48,12 +51,14 @@ versão.
 - **Serviços**: catálogo operacional e Notas de Serviço;
 - **Administração > Serviços**: categorias, unidades universais, preços e gestão
   do catálogo;
-- **Pagamentos**: quitação integral, formas, terminais, regras e snapshots de
-  taxa;
+- **Pagamentos**: recebimentos integrais ou parciais, formas, terminais, regras
+  e snapshots de taxa;
 - **Caixa operacional**: entradas e saídas manuais e histórico próprio recente;
 - **Financeiro administrativo**: saldo, histórico completo, relatórios e
   agregações;
-- **Administração**: indicadores, usuários, permissões e dados da empresa.
+- **Administração**: indicadores, catálogo, financeiro, pagamentos, suporte,
+  auditoria e sistema. Os backends legados de usuários/permissões e dados da
+  empresa permanecem preservados, porém não aparecem na navegação normal.
 - **Manutenção administrativa**: suporte temporário, auditoria, informações do
   sistema, backup consistente e restauração aplicada somente no startup.
 
@@ -64,14 +69,16 @@ Cliente
    ↓
 Nota de Serviço ──────> Histórico do Cliente
    ↓
-Pagamento integral
+Pagamento integral ou parcial
    ↓
 Entrada SYSTEM no Caixa
 ```
 
 Criar a Nota registra atividade no Cliente, mas não movimenta dinheiro. Confirmar
-um Pagamento de Nota positiva atualiza a Nota e cria o Caixa na mesma transação.
-Uma Nota de total zero fica paga sem `Payment` e sem `CashMovement`.
+cada Pagamento de Nota positiva atualiza o ledger e cria o Caixa na mesma
+transação. Fechar a Nota não cria Caixa; eventual saldo devedor permanece ligado
+à origem e pode ser quitado depois. Uma Nota de total zero fica paga sem
+`Payment` e sem `CashMovement`.
 
 ## Limite transacional financeiro
 
@@ -106,6 +113,13 @@ efetivas a cada requisição. Assim, logout e alterações de acesso invalidam
 cookies copiados; a revogação ou expiração de suporte remove o alcance sem
 depender do conteúdo anterior do cookie.
 
+Quando o usuário opta por **Manter conectado neste dispositivo**, um cookie
+`HttpOnly` separado carrega uma credencial opaca e revogável. A tabela
+`remember_sessions` guarda somente o hash do segredo aleatório, com vínculo ao
+usuário, instalação, `auth_version`, geração local, expiração e rotação. O
+restauro é inteiramente local e funciona offline. O Admin Lock mantém sessão e
+timeout próprios e nunca é restaurado por essa credencial.
+
 Backups usam a API de snapshot do SQLite, manifesto com SHA-256 e validações de
 integridade. A requisição de restauração apenas prepara um candidato isolado. A
 troca atômica e o rollback ocorrem antes da criação do engine normal no próximo
@@ -119,7 +133,11 @@ A Nota segue o [contrato oficial](CONTRATO_NOTA_SERVICO.md) e sua
 [estratégia monetária e de migrations](ESTRATEGIA_MONETARIA_MIGRATIONS.md).
 
 As migrations `0009_payment_configuration`, `0010_payments`,
-`0011_customer_activity_sources` e `0012_administration_security` adicionam a
-integração e a segurança administrativa sem converter o histórico manual do
-Caixa ou recriar atividades antigas. As definições já versionadas permanecem
-congeladas, e novas mudanças devem usar outra versão aditiva.
+`0011_customer_activity_sources`, `0012_administration_security`,
+`0013_offline_finance_admin`, `0014_functional_ux_recovery` e
+`0015_remember_sessions` adicionam a integração, o financeiro offline, a
+recuperação administrativa e as sessões persistentes sem converter o histórico
+manual do Caixa ou recriar atividades antigas. A `0015` também revoga, sem
+apagar, códigos de recuperação legados que ainda estivessem ativos. As
+definições já versionadas permanecem congeladas, e novas mudanças devem usar
+outra versão aditiva.

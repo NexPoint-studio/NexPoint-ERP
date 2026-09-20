@@ -12,6 +12,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.models import AuditEvent, CashCategory, CashMovement
+from app.observability.context import emit_observability_event
 from app.services.transactions import atomic_write
 from app.services.authorization import require_active_actor_permission
 from app.repositories.cash import (
@@ -348,6 +349,11 @@ class CashService:
             "net_amount": movement.net_amount,
         })
         self.session.commit()
+        emit_observability_event(
+            module="cash", component="cash_service",
+            event_type="cash.entry.created", operation="create_manual",
+            status="completed", user_id=user_id, sync_required=True,
+        )
         return movement
 
     @staticmethod

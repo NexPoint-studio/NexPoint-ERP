@@ -9,6 +9,63 @@ if (dateTarget) {
   }).format(new Date());
 }
 
+const syncStatus = document.querySelector('[data-sync-status]');
+const syncStatusText = document.querySelector('[data-sync-status-text]');
+const refreshSyncStatus = async () => {
+  if (!syncStatus || !syncStatusText) return;
+  try {
+    const response = await fetch('/sync/status', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('sync-status');
+    const snapshot = await response.json();
+    const state = ['offline', 'online', 'degraded', 'unknown'].includes(snapshot.state)
+      ? snapshot.state : 'unknown';
+    const waiting = Number.isInteger(snapshot.waiting) ? snapshot.waiting : 0;
+    const sending = Number.isInteger(snapshot.sending) ? snapshot.sending : 0;
+    const dead = Number.isInteger(snapshot.dead_letter) ? snapshot.dead_letter : 0;
+    syncStatus.classList.remove('is-offline', 'is-online', 'is-degraded', 'is-unknown');
+    syncStatus.classList.add(`is-${state}`);
+    if (state === 'offline') syncStatusText.textContent = `Offline · ${waiting} item(ns) aguardando sincronização`;
+    else if (state === 'degraded') syncStatusText.textContent = `Conexão instável · ${waiting} item(ns) pendente(s)`;
+    else if (state === 'online' && waiting) syncStatusText.textContent = `Online · Sincronizando ${Math.max(waiting, sending)} item(ns)`;
+    else if (state === 'online') syncStatusText.textContent = 'Online · Tudo sincronizado';
+    else syncStatusText.textContent = `Conectividade desconhecida · ${waiting} item(ns) local(is)`;
+    if (dead > 0) syncStatusText.textContent += ` · ${dead} requer(em) revisão`;
+  } catch (_error) {
+    syncStatus.classList.remove('is-offline', 'is-online', 'is-degraded');
+    syncStatus.classList.add('is-unknown');
+    syncStatusText.textContent = 'Sincronização local indisponível';
+  }
+};
+refreshSyncStatus();
+if (syncStatus) window.setInterval(refreshSyncStatus, 30000);
+
+const adminRecoveryPoll = document.querySelector('[data-admin-recovery-poll]');
+if (adminRecoveryPoll) {
+  let polling = false;
+  const refreshAdminRecovery = async () => {
+    if (polling || document.hidden) return;
+    polling = true;
+    try {
+      const response = await fetch(adminRecoveryPoll.dataset.statusUrl, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const snapshot = await response.json();
+      if (snapshot.authorized === true) window.location.reload();
+    } catch (_error) {
+      // Offline is an expected state; the durable Outbox keeps the request.
+    } finally {
+      polling = false;
+    }
+  };
+  refreshAdminRecovery();
+  window.setInterval(refreshAdminRecovery, 5000);
+}
+
 document.querySelectorAll('.main-nav a, .tabs a').forEach((link) => {
   link.addEventListener('click', () => document.body.classList.remove('sidebar-open'));
 });
@@ -43,6 +100,100 @@ document.querySelectorAll('[data-customer-form]').forEach((form) => {
   };
   form.querySelectorAll('[name="type"]').forEach((input) => input.addEventListener('change', refreshType));
   refreshType();
+});
+
+document.querySelectorAll('[data-customer-picker]').forEach((picker) => {
+  const search = picker.querySelector('[data-customer-search]');
+  const select = picker.querySelector('[data-customer-select]');
+  const status = picker.querySelector('[data-customer-status]');
+  const endpoint = picker.dataset.customerEndpoint;
+  if (!search || !select || !status || !endpoint) return;
+
+  let timer = null;
+  let requestController = null;
+
+  const selectedSnapshot = () => {
+    const option = select.selectedOptions[0];
+    return option?.value ? { value: option.value, label: option.textContent } : null;
+  };
+
+  const render = (items) => {
+    const selected = selectedSnapshot();
+    const emptyLabel = select.options[0]?.textContent || 'Todos os clientes';
+    const fragment = document.createDocumentFragment();
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = emptyLabel;
+    fragment.append(empty);
+    const seen = new Set();
+    items.forEach((item) => {
+      const value = String(item.id);
+      if (seen.has(value)) return;
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = `${item.name}${item.is_active ? '' : ' (inativo)'}`;
+      fragment.append(option);
+      seen.add(value);
+    });
+    if (selected && !seen.has(selected.value)) {
+      const option = document.createElement('option');
+      option.value = selected.value;
+      option.textContent = selected.label;
+      fragment.append(option);
+    }
+    select.replaceChildren(fragment);
+    if (selected) select.value = selected.value;
+    status.textContent = items.length
+      ? `${items.length} cliente(s) encontrado(s). Selecione na lista.`
+      : 'Nenhum cliente encontrado. Tente outro termo.';
+  };
+
+  const load = async () => {
+    requestController?.abort();
+    const controller = new AbortController();
+    requestController = controller;
+    const url = new URL(endpoint, window.location.origin);
+    url.searchParams.set('q', search.value.trim());
+    url.searchParams.set('active_only', picker.dataset.customerActiveOnly || '0');
+    const selected = selectedSnapshot();
+    if (selected) url.searchParams.set('selected_id', selected.value);
+    picker.setAttribute('aria-busy', 'true');
+    status.textContent = 'Buscando clientes…';
+    try {
+      const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      render(Array.isArray(payload.items) ? payload.items.slice(0, 20) : []);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        status.textContent = 'Não foi possível buscar clientes. Tente novamente.';
+      }
+    } finally {
+      if (requestController === controller) {
+        requestController = null;
+        picker.removeAttribute('aria-busy');
+      }
+    }
+  };
+
+  search.addEventListener('input', () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(load, 220);
+  });
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      window.clearTimeout(timer);
+      load();
+    }
+  });
+  select.addEventListener('change', () => {
+    if (select.value) status.textContent = `Cliente selecionado: ${select.selectedOptions[0].textContent}.`;
+  });
 });
 
 document.querySelectorAll('[data-price-input]').forEach((input) => {
@@ -197,6 +348,21 @@ document.querySelectorAll('[data-custom-period-toggle]').forEach((container) => 
   refresh();
 });
 
+document.querySelectorAll('[data-row-href]').forEach((row) => {
+  const openRow = (event) => {
+    if (event.target.closest('a, button, input, select, textarea, form')) return;
+    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+    if (event.type === 'keydown') event.preventDefault();
+    window.location.assign(row.dataset.rowHref);
+  };
+  row.addEventListener('click', openRow);
+  row.addEventListener('keydown', openRow);
+});
+
+document.querySelectorAll('[data-print-page]').forEach((button) => {
+  button.addEventListener('click', () => window.print());
+});
+
 document.querySelectorAll('[data-payment-form]').forEach((form) => {
   const method = form.querySelector('[data-payment-method]');
   const cardFields = form.querySelector('[data-card-payment-fields]');
@@ -270,6 +436,47 @@ const parseNoteMoney = (value) => {
 };
 
 document.querySelectorAll('[data-note-form]').forEach((form) => {
+  const debtPanel = form.querySelector('[data-note-receivables]');
+  const debtList = debtPanel?.querySelector('[data-note-receivables-list]');
+  const customerSelect = form.querySelector('[data-customer-select]');
+  if (debtPanel && debtList && customerSelect) {
+    let debtController = null;
+    const refreshDebts = async () => {
+      debtController?.abort();
+      const controller = new AbortController();
+      debtController = controller;
+      debtList.replaceChildren();
+      debtPanel.hidden = true;
+      const customerId = customerSelect.value;
+      if (!customerId) return;
+      const url = new URL(debtPanel.dataset.endpoint, window.location.origin);
+      url.searchParams.set('customer_id', customerId);
+      try {
+        const response = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          credentials: 'same-origin',
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (customerSelect.value !== customerId) return;
+        data.items.forEach((debt) => {
+          const label = document.createElement('label');
+          label.className = 'checkbox-row';
+          const input = document.createElement('input');
+          input.type = 'checkbox';
+          input.name = 'receivable_ids';
+          input.value = String(debt.id);
+          label.append(input, document.createTextNode(` Incluir saldo da Nota #${debt.source_note_id} · ${debt.amount_display}`));
+          debtList.append(label);
+        });
+        debtPanel.hidden = data.items.length === 0;
+      } catch (error) {
+        if (error.name !== 'AbortError') debtPanel.hidden = true;
+      }
+    };
+    customerSelect.addEventListener('change', refreshDebts);
+  }
   const itemsBody = form.querySelector('[data-note-items]');
   const emptyState = form.querySelector('[data-note-items-empty]');
   const itemCount = form.querySelector('[data-note-item-count]');
@@ -290,6 +497,16 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
   const deliveryTarget = form.querySelector('[data-note-delivery-total]');
   const totalTarget = form.querySelector('[data-note-total]');
   const summaryMessage = form.querySelector('[data-note-summary-message]');
+  const initialPayment = form.querySelector('[data-note-initial-payment]');
+  const initialPaymentToggle = initialPayment?.querySelector('[data-note-initial-payment-toggle]');
+  const initialPaymentFields = initialPayment?.querySelector('[data-note-initial-payment-fields]');
+  const initialPaymentInputs = [...(initialPayment?.querySelectorAll('[data-initial-payment-input]') || [])];
+  const initialPaymentAmount = initialPayment?.querySelector('[data-initial-payment-amount]');
+  const initialPaymentMethod = initialPayment?.querySelector('[data-payment-method]');
+  const initialPaymentTotal = initialPayment?.querySelector('[data-initial-payment-total]');
+  const initialPaymentReceived = initialPayment?.querySelector('[data-initial-payment-received]');
+  const initialPaymentBalance = initialPayment?.querySelector('[data-initial-payment-balance]');
+  const initialPaymentStatus = initialPayment?.querySelector('[data-initial-payment-status]');
   let quantitySequence = itemsBody?.querySelectorAll('[data-note-item]').length || 0;
 
   const showPickerMessage = (message) => {
@@ -353,6 +570,26 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
     return subtotal;
   };
 
+  const updateInitialPaymentSummary = (total, previewValid) => {
+    if (!initialPayment) return;
+    const enabled = Boolean(initialPaymentToggle?.checked);
+    const parsed = enabled && initialPaymentAmount?.value.trim()
+      ? parseNoteMoney(initialPaymentAmount.value)
+      : 0n;
+    const received = parsed === null ? 0n : parsed;
+    const balance = previewValid && received <= total ? total - received : total;
+    if (initialPaymentTotal) initialPaymentTotal.textContent = previewValid ? formatCashMoney(total) : '—';
+    if (initialPaymentReceived) initialPaymentReceived.textContent = parsed === null ? 'Valor inválido' : formatCashMoney(received);
+    if (initialPaymentBalance) initialPaymentBalance.textContent = previewValid ? formatCashMoney(balance) : '—';
+    if (initialPaymentStatus) {
+      if (!enabled || received === 0n) initialPaymentStatus.textContent = 'Não pago';
+      else if (parsed === null) initialPaymentStatus.textContent = 'Revise o valor';
+      else if (received > total) initialPaymentStatus.textContent = 'Acima do saldo';
+      else if (received === total) initialPaymentStatus.textContent = 'Pago';
+      else initialPaymentStatus.textContent = 'Parcialmente pago';
+    }
+  };
+
   const updateSummary = () => {
     const rows = [...(itemsBody?.querySelectorAll('[data-note-item]') || [])];
     let servicesSubtotal = 0n;
@@ -404,6 +641,7 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
       else if (total === 0n) summaryMessage.textContent = 'Total zero: a Nota ficará financeiramente paga, sem gerar recebimento.';
       else summaryMessage.textContent = 'Prévia pronta. Os valores serão confirmados pelo servidor.';
     }
+    updateInitialPaymentSummary(total, previewValid);
   };
 
   const appendText = (parent, tagName, textValue, className = '') => {
@@ -537,6 +775,19 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
     updateSummary();
   };
 
+  const refreshInitialPayment = () => {
+    if (!initialPayment) return;
+    const enabled = Boolean(initialPaymentToggle?.checked);
+    if (initialPaymentFields) initialPaymentFields.hidden = !enabled;
+    initialPaymentInputs.forEach((input) => { input.disabled = !enabled; });
+    ['initial_payment_amount', 'initial_payment_method_id', 'initial_payment_paid_at'].forEach((name) => {
+      const input = initialPayment.querySelector(`[name="${name}"]`);
+      if (input) input.required = enabled;
+    });
+    if (enabled) initialPaymentMethod?.dispatchEvent(new Event('change'));
+    updateSummary();
+  };
+
   itemsBody?.querySelectorAll('[data-note-item]').forEach(configureQuantity);
   itemsBody?.addEventListener('input', (event) => {
     if (event.target.matches('[data-note-quantity]')) updateSummary();
@@ -561,6 +812,8 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
   deliveryAmount?.addEventListener('input', updateSummary);
   discountType?.addEventListener('change', refreshDiscount);
   discountInput?.addEventListener('input', updateSummary);
+  initialPaymentToggle?.addEventListener('change', refreshInitialPayment);
+  initialPaymentAmount?.addEventListener('input', updateSummary);
   form.addEventListener('submit', (event) => {
     if (itemsBody?.querySelector('[data-note-item]')) return;
     event.preventDefault();
@@ -576,6 +829,7 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
   filterServices();
   refreshDelivery();
   refreshDiscount();
+  refreshInitialPayment();
   updateItemCount();
   updateSummary();
 });

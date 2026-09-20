@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import ROOT_DIR
 from app.core.security import hash_password
 from app.models import AuditEvent, BillingUnit, Permission, Role, Service, Setting, User
+from app.observability.context import emit_observability_event
 from app.services.authorization import (
     ActorAuthorizationError,
     require_active_actor_permission,
@@ -25,6 +26,7 @@ from app.services.customer_validation import (
     valid_cnpj,
     valid_cpf,
 )
+from app.services.remember_sessions import RememberSessionService
 
 
 OWNER_ROLE_CODE = "admin"
@@ -92,6 +94,26 @@ def _text(value: object, maximum: int) -> str:
 class AdminService:
     def __init__(self, session: Session):
         self.session = session
+
+    def _revoke_remember_sessions(self, user_id: int, reason: str) -> int:
+        return RememberSessionService.revoke_user_sessions_sql(
+            self.session, user_id, reason=reason
+        )
+
+    @staticmethod
+    def _emit_remember_revocation(user_id: int, reason: str, count: int) -> None:
+        if not count:
+            return
+        emit_observability_event(
+            module="auth",
+            component="admin_service",
+            event_type="auth.session.revoked",
+            operation="security_change",
+            status="completed",
+            user_id=user_id,
+            metadata={"reason": reason, "count": count},
+            sync_required=True,
+        )
 
     def _begin_immediate(self) -> None:
         if self.session.in_transaction():
@@ -273,6 +295,8 @@ class AdminService:
         self, user_id: int, raw: dict[str, object], role_codes: set[str], actor_id: int
     ) -> User:
         self._begin_immediate()
+        revoked_count = 0
+        revoke_reason = "account_identity_or_roles_changed"
         try:
             actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
@@ -309,8 +333,10 @@ class AdminService:
             user.roles = roles
             if before_roles != after_roles or email_changed:
                 user.auth_version += 1
+                revoked_count = self._revoke_remember_sessions(user.id, revoke_reason)
             self._audit(actor_id, "admin.user_updated", f"users/{user.id}", changes)
             self.session.commit()
+            self._emit_remember_revocation(user.id, revoke_reason, revoked_count)
             return user
         except Exception:
             self.session.rollback()
@@ -318,6 +344,8 @@ class AdminService:
 
     def set_user_active(self, user_id: int, active: bool, actor_id: int) -> User:
         self._begin_immediate()
+        revoked_count = 0
+        revoke_reason = "account_reactivated" if active else "account_deactivated"
         try:
             actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
@@ -335,12 +363,14 @@ class AdminService:
             if user.active != active:
                 user.active = active
                 user.auth_version += 1
+                revoked_count = self._revoke_remember_sessions(user.id, revoke_reason)
             self._audit(
                 actor_id,
                 "admin.user_reactivated" if active else "admin.user_deactivated",
                 f"users/{user.id}",
             )
             self.session.commit()
+            self._emit_remember_revocation(user.id, revoke_reason, revoked_count)
             return user
         except Exception:
             self.session.rollback()
@@ -348,6 +378,7 @@ class AdminService:
 
     def reset_password(self, user_id: int, password: str, actor_id: int) -> None:
         self._begin_immediate()
+        revoked_count = 0
         try:
             actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.users")
             user = self.user(user_id)
@@ -360,8 +391,14 @@ class AdminService:
                 raise AdminValidationError("A nova senha deve ter entre 8 e 256 caracteres.")
             user.password_hash = hash_password(password)
             user.auth_version += 1
+            revoked_count = self._revoke_remember_sessions(
+                user.id, "account_password_changed"
+            )
             self._audit(actor_id, "admin.user_password_reset", f"users/{user.id}")
             self.session.commit()
+            self._emit_remember_revocation(
+                user.id, "account_password_changed", revoked_count
+            )
         except Exception:
             self.session.rollback()
             raise
@@ -370,6 +407,7 @@ class AdminService:
         self, role_id: int, permission_codes: set[str], actor_id: int
     ) -> Role:
         self._begin_immediate()
+        revoked: list[tuple[int, int]] = []
         try:
             actor_is_owner, actor_permissions = self._actor_access(actor_id, "admin.permissions")
             role = self.session.scalar(
@@ -409,6 +447,10 @@ class AdminService:
             if set(before) != permission_codes:
                 for user in role.users:
                     user.auth_version += 1
+                    count = self._revoke_remember_sessions(
+                        user.id, "role_permissions_changed"
+                    )
+                    revoked.append((user.id, count))
             self._audit(
                 actor_id,
                 "admin.role_permissions_updated",
@@ -416,6 +458,10 @@ class AdminService:
                 {"before": before, "after": sorted(permission_codes)},
             )
             self.session.commit()
+            for revoked_user_id, count in revoked:
+                self._emit_remember_revocation(
+                    revoked_user_id, "role_permissions_changed", count
+                )
             return role
         except Exception:
             self.session.rollback()

@@ -1,85 +1,174 @@
 {% extends "layout/base.html" %}
 {% block content %}
-<header class="page-header">
-  <p class="eyebrow">ADMINISTRAÇÃO › SEGURANÇA</p>
-  <h1>Suporte temporário</h1>
-  <p>Autorize um usuário visível por até 24 horas. Não existe conta oculta, senha mestre ou acesso sem autenticação.</p>
-</header>
-{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}" role="status">{{ flash.message }}</div>{% endif %}
-{% if errors.form %}<div class="alert alert--error" role="alert">{{ errors.form }}</div>{% endif %}
+{% set ticket_rows = tickets|default([], true) %}
+{% set ticket_form = form|default({}, true) %}
+{% set form_errors = errors|default({}, true) %}
+{% set category_options = categories|default({}, true) %}
+{% set priority_options = priorities|default({}, true) %}
+{% set ticket_status_labels = status_labels|default({}, true) %}
+{% set ticket_status_badges = status_badges|default({}, true) %}
 
-<section class="panel form-section">
-  <div class="section-heading">
-    <div><h2>Nova concessão</h2><p>Somente usuários ativos que possuam exclusivamente o papel Suporte podem ser selecionados.</p></div>
+<header class="page-header page-header--split support-header">
+  <div>
+    <p class="eyebrow">ADMINISTRAÇÃO › SUPORTE</p>
+    <h1>Central de Suporte</h1>
+    <p>Abra e acompanhe chamados enviados à NexPoint. O ERP inclui somente contexto técnico sanitizado.</p>
   </div>
-  {% if support_users %}
-  <form method="post" action="/admin/suporte/concessoes" class="form-stack">
-    <div class="form-grid">
-      <label class="field">Usuário de suporte *
-        <select name="support_user_id" required>
-          <option value="">Selecione</option>
-          {% for user in support_users %}<option value="{{ user.id }}" {% if form.get('support_user_id')|string == user.id|string %}selected{% endif %}>{{ user.display_name }} · {{ user.email }}</option>{% endfor %}
-        </select>
-        {% if errors.support_user_id %}<small class="field-error">{{ errors.support_user_id }}</small>{% endif %}
-      </label>
-      <label class="field">Início *
-        <input type="datetime-local" name="starts_at" required value="{{ form.get('starts_at', default_starts_at) }}">
-        {% if errors.starts_at %}<small class="field-error">{{ errors.starts_at }}</small>{% endif %}
-      </label>
-      <label class="field">Término *
-        <input type="datetime-local" name="expires_at" required value="{{ form.get('expires_at', default_expires_at) }}">
-        {% if errors.expires_at %}<small class="field-error">{{ errors.expires_at }}</small>{% endif %}
-      </label>
-      <label class="field">Senha atual do Proprietário *
-        <input type="password" name="current_password" maxlength="256" required autocomplete="current-password">
-      </label>
-      <label class="field field--wide">Finalidade *
-        <textarea name="purpose" maxlength="500" required>{{ form.get('purpose', '') }}</textarea>
-        <small class="form-hint">Descreva o atendimento. Não informe senhas, tokens ou credenciais.</small>
-        {% if errors.purpose %}<small class="field-error">{{ errors.purpose }}</small>{% endif %}
-      </label>
+  <a class="button button--primary" href="#abrir-chamado">Abrir chamado</a>
+</header>
+
+{% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}" role="{{ 'status' if flash.kind == 'success' else 'alert' }}">{{ flash.message }}</div>{% endif %}
+{% if form_errors.form %}<div class="alert alert--error" role="alert">{{ form_errors.form }}</div>{% endif %}
+
+<div class="support-workspace">
+  <section class="panel form-section support-new-ticket" id="abrir-chamado" aria-labelledby="support-new-ticket-title">
+    <div class="section-heading section-heading--split">
+      <div>
+        <span class="section-kicker">Novo atendimento</span>
+        <h2 id="support-new-ticket-title">Conte o que aconteceu</h2>
+        <p>Você pode falar com a Nexa primeiro ou enviar o chamado diretamente.</p>
+      </div>
+      <button class="button button--secondary" type="button" data-nexa-open aria-controls="nexa-panel" aria-expanded="false">Perguntar à Nexa</button>
     </div>
-    <div class="form-actions"><button class="button button--primary" type="submit">Autorizar suporte temporário</button></div>
-  </form>
-  {% else %}
-  <div class="alert alert--info">Nenhum usuário ativo possui exclusivamente o papel Suporte. Crie esse acesso na gestão de usuários antes de autorizar uma janela.</div>
-  {% endif %}
-</section>
 
-<section class="panel section-block">
-  <div class="section-heading"><div><h2>Histórico de concessões</h2><p>Horários exibidos no fuso {{ timezone_name }}.</p></div></div>
-  <div class="table-shell"><table>
-    <thead><tr><th>Identificação</th><th>Usuário</th><th>Janela</th><th>Finalidade</th><th>Autorização</th><th>Status</th><th>Ações</th></tr></thead>
-    <tbody>
-      {% for grant in grants %}
-      {% set grant_status = grant.effective_status(now_utc) %}
-      <tr>
-        <td><strong>#{{ grant.id }}</strong><small>{{ grant.grant_uid }}</small></td>
-        <td><strong>{{ grant.support_user.display_name }}</strong><small>{{ grant.support_user.email }}</small></td>
-        <td>{{ grant.starts_at|datetime_br }}<small>até {{ grant.expires_at|datetime_br }}</small></td>
-        <td>{{ grant.purpose }}</td>
-        <td>{{ grant.authorizer.display_name }}<small>{{ grant.created_at|datetime_br }}</small></td>
-        <td><span class="badge badge--{{ status_badges[grant_status] }}">{{ status_labels[grant_status] }}</span>{% if grant.revoker %}<small>por {{ grant.revoker.display_name }} · {{ grant.revoked_at|datetime_br }}</small>{% endif %}</td>
-        <td>{% if grant_status in ('SCHEDULED', 'ACTIVE') %}<button class="link-button" type="button" data-modal-open="revoke-support-{{ grant.id }}">Revogar</button>{% else %}<span class="muted">Encerrada</span>{% endif %}</td>
-      </tr>
-      {% else %}<tr><td colspan="7" class="table-empty">Nenhuma concessão de suporte registrada.</td></tr>{% endfor %}
-    </tbody>
-  </table></div>
-</section>
+    <form method="post" action="/admin/suporte/chamados" class="form-stack support-ticket-form">
+      <input type="hidden" name="screen" value="{{ ticket_form.get('screen', request.url.path) }}">
+      <input type="hidden" name="nexa_request_id" value="{{ ticket_form.get('nexa_request_id', '') }}" data-support-nexa-reference>
+      <label class="field">Assunto *
+        <input type="text" name="subject" maxlength="160" required value="{{ ticket_form.get('subject', '') }}" placeholder="Resuma o problema em uma frase" autocomplete="off">
+        {% if form_errors.subject %}<small class="field-error">{{ form_errors.subject }}</small>{% endif %}
+      </label>
 
-{% for grant in grants %}
-{% set grant_status = grant.effective_status(now_utc) %}
-{% if grant_status in ('SCHEDULED', 'ACTIVE') %}
-<div class="modal-backdrop" id="revoke-support-{{ grant.id }}" hidden>
-  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="revoke-support-title-{{ grant.id }}">
-    <div class="modal__header"><div><h2 id="revoke-support-title-{{ grant.id }}">Revogar suporte</h2><p>{{ grant.support_user.display_name }}</p></div><button class="icon-button" type="button" data-modal-close="revoke-support-{{ grant.id }}">×</button></div>
-    <form method="post" action="/admin/suporte/concessoes/{{ grant.id }}/revogar" class="form-stack">
-      <label class="field">Motivo *<textarea name="revocation_reason" maxlength="500" required></textarea></label>
-      <label class="field">Senha atual do Proprietário *<input type="password" name="current_password" maxlength="256" required autocomplete="current-password"></label>
-      <div class="modal__actions"><button class="button button--secondary" type="button" data-modal-close="revoke-support-{{ grant.id }}">Cancelar</button><button class="button button--danger" type="submit">Revogar imediatamente</button></div>
+      <div class="form-grid support-ticket-fields">
+        <label class="field">Categoria *
+          <select name="category" required>
+            <option value="">Selecione</option>
+            {% for value, label in category_options.items() %}<option value="{{ value }}" {% if ticket_form.get('category') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          {% if form_errors.category %}<small class="field-error">{{ form_errors.category }}</small>{% endif %}
+        </label>
+        <label class="field">Prioridade *
+          <select name="priority" required>
+            {% for value, label in priority_options.items() %}<option value="{{ value }}" {% if ticket_form.get('priority', 'normal') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <small class="form-hint">A criticidade técnica é avaliada pela NexPoint.</small>
+          {% if form_errors.priority %}<small class="field-error">{{ form_errors.priority }}</small>{% endif %}
+        </label>
+      </div>
+
+      <label class="field">Descrição do problema *
+        <textarea name="description" rows="7" maxlength="4000" required placeholder="Descreva o que tentou fazer, o resultado esperado e o que apareceu na tela.">{{ ticket_form.get('description', '') }}</textarea>
+        <small class="form-hint">Não informe senhas, tokens, chaves ou outros dados secretos.</small>
+        {% if form_errors.description %}<small class="field-error">{{ form_errors.description }}</small>{% endif %}
+      </label>
+
+      <div class="support-context-note">
+        <strong>Contexto técnico protegido</strong>
+        <p>Módulo, tela, versão, horário e sinais de diagnóstico relevantes serão anexados automaticamente após sanitização.</p>
+      </div>
+      <div class="form-actions support-form-actions">
+        <button class="button button--primary" type="submit">Enviar chamado</button>
+      </div>
     </form>
   </section>
+
+  <section class="panel section-block support-history" aria-labelledby="support-history-title">
+    <div class="section-heading section-heading--split">
+      <div>
+        <span class="section-kicker">Meus chamados</span>
+        <h2 id="support-history-title">Histórico</h2>
+        <p>Acompanhe o protocolo, o estado e a última atualização.</p>
+      </div>
+      {% if ticket_rows %}<span class="support-ticket-count">{{ ticket_rows|length }} {{ 'chamado' if ticket_rows|length == 1 else 'chamados' }}</span>{% endif %}
+    </div>
+
+    {% if ticket_rows %}
+    <div class="table-shell support-table-shell">
+      <table class="support-ticket-table">
+        <thead><tr><th>Protocolo</th><th>Assunto</th><th>Categoria</th><th>Status</th><th>Aberto em</th><th>Atualização</th><th></th></tr></thead>
+        <tbody>
+          {% for ticket in ticket_rows %}
+          <tr {% if selected_ticket and selected_ticket.id == ticket.id %}class="is-selected"{% endif %}>
+            <td><strong>{{ ticket.protocol }}</strong></td>
+            <td>{{ ticket.subject }}</td>
+            <td>{{ category_options.get(ticket.category, ticket.category) }}</td>
+            <td><span class="badge badge--{{ ticket_status_badges.get(ticket.status, 'neutral') }}">{{ ticket_status_labels.get(ticket.status, ticket.status) }}</span></td>
+            <td>{{ ticket.created_at|datetime_br }}</td>
+            <td>{{ ticket.updated_at|datetime_br }}</td>
+            <td><a class="table-action" href="/admin/suporte/chamados/{{ ticket.id }}" aria-label="Ver chamado {{ ticket.protocol }}">Ver detalhes</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="support-empty-state" role="status">
+      <strong>Nenhum chamado aberto</strong>
+      <p>Quando precisar de ajuda, use o formulário acima. Seu histórico aparecerá aqui.</p>
+      <a class="button button--secondary" href="#abrir-chamado">Abrir o primeiro chamado</a>
+    </div>
+    {% endif %}
+  </section>
 </div>
+
+{% if selected_ticket %}
+<section class="panel section-block support-ticket-detail" id="detalhes-chamado" aria-labelledby="support-ticket-detail-title">
+  <div class="section-heading section-heading--split">
+    <div>
+      <span class="section-kicker">{{ selected_ticket.protocol }}</span>
+      <h2 id="support-ticket-detail-title">{{ selected_ticket.subject }}</h2>
+    </div>
+    <span class="badge badge--{{ ticket_status_badges.get(selected_ticket.status, 'neutral') }}">{{ ticket_status_labels.get(selected_ticket.status, selected_ticket.status) }}</span>
+  </div>
+  <div class="support-detail-grid">
+    <div class="support-detail-main">
+      <h3>Descrição</h3>
+      <p class="support-ticket-description">{{ selected_ticket.description }}</p>
+      {% if selected_ticket.nexa_diagnosis %}
+      <div class="support-diagnosis">
+        <strong>Diagnóstico da Nexa</strong>
+        <p>{{ selected_ticket.nexa_diagnosis }}</p>
+      </div>
+      {% endif %}
+    </div>
+    <dl class="details-list support-ticket-meta">
+      <div><dt>Categoria</dt><dd>{{ category_options.get(selected_ticket.category, selected_ticket.category) }}</dd></div>
+      <div><dt>Prioridade</dt><dd>{{ priority_options.get(selected_ticket.priority, selected_ticket.priority) }}</dd></div>
+      <div><dt>Aberto em</dt><dd>{{ selected_ticket.created_at|datetime_br }}</dd></div>
+      <div><dt>Atualizado em</dt><dd>{{ selected_ticket.updated_at|datetime_br }}</dd></div>
+      {% if selected_ticket.correlation_id %}<div><dt>Correlação</dt><dd><code>{{ selected_ticket.correlation_id }}</code></dd></div>{% endif %}
+      {% if selected_ticket.diagnostic_fingerprint %}<div><dt>Diagnóstico</dt><dd><code>{{ selected_ticket.diagnostic_fingerprint }}</code></dd></div>{% endif %}
+    </dl>
+  </div>
+  {% if selected_ticket.technical_context %}
+  <details class="support-technical-context">
+    <summary>Ver contexto técnico anexado</summary>
+    <dl class="details-list">
+      {% if selected_ticket.technical_context is mapping %}
+        {% for key, value in selected_ticket.technical_context.items() %}<div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+      {% else %}
+        <div><dt>Resumo</dt><dd>{{ selected_ticket.technical_context }}</dd></div>
+      {% endif %}
+    </dl>
+  </details>
+  {% endif %}
+</section>
 {% endif %}
-{% endfor %}
+
+{% if can_manage_temporary_support|default(false) %}
+<details class="support-legacy-access">
+  <summary>Acesso técnico temporário</summary>
+  <div>
+    <p>Concessões auditáveis continuam disponíveis para atendimentos autorizados. Elas não são necessárias para abrir um chamado.</p>
+    <a class="button button--secondary" href="/admin/suporte/acesso-temporario">Gerenciar acesso temporário</a>
+  </div>
+  {% if temporary_support_grants|default([], true) %}
+  <ul class="support-legacy-list" aria-label="Concessões técnicas recentes">
+    {% for grant in temporary_support_grants %}
+    <li><strong>{{ grant.support_user.display_name }}</strong><span>{{ grant.purpose }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</details>
+{% endif %}
 {% endblock %}

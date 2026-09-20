@@ -1,4 +1,5 @@
 {% extends "layout/base.html" %}
+{% from "components/ui.html" import customer_picker %}
 
 {% block content %}
 <header class="page-header page-header--split">
@@ -12,12 +13,7 @@
       <input type="search" name="q" value="{{ filters.q }}" placeholder="Número, série, cliente ou observação">
     </label>
     <div class="note-filter-grid">
-      <label class="field">Cliente
-        <select name="customer_id">
-          <option value="">Todos</option>
-          {% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
-        </select>
-      </label>
+      {{ customer_picker(customers, filters.customer_id, 'notes-filter-customer-id', 'Cliente', false, false, 'Todos os clientes', 'note-filter-customer-picker') }}
       <label class="field">Status operacional
         <select name="operational_status">
           <option value="ALL">Todos</option>
@@ -61,13 +57,13 @@
       <tbody>
         {% for row in result.rows %}
           {% set note = row.note %}
-          <tr class="note-row note-row--{{ note.operational_status|lower }}">
+          <tr class="note-row note-row--{{ note.operational_status|lower }}" data-row-href="/servicos/notas/{{ note.id }}" tabindex="0" role="link" aria-label="Abrir Nota {{ note.number_original }} de {{ row.customer.name }}">
             <td><strong>{{ note.number_original }}</strong><small>{{ 'Série/Bloco ' ~ note.series_original if note.series_original else 'Sem série/bloco' }}</small></td>
             <td><strong>{{ row.customer.name }}</strong><small>Cliente #{{ row.customer.id }}</small></td>
             <td>{{ note.received_at|datetime_br }}</td>
             <td>{{ note.expected_ready_at|datetime_br }}</td>
             <td><span class="badge badge--{{ 'neutral' if note.operational_status == 'CANCELADO' else ('success' if note.operational_status == 'ENTREGUE' else ('info' if note.operational_status == 'PRONTO' else 'warning')) }}">{{ note.operational_status|replace('_', ' ')|title }}</span></td>
-            <td><span class="badge badge--{{ 'success' if note.financial_status == 'PAGO' else 'warning' }}">{{ 'Pago' if note.financial_status == 'PAGO' else 'Pendente' }}</span></td>
+            <td><span class="badge badge--{{ 'success' if row.financial_status_code == 'PAGO' else ('danger' if row.financial_status_code == 'SALDO_DEVEDOR' else 'warning') }}">{{ financial_statuses.get(row.financial_status_code, row.financial_status_code) }}</span></td>
             <td>
               <span class="badge badge--{{ 'danger' if row.deadline_code == 'ATRASADO' else ('warning' if row.deadline_code == 'VENCE_HOJE' else ('neutral' if note.operational_status == 'CANCELADO' else 'success')) }}">{{ row.deadline_label }}</span>
               {% if row.days_late %}<small>{{ row.days_late }} dia(s) de atraso</small>{% endif %}

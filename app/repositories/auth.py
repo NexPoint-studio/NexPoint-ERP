@@ -2,10 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import AuditEvent, FeatureFlag, Permission, Role, Setting, SupportGrant, User
+from app.models import (
+    AuditEvent,
+    FeatureFlag,
+    Permission,
+    RememberSession,
+    Role,
+    Setting,
+    SupportGrant,
+    User,
+)
 
 
 class AuthRepository:
@@ -50,6 +59,15 @@ class AuthRepository:
             self.session.rollback()
             return False
         user.auth_version += 1
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.session.execute(
+            update(RememberSession)
+            .where(
+                RememberSession.user_id == user_id,
+                RememberSession.status == "ACTIVE",
+            )
+            .values(status="REVOKED", revoked_at=now)
+        )
         self.session.add(AuditEvent(user_id=user_id, action=action, resource="session"))
         self.session.commit()
         return True

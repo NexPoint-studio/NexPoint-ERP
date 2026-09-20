@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">DIAGNÓSTICO › EVENTO</p>
+    <h1>{{ event.event_type }}</h1>
+    <p>{{ tenant.display_name if tenant else event.tenant_id }} · {{ event.timestamp|datetime_br }}</p>
+  </div>
+  <div class="heading-actions">
+    <a class="button button--primary" href="/nexa?event={{ event.event_id }}">Investigar com Nexa</a>
+    <a class="button button--secondary" href="/diagnostico/{{ event.event_id }}/exportar.json">Exportar JSON</a>
+    <a class="button button--secondary" href="/diagnostico">Voltar</a>
+  </div>
+</header>
+
+<section class="detail-summary detail-summary--diagnostic">
+  <div><span>Severidade</span><strong><span class="badge badge--{{ event.level|lower }}">{{ event.level }}</span></strong></div>
+  <div><span>Status</span><strong>{{ event.status }}</strong></div>
+  <div><span>Duração</span><strong>{{ event.duration_ms|string + ' ms' if event.duration_ms is not none else '—' }}</strong></div>
+  <div><span>Retry</span><strong>{{ event.retry_count }}</strong></div>
+  <div><span>Ambiente</span><strong>{{ event.environment }}</strong></div>
+  <div><span>Versão / build</span><strong>{{ event.app_version or '—' }} / {{ event.build or '—' }}</strong></div>
+</section>
+
+<section class="diagnostic-detail-grid">
+  <div class="stack">
+    <article class="panel">
+      <header class="panel-heading"><div><h2>Timeline da correlação</h2><p>Ordem cronológica dos eventos sanitizados desta operação.</p></div>{% if event.correlation_id %}<code>{{ event.correlation_id }}</code>{% endif %}</header>
+      <ol class="event-timeline">
+        {% for item in timeline %}
+        <li class="event-timeline__item {% if item.event_id == event.event_id %}is-selected{% endif %}">
+          <div class="event-timeline__marker"></div>
+          <div><small>{{ item.timestamp|datetime_br }}</small><a href="/diagnostico/{{ item.event_id }}"><strong>{{ item.event_type }}</strong></a><span>{{ item.component }} · {{ item.operation }} · {{ item.status }}</span></div>
+          <span class="badge badge--{{ item.level|lower }}">{{ item.level }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </article>
+    <article class="panel">
+      <header class="panel-heading"><div><h2>Metadados seguros</h2><p>Conteúdo limitado e sanitizado antes da exibição.</p></div></header>
+      <pre class="metadata-view">{{ safe_metadata|json_pretty }}</pre>
+    </article>
+  </div>
+  <aside class="stack">
+    <article class="panel">
+      <h2>Identificadores</h2>
+      <dl class="context-list">
+        <div><dt>Event ID</dt><dd><code>{{ event.event_id }}</code></dd></div>
+        <div><dt>Request ID</dt><dd><code>{{ event.request_id or '—' }}</code></dd></div>
+        <div><dt>Correlation ID</dt><dd><code>{{ event.correlation_id or '—' }}</code></dd></div>
+        <div><dt>Usuário pseudônimo</dt><dd><code>{{ event.user_pseudonym or '—' }}</code></dd></div>
+        <div><dt>Empresa</dt><dd>{{ tenant.display_name if tenant else event.tenant_id }}{% if tenant and tenant.tenant_type == 'TEST' %} <span class="test-inline">TESTE</span>{% endif %}</dd></div>
+        <div><dt>Instalação</dt><dd>{{ installation.installation_id if installation else event.installation_id }}</dd></div>
+        <div><dt>Módulo</dt><dd>{{ event.module }}</dd></div>
+        <div><dt>Componente</dt><dd>{{ event.component }}</dd></div>
+        <div><dt>Código de erro</dt><dd>{{ event.error_code or '—' }}</dd></div>
+      </dl>
+    </article>
+    <article class="panel">
+      <h2>Fingerprint</h2>
+      <code class="fingerprint-value">{{ event.fingerprint or '—' }}</code>
+      {% if fingerprint_summary %}
+      <dl class="context-list fingerprint-facts">
+        <div><dt>Ocorrências</dt><dd>{{ fingerprint_summary.occurrence_count }}</dd></div>
+        <div><dt>Primeira</dt><dd>{{ fingerprint_summary.first_seen_at|datetime_br }}</dd></div>
+        <div><dt>Última</dt><dd>{{ fingerprint_summary.last_seen_at|datetime_br }}</dd></div>
+        <div><dt>Empresas afetadas</dt><dd>{{ fingerprint_summary.affected_tenants }}</dd></div>
+        <div><dt>Módulo</dt><dd>{{ fingerprint_summary.module }}</dd></div>
+      </dl>
+      <a class="button button--secondary button--block" href="/fingerprints/{{ event.fingerprint }}">Abrir fingerprint</a>
+      {% endif %}
+    </article>
+  </aside>
+</section>
+{% endblock %}

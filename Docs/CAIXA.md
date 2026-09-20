@@ -66,8 +66,8 @@ cancelamento autorizado registra auditoria.
 
 ## Entradas automáticas de Pagamento
 
-Ao confirmar o Pagamento integral de uma Nota, a mesma transação cria uma entrada
-com:
+Ao confirmar qualquer Pagamento integral ou parcial de uma Nota, a mesma
+transação cria uma entrada com:
 
 ```text
 origin = SYSTEM
@@ -80,6 +80,11 @@ A combinação de origem é única, impedindo duas movimentações para o mesmo
 Pagamento. Uma entrada `SYSTEM` não pode ser editada nem cancelada diretamente
 pelas rotas ou pelo serviço do Caixa, pois isso deixaria a quitação e o livro-caixa
 divergentes.
+
+O fechamento da Nota não cria movimentação. Se ele gerar saldo devedor, cada
+quitação posterior cria um `ReceivablePayment` e uma entrada `SYSTEM` com
+`source_type=RECEIVABLE_PAYMENT`. Assim, o Caixa contém somente valores
+efetivamente recebidos e não antecipa a dívida.
 
 O vínculo e a atomicidade estão detalhados em
 [Administração e Pagamentos](PAGAMENTOS_ADMINISTRACAO.md).

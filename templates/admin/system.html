@@ -42,6 +42,9 @@
 
 {% if current_user.can('admin.restore') and 'admin' in current_user.roles %}
 <section class="panel section-block">
+  {% if restore_disabled %}
+  <div class="section-heading"><div><span class="section-kicker">Proteção do ambiente demo</span><h2>Restauração desativada</h2><p>O banco persistente da demonstração não pode ser substituído por esta tela. Validações de restauração devem usar uma cópia isolada.</p></div></div>
+  {% else %}
   <div class="section-heading"><div><span class="section-kicker">Operação exclusiva do Proprietário</span><h2>Restauração</h2><p>O arquivo é validado e preparado agora. A troca do banco ocorre somente no próximo início, antes de o ERP abrir conexões.</p></div></div>
   {% if pending_restore %}
     <div class="alert alert--success">A restauração {{ pending_restore.operation_id }} está pronta. Feche e abra o ERP para aplicá-la.</div>
@@ -57,6 +60,7 @@
       <label class="field">Confirmação *<input name="confirmation" maxlength="10" autocomplete="off" placeholder="RESTAURAR" required><small class="form-hint">Digite RESTAURAR exatamente como exibido.</small></label>
       <div class="form-actions"><button class="button button--danger" type="submit">Validar e preparar restauração</button></div>
     </form>
+  {% endif %}
   {% endif %}
 </section>
 {% endif %}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">CHAMADOS › {{ ticket.protocol }}</p>
+    <h1>{{ ticket.subject }} {% if ticket.is_demo %}<small class="demo-label">DEMO</small>{% endif %}</h1>
+    <p>{{ tenant.display_name }} · aberto em {{ ticket.created_at|datetime_br }}</p>
+  </div>
+  <div class="heading-actions">
+    <a href="/nexa?ticket={{ ticket.id }}" class="button button--primary">Investigar com Nexa</a>
+    <form action="/incidentes/de-chamado/{{ ticket.id }}" method="post"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button type="submit" class="button button--secondary">Criar incidente</button></form>
+    <a href="/chamados" class="button button--secondary">Voltar</a>
+  </div>
+</header>
+<section class="detail-summary">
+  <div><span>Status</span><strong><span class="badge badge--{{ ticket.status }}">{{ ticket_status_labels[ticket.status] }}</span></strong></div>
+  <div><span>Prioridade</span><strong>{{ priority_labels[ticket.priority] }}</strong></div>
+  <div><span>Categoria</span><strong>{{ category_labels.get(ticket.category, ticket.category) }}</strong></div>
+  <div><span>Instalação</span><strong>{{ ticket.installation_id or '—' }}</strong></div>
+  <div><span>Módulo/tela</span><strong>{{ ticket.module or '—' }} · {{ ticket.screen or '—' }}</strong></div>
+  <div><span>Versão</span><strong>{{ ticket.erp_version or '—' }}</strong></div>
+</section>
+<section class="ticket-detail-grid">
+  <div class="stack">
+    {% if ticket.category == 'admin_access_recovery' %}
+    <article class="panel danger-panel">
+      <header class="panel-heading"><div><p class="eyebrow">RECUPERAÇÃO ADMINISTRATIVA</p><h2>Autorizar redefinição local</h2><p>A autorização não define, transmite ou revela senha. O Proprietário ainda precisará definir a nova senha no ERP autenticado.</p></div></header>
+      <dl class="context-list">
+        <div><dt>Empresa</dt><dd>{{ tenant.display_name }}</dd></div>
+        <div><dt>Instalação vinculada</dt><dd><code>{{ ticket.installation_id or '—' }}</code></dd></div>
+        <div><dt>Solicitante pseudonimizado</dt><dd><code>{{ ticket.created_by }}</code></dd></div>
+        <div><dt>Correlation ID</dt><dd><code>{{ ticket.correlation_id or '—' }}</code></dd></div>
+        <div><dt>Autorização atual</dt><dd>{% if reset_authorization %}<span class="badge badge--{{ 'active' if reset_authorization.status == 'active' else 'closed' }}">{{ reset_authorization.status }}</span> · expira em {{ reset_authorization.expires_at|datetime_br }}{% else %}Nenhuma{% endif %}</dd></div>
+      </dl>
+      {% set admin_lock = ticket.technical_context.get('admin_lock', {}) %}
+      <dl class="context-list">
+        <div><dt>Cadeado configurado</dt><dd>{{ 'Sim' if admin_lock.get('configured') else 'Não' }}</dd></div>
+        <div><dt>Tentativas recentes</dt><dd>{{ admin_lock.get('failed_attempt_count', 0) }}</dd></div>
+        <div><dt>Bloqueio até</dt><dd>{{ admin_lock.get('lockout_until') or '—' }}</dd></div>
+        <div><dt>Última recuperação</dt><dd>{{ admin_lock.get('last_recovery_event') or '—' }}</dd></div>
+      </dl>
+      {% set recovery_events = ticket.technical_context.get('recent_diagnostics', []) %}
+      {% if recovery_events %}
+      <h3>Eventos de segurança sanitizados</h3>
+      <ol class="event-timeline">
+        {% for event in recovery_events %}<li class="event-timeline__item"><span class="event-timeline__marker"></span><div><strong>{{ event.get('event_type') or event.get('operation') or 'diagnostic.event' }}</strong><span>{{ event.get('status') or event.get('severity') or 'observed' }}{% if event.get('error_code') %} · {{ event.get('error_code') }}{% endif %}</span></div><small>{{ event.get('timestamp') or '—' }}</small></li>{% endfor %}
+      </ol>
+      {% endif %}
+      {% if platform_user.role == 'platform_admin' and ticket.status in ('open', 'in_progress', 'waiting_customer') %}
+      <form action="/chamados/{{ ticket.id }}/autorizar-reset" method="post" class="form-stack">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <label>Confirmação forte<input name="confirmation" maxlength="160" autocomplete="off" required placeholder="AUTORIZAR {{ ticket.protocol }}"><small>Digite exatamente: AUTORIZAR {{ ticket.protocol }}</small></label>
+        <button class="button button--danger" type="submit">Autorizar redefinição</button>
+      </form>
+      {% else %}<p class="trust-note">Somente um platform_admin pode autorizar a redefinição.</p>{% endif %}
+    </article>
+    {% endif %}
+    <article class="panel"><h2>Descrição informada</h2><p class="long-copy">{{ ticket.description }}</p></article>
+    <article class="panel">
+      <header class="panel-heading"><div><h2>Contexto técnico sanitizado</h2><p>Somente campos autorizados pelo adapter do ERP.</p></div></header>
+      <dl class="context-list">{% for key,value in ticket.technical_context.items() %}<div><dt>{{ key }}</dt><dd>{{ value|json_pretty }}</dd></div>{% else %}<div><dd>Nenhum contexto técnico anexado.</dd></div>{% endfor %}</dl>
+      <div class="reference-grid"><div><span>Correlation ID</span><code>{{ ticket.correlation_id or '—' }}</code></div><div><span>Fingerprint</span><code>{{ ticket.diagnostic_fingerprint or '—' }}</code></div><div><span>Risco associado</span><code>{{ ticket.risk_id or '—' }}</code></div></div>
+    </article>
+    <article class="panel">
+      <header class="panel-heading"><div><h2>Timeline do chamado</h2><p>Eventos operacionais e de segurança sem credenciais.</p></div></header>
+      <ol class="event-timeline">{% for entry in ticket.history %}<li class="event-timeline__item"><span class="event-timeline__marker"></span><div><strong>{{ entry.event_type }}</strong><span>{{ entry.detail or 'Evento registrado.' }}</span></div><small>{{ entry.created_at|datetime_br }}</small></li>{% else %}<li class="empty-copy">Nenhum evento registrado.</li>{% endfor %}</ol>
+    </article>
+    {% if ticket.nexa_diagnosis %}<article class="panel nexa-result"><p class="eyebrow">DIAGNÓSTICO NEXA</p><p class="long-copy">{{ ticket.nexa_diagnosis }}</p></article>{% endif %}
+  </div>
+  <aside class="stack">
+    <article class="panel"><h2>Atualizar chamado</h2>{% if ticket_action_status_labels %}<form action="/chamados/{{ ticket.id }}/status" method="post" class="form-stack"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><label>Novo status<select name="status" required>{% for value,label in ticket_action_status_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label><button class="button button--secondary" type="submit">Salvar status</button></form>{% else %}<p class="empty-copy">Este chamado está encerrado e não possui novas transições.</p>{% endif %}</article>
+    <article class="panel"><h2>Nota interna</h2><form action="/chamados/{{ ticket.id }}/notas" method="post" class="form-stack"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><label>Nota<textarea name="body" maxlength="2000" required placeholder="Registre evidências ou próximos passos"></textarea></label><button class="button button--primary" type="submit">Adicionar nota</button></form><div class="note-list">{% for note in ticket.internal_notes %}<article><p>{{ note.body }}</p><small>{{ note.author_id }} · {{ note.created_at|datetime_br }}</small></article>{% else %}<p class="empty-copy">Nenhuma nota interna.</p>{% endfor %}</div></article>
+  </aside>
+</section>
+{% endblock %}

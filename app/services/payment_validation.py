@@ -16,6 +16,7 @@ class PaymentInput:
     installments: int | None
     paid_at: datetime
     revision: int | None
+    notes: str | None = None
     errors: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -66,6 +67,11 @@ class PaymentInput:
                 installments = None
                 errors["installments"] = "Informe de 1 a 999 parcelas."
 
+        notes = str(form.get("notes") or "").strip()
+        if len(notes) > 1000:
+            errors["notes"] = "A observação deve ter no máximo 1000 caracteres."
+            notes = notes[:1000]
+
         zone = project_zone(timezone_name)
         current = now or local_now(timezone_name)
         if current.tzinfo is None:
@@ -91,6 +97,7 @@ class PaymentInput:
             installments=installments,
             paid_at=paid_at,
             revision=revision,
+            notes=notes or None,
             errors=errors,
         )
 
@@ -104,4 +111,5 @@ class PaymentInput:
             "installments": str(self.installments or ""),
             "paid_at": local_value.strftime("%Y-%m-%dT%H:%M"),
             "revision": str(self.revision or ""),
+            "notes": self.notes or "",
         }

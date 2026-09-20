@@ -30,6 +30,39 @@
 
 {% macro search_box(placeholder='Buscar') -%}<label class="search-box"><span class="sr-only">{{ placeholder }}</span>{{ icon('search') }}<input type="search" placeholder="{{ placeholder }}" disabled></label>{%- endmacro %}
 
+{% macro customer_picker(options, selected_id='', field_id='customer-id', label='Cliente', required=false, active_only=false, empty_label='Todos os clientes', wrapper_class='') -%}
+<div
+  class="customer-picker {{ wrapper_class }}"
+  data-customer-picker
+  data-customer-endpoint="/clientes/opcoes"
+  data-customer-active-only="{{ 1 if active_only else 0 }}"
+>
+  <label class="field" for="{{ field_id }}-search">
+    Buscar cliente
+    <input
+      id="{{ field_id }}-search"
+      type="search"
+      maxlength="120"
+      autocomplete="off"
+      placeholder="Digite nome, contato ou documento"
+      aria-controls="{{ field_id }}"
+      aria-describedby="{{ field_id }}-status"
+      data-customer-search
+    >
+  </label>
+  <label class="field" for="{{ field_id }}">
+    {{ label }}
+    <select id="{{ field_id }}" name="customer_id" {% if required %}required{% endif %} data-customer-select>
+      <option value="">{{ empty_label }}</option>
+      {% for customer in options %}
+        <option value="{{ customer.id }}" {% if selected_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}{% if not customer.is_active %} (inativo){% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <small id="{{ field_id }}-status" class="form-hint customer-picker__status" aria-live="polite" data-customer-status>Mostrando até 20 clientes. Digite para refinar.</small>
+</div>
+{%- endmacro %}
+
 {% macro pagination() -%}<nav class="pagination" aria-label="Paginação"><button disabled>Anterior</button><span>Página 1 de 1</span><button disabled>Próxima</button></nav>{%- endmacro %}
 
 {% macro modal_shell(id, title, description='') -%}

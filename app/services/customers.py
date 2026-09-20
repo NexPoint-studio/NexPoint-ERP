@@ -12,7 +12,12 @@ from app.services.transactions import atomic_write
 from app.core.customer_config import InactivityThresholds, RELATIONSHIP_BADGES
 from app.models import Customer, CustomerActivity
 from app.repositories import ConfigurationRepository, CustomerActivityRepository, CustomerRepository
-from app.repositories.customers import ActivityItem, CustomerListItem, LastServiceSummary
+from app.repositories.customers import (
+    ActivityItem,
+    CustomerListItem,
+    CustomerOption,
+    LastServiceSummary,
+)
 from app.services.customer_validation import CustomerInput
 
 
@@ -101,6 +106,23 @@ class CustomerService:
         self.activities = CustomerActivityRepository(session)
         settings = ConfigurationRepository(session).settings()
         self.thresholds = InactivityThresholds.from_settings(settings)
+
+    def customer_options(
+        self,
+        *,
+        search: str = "",
+        active_only: bool = False,
+        selected_id: int | None = None,
+        preserve_inactive_selected: bool = False,
+        limit: int = 20,
+    ) -> list[CustomerOption]:
+        return self.repository.options(
+            search=search,
+            active_only=active_only,
+            selected_id=selected_id,
+            preserve_inactive_selected=preserve_inactive_selected,
+            limit=limit,
+        )
 
     @atomic_write
     def create(self, data: CustomerInput, user_id: int, *, force_duplicate: bool = False) -> Customer | PossibleDuplicate:

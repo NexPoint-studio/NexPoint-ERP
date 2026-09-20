@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">NEXA PARA SUPORTE INTERNO</p><h1>Investigação assistida</h1><p>A Nexa recebe somente snapshots autorizados e read-only do contexto selecionado.</p></div></header>
+<section class="nexa-workbench">
+  <aside class="panel">
+    <h2>Contexto autorizado</h2>
+    {% if diagnostic_event %}
+      <div class="context-kind"><span class="badge badge--{{ diagnostic_event.level|lower }}">LOG {{ diagnostic_event.level }}</span><a href="/diagnostico/{{ diagnostic_event.event_id }}">Abrir evento</a></div>
+      <dl class="context-list">
+        <div><dt>Empresa</dt><dd>{{ tenant.display_name }}</dd></div>
+        <div><dt>Evento</dt><dd>{{ diagnostic_event.event_type }}</dd></div>
+        <div><dt>Módulo</dt><dd>{{ diagnostic_event.module }} · {{ diagnostic_event.component }}</dd></div>
+        <div><dt>Correlação</dt><dd><code>{{ diagnostic_event.correlation_id or '—' }}</code></dd></div>
+        <div><dt>Fingerprint</dt><dd><code>{{ diagnostic_event.fingerprint or '—' }}</code></dd></div>
+        <div><dt>Ocorrências</dt><dd>{{ event_fingerprint.occurrence_count if event_fingerprint else '—' }}</dd></div>
+      </dl>
+      <p class="trust-note">Logs e metadados são tratados como evidência não confiável. A Nexa separa fatos, inferências e confiança.</p>
+    {% else %}
+      <form method="get" class="form-stack"><label>Chamado<select name="ticket"><option value="">Selecione um chamado</option>{% for item in tickets %}<option value="{{ item.id }}" {% if ticket and ticket.id == item.id %}selected{% endif %}>{{ item.protocol }} · {{ item.subject }}</option>{% endfor %}</select></label><button class="button button--secondary" type="submit">Carregar contexto</button></form>
+      {% if ticket %}<dl class="context-list"><div><dt>Empresa</dt><dd>{{ tenant.display_name }}</dd></div><div><dt>Versão</dt><dd>{{ ticket.erp_version or tenant.erp_version }}</dd></div><div><dt>Módulo</dt><dd>{{ ticket.module or '—' }}</dd></div><div><dt>Fingerprint</dt><dd><code>{{ ticket.diagnostic_fingerprint or '—' }}</code></dd></div><div><dt>Risco</dt><dd>{{ risk.level if risk else '—' }}</dd></div><div><dt>Health</dt><dd>{{ tenant.health_status }}</dd></div></dl>{% endif %}
+    {% endif %}
+  </aside>
+  <article class="panel nexa-console" data-control-nexa data-target-type="{{ 'event' if diagnostic_event else 'ticket' }}" data-target-id="{{ diagnostic_event.event_id if diagnostic_event else ticket.id if ticket else '' }}">
+    <div class="nexa-console__messages" data-control-nexa-messages role="log" aria-live="polite"><p class="nexa-answer">{% if diagnostic_event %}Peça uma investigação deste evento, sua timeline e fingerprint.{% else %}Selecione um chamado e peça uma investigação.{% endif %} Nenhuma ferramenta pode escrever no ERP.</p></div>
+    <form data-control-nexa-form class="form-stack"><label>Investigação<textarea name="message" maxlength="4000" required {% if not ticket and not diagnostic_event %}disabled{% endif %} placeholder="Investigue a causa provável, evidências, confiança e próximos testes."></textarea></label><div class="form-actions"><small data-control-nexa-status></small><button class="button button--primary" {% if not ticket and not diagnostic_event %}disabled{% endif %}>Enviar à Nexa</button></div></form>
+  </article>
+</section>
+{% endblock %}

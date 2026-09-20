@@ -22,6 +22,13 @@ class CustomerListItem:
 
 
 @dataclass(frozen=True, slots=True)
+class CustomerOption:
+    id: int
+    name: str
+    is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityItem:
     activity: CustomerActivity
     customer: Customer
@@ -62,6 +69,70 @@ class CustomerRepository:
             .where(Customer.id == customer_id)
             .options(selectinload(Customer.address))
         )
+
+    def options(
+        self,
+        *,
+        search: str = "",
+        active_only: bool = False,
+        selected_id: int | None = None,
+        preserve_inactive_selected: bool = False,
+        limit: int = 20,
+    ) -> list[CustomerOption]:
+        """Retorna uma projeção pequena para seletores com busca incremental."""
+        safe_limit = min(max(int(limit), 1), 50)
+        selected = None
+        if selected_id is not None and 0 < selected_id < 2**63:
+            selected_query = select(
+                Customer.id, Customer.name, Customer.is_active
+            ).where(Customer.id == selected_id)
+            if active_only and not preserve_inactive_selected:
+                selected_query = selected_query.where(Customer.is_active.is_(True))
+            selected = self.session.execute(selected_query).one_or_none()
+
+        query = select(Customer.id, Customer.name, Customer.is_active)
+        if active_only:
+            query = query.where(Customer.is_active.is_(True))
+        term = search.strip()[:120]
+        if term:
+            escaped = (
+                term.casefold()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            like = f"%{escaped}%"
+            number = digits(term)
+            fields = [
+                func.casefold(Customer.name).like(like, escape="\\"),
+                func.casefold(func.coalesce(Customer.trade_name, "")).like(
+                    like, escape="\\"
+                ),
+                func.casefold(func.coalesce(Customer.email, "")).like(
+                    like, escape="\\"
+                ),
+            ]
+            if number:
+                fields.extend([
+                    func.coalesce(Customer.phone, "").like(f"%{number}%"),
+                    func.coalesce(Customer.whatsapp, "").like(f"%{number}%"),
+                    func.coalesce(Customer.document, "").like(f"%{number}%"),
+                ])
+            query = query.where(or_(*fields))
+        rows = self.session.execute(
+            query.order_by(func.casefold(Customer.name), Customer.id).limit(safe_limit)
+        ).all()
+
+        result: list[CustomerOption] = []
+        seen: set[int] = set()
+        for row in ([selected] if selected is not None else []) + rows:
+            if row.id in seen:
+                continue
+            result.append(CustomerOption(int(row.id), str(row.name), bool(row.is_active)))
+            seen.add(int(row.id))
+            if len(result) == safe_limit:
+                break
+        return result
 
     def actor_names(self, user_ids: set[int]) -> dict[int, str]:
         if not user_ids:

@@ -1,0 +1,4 @@
+{% extends "layout/base.html" %}
+{% block content %}<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO PROTEGIDA</p><h1>Administração protegida</h1><p>Informe a senha administrativa local para continuar.</p></header>
+{% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+<section class="panel section-block"><form method="post" action="/admin/cadeado/desbloquear"><input type="hidden" name="next" value="{{ next_path }}"><label>Senha administrativa<input type="password" name="password" maxlength="256" autocomplete="current-password" required autofocus></label><div class="form-actions"><button class="button button--primary" name="submit" value="unlock" type="submit">Desbloquear</button></div></form><div class="admin-recovery-entry"><p>Esqueceu sua senha?</p><a class="button button--secondary" href="/admin/cadeado/recuperar">Solicitar recuperação à NexPoint</a></div></section>{% endblock %}

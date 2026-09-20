@@ -2,8 +2,8 @@
 
 ## Administração 2.0
 
-A Administração é a área de gestão do Proprietário da empresa e possui nove
-áreas funcionais:
+A Administração é a área de gestão do Proprietário da empresa. A navegação
+normal expõe sete áreas funcionais:
 
 1. **Visão geral**: indicadores de produção, clientes sem retorno e, somente com
    permissão financeira, resultados do Caixa.
@@ -12,15 +12,18 @@ A Administração é a área de gestão do Proprietário da empresa e possui nov
 3. **Financeiro**: saldo, entradas, saídas, taxas, resultado operacional,
    histórico completo, filtros, relatórios e gráficos.
 4. **Pagamentos e taxas**: formas de pagamento, terminais e regras de taxa.
-5. **Usuários e permissões**: usuários locais, papéis, status, senhas e matriz de
-   permissões.
-6. **Empresa**: dados institucionais, logo local e fuso horário.
-7. **Suporte**: concessões explícitas, temporárias e revogáveis para um usuário
-   visível com papel exclusivo de Suporte.
-8. **Auditoria**: consulta paginada e filtrável dos eventos, com ocultação de
+5. **Suporte**: Central de Suporte para abertura e acompanhamento de chamados;
+   também mantém, em área secundária, concessões explícitas, temporárias e
+   revogáveis para um usuário visível com papel exclusivo de Suporte.
+6. **Auditoria**: consulta paginada e filtrável dos eventos, com ocultação de
    campos sensíveis estruturados.
-9. **Sistema**: versão, build, ambiente, schema, backup, restauração preparada e
+7. **Sistema**: versão, build, ambiente, schema, backup, restauração preparada e
    estado local de atualização.
+
+Os backends legados de **Usuários e permissões** e **Empresa** continuam
+preservados para compatibilidade e onboarding, mas suas abas estão ocultas na
+experiência normal desta versão. Não devem ser apresentados ao operador como
+fluxos correntes da interface.
 
 O papel técnico legado `admin` é preservado para evitar uma migração destrutiva,
 mas aparece na interface como **Proprietário**. Ele representa o gestor da
@@ -33,9 +36,10 @@ O dashboard consulta os indicadores financeiros apenas quando o usuário possui
 abrem as listas operacionais já filtradas; o dashboard apresenta contagens, sem
 carregar listas ilimitadas.
 
-## Usuários, papéis e segurança
+## Backend legado de usuários, papéis e segurança
 
-O Proprietário pode listar e criar usuários, editar seus dados e papéis,
+Quando ativado por uma evolução específica de produto, o backend preservado
+permite ao Proprietário listar e criar usuários, editar seus dados e papéis,
 ativá-los ou inativá-los, redefinir senhas com hash seguro e editar a matriz de
 permissões. Usuários não são apagados fisicamente porque podem ser referenciados
 por histórico e auditoria.
@@ -76,9 +80,10 @@ A página de Auditoria permite filtrar por ação, responsável, recurso e perí
 Senhas, tokens, secrets, cookies e credenciais presentes em detalhes JSON são
 substituídos por um marcador antes da renderização.
 
-## Empresa e precedência de configuração
+## Backend legado de Empresa e precedência de configuração
 
-Administração > Empresa mantém os seguintes valores no SQLite:
+O backend preservado de Empresa mantém os seguintes valores no SQLite, embora a
+aba não faça parte da navegação normal desta versão:
 
 - nome da empresa e nome fantasia;
 - CPF ou CNPJ opcional;
@@ -102,14 +107,23 @@ sessão, host local, porta e localização do banco. O servidor aceita somente
 
 ## Pagamento e Caixa são entidades diferentes
 
-`Payment` registra que o cliente quitou uma Nota de Serviço. `CashMovement`
-registra o efeito financeiro realizado. Para uma Nota positiva, um recebimento
-confirmado cria ambos, vinculados entre si, mas cada registro conserva seu papel
-no domínio.
+`Payment` registra um valor que o cliente pagou em uma Nota de Serviço.
+`CashMovement` registra o efeito financeiro realizado. Para uma Nota positiva,
+cada recebimento confirmado cria ambos, vinculados entre si, mas cada registro
+conserva seu papel no domínio.
 
-Uma Nota com total maior que zero admite no máximo um `Payment` confirmado. O
-índice único parcial no banco também protege essa regra em concorrência. Não há
-pagamento parcial nesta versão.
+Uma Nota com total maior que zero admite pagamentos integrais ou parciais e pode
+ter vários `Payment` confirmados. Cada tentativa usa uma chave de requisição
+única; repetir a mesma chave com o mesmo conteúdo devolve o efeito anterior, e
+reutilizá-la com conteúdo diferente gera conflito. A origem única no Caixa
+garante exatamente um `CashMovement` para cada Payment, inclusive sob retry ou
+concorrência.
+
+O estado da Nota deriva da soma confirmada: `PENDENTE`, `PARCIAL` ou `PAGO`. O
+backend impede pagamento acima do saldo e edição que reduza o total abaixo do
+valor já recebido. Uma Nota fechada com saldo mantém a dívida em
+`CustomerReceivable`; quitações posteriores são `ReceivablePayment` separados e
+também criam uma única entrada de Caixa cada.
 
 Uma Nota de total zero mantém `financial_status=PAGO` com motivo `ZERO_TOTAL` e:
 

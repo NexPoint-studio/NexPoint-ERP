@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from app.core.modules import MODULE_BY_ID
 from app.core.permissions import require_permission
+from app.services.admin_lock import require_admin_unlock
 from app.repositories import AuthRepository, ConfigurationRepository
 from app.routes.helpers import navigation_context, templates
 from app.services.system_info import collect_system_information
@@ -24,7 +25,7 @@ from app.services.system_maintenance import (
 )
 
 
-router = APIRouter(prefix="/admin/sistema")
+router = APIRouter(prefix="/admin/sistema", dependencies=[Depends(require_admin_unlock)])
 
 
 def _service(request: Request) -> SystemMaintenanceService:
@@ -84,10 +85,11 @@ def _render_system(
     actor = require_permission(request, "admin.system.view")
     service = _service(request)
     snapshot = service.current_snapshot()
+    restore_disabled = bool(getattr(request.app.state, "demo_restore_disabled", False))
     backups = service.list_backups(actor_id=actor.id) if actor.can(BACKUP_PERMISSION) else []
     pending = (
         service.pending_restore()
-        if actor.can(RESTORE_PERMISSION) and "admin" in actor.roles
+        if not restore_disabled and actor.can(RESTORE_PERMISSION) and "admin" in actor.roles
         else None
     )
     with request.app.state.session_factory() as session:
@@ -110,6 +112,7 @@ def _render_system(
             information=information,
             backups=backups,
             pending_restore=pending,
+            restore_disabled=restore_disabled,
             flash=_take_flash(request),
             system_error=error,
         )
@@ -170,6 +173,11 @@ def download_backup(request: Request, backup_id: str):
 
 @router.post("/restauracao")
 async def schedule_restore(request: Request):
+    if getattr(request.app.state, "demo_restore_disabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A restauração direta é desativada no modo demo.",
+        )
     actor = require_permission(request, RESTORE_PERMISSION)
     form = await request.form()
     _require_fields(form, {"backup_file", "password", "confirmation"})
@@ -201,6 +209,11 @@ async def schedule_restore(request: Request):
 
 @router.post("/restauracao/cancelar")
 async def cancel_restore(request: Request):
+    if getattr(request.app.state, "demo_restore_disabled", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A restauração direta é desativada no modo demo.",
+        )
     actor = require_permission(request, RESTORE_PERMISSION)
     form = await request.form()
     _require_fields(form, {"password"})

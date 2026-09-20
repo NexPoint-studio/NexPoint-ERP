@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">RECUPERAÇÃO ADMINISTRATIVA</p><h1>Autorização enviada ao ERP</h1><p>{{ tenant.display_name }} · {{ ticket.protocol }}</p></div><a href="/chamados/{{ ticket.id }}" class="button button--secondary">Voltar ao chamado</a></header>
+<section class="panel danger-panel">
+  <h2>Redefinição autorizada</h2>
+  <p class="long-copy">O ERP vinculado reconhecerá a autorização automaticamente. O cliente verá apenas os campos para definir e confirmar a nova senha administrativa.</p>
+  <dl class="context-list">
+    <div><dt>Chamado</dt><dd>{{ ticket.protocol }}</dd></div>
+    <div><dt>Instalação</dt><dd><code>{{ authorization.installation_id }}</code></dd></div>
+    <div><dt>Expira em</dt><dd>{{ authorization.expires_at|datetime_br }}</dd></div>
+  </dl>
+  <p class="trust-note">A autorização é de uso único, expira automaticamente e está vinculada à empresa, instalação, solicitação e proprietário autenticado. Nenhuma senha é recebida pela NexPoint.</p>
+</section>
+{% endblock %}

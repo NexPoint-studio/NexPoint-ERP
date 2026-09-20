@@ -13,11 +13,14 @@ OPERATIONAL_STATUS_LABELS = {
     "EM_ANDAMENTO": "Em andamento",
     "PRONTO": "Pronto",
     "ENTREGUE": "Entregue",
+    "FECHADO": "Fechado",
     "CANCELADO": "Cancelado",
 }
 FINANCIAL_STATUS_LABELS = {
-    "PENDENTE": "Pendente",
+    "PENDENTE": "Não pago",
+    "PARCIAL": "Parcialmente pago",
     "PAGO": "Pago",
+    "SALDO_DEVEDOR": "Saldo devedor",
 }
 DEADLINE_STATUS_LABELS = {
     "DENTRO_DO_PRAZO": "Dentro do prazo",
@@ -36,13 +39,14 @@ OPERATIONAL_TRANSITIONS = {
     "EM_ANDAMENTO": ("PRONTO",),
     "PRONTO": ("ENTREGUE",),
     "ENTREGUE": (),
+    "FECHADO": (),
     "CANCELADO": (),
 }
 
 QUANTITY_BEHAVIORS = ("INTEGER", "DECIMAL", "FIXED_ONE")
 EVENT_TYPES = (
     "NOTE_CREATED", "NOTE_UPDATED", "STATUS_CHANGED", "NOTE_CANCELLED",
-    "PAYMENT_RECEIVED",
+    "PAYMENT_RECEIVED", "NOTE_CLOSED", "RECEIVABLE_LINKED",
 )
 EVENT_TYPE_LABELS = {
     "NOTE_CREATED": "Nota criada",
@@ -50,6 +54,9 @@ EVENT_TYPE_LABELS = {
     "STATUS_CHANGED": "Status alterado",
     "NOTE_CANCELLED": "Nota cancelada",
     "PAYMENT_RECEIVED": "Pagamento recebido",
+    "NOTE_CLOSED": "Nota fechada",
+    "RECEIVABLE_LINKED": "Saldo anterior vinculado",
+    "RECEIVABLE_SETTLED": "Saldo devedor recebido",
 }
 
 # Limites operacionais da primeira versão. O banco continua sendo a última

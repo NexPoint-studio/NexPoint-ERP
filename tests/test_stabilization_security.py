@@ -60,10 +60,11 @@ def test_tampered_expired_or_invalid_session_is_rejected(client, cookie):
     assert client.get("/caixa/resumo", follow_redirects=False).status_code == 303
 
 
-def test_session_persists_in_new_client_but_logout_removes_cookie(app, client):
+def test_short_session_cookie_is_secure_and_logout_removes_it(app, client):
     response = login(client, "admin@local")
     cookie = response.headers["set-cookie"].lower()
-    assert "httponly" in cookie and "samesite=strict" in cookie and "max-age=43200" in cookie
+    assert "httponly" in cookie and "samesite=strict" in cookie
+    assert "max-age=" not in cookie
     with TestClient(app) as reopened:
         reopened.cookies.update(client.cookies)
         assert reopened.get("/caixa/resumo").status_code == 200

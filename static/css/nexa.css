@@ -1,0 +1,29 @@
+.nexa-launch { position: relative; flex: 0 0 auto; min-height: 38px; padding: 7px 14px; color: var(--color-primary-dark); background: var(--color-accent-soft); border: 1px solid var(--color-accent-border); border-radius: 11px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.nexa-launch:hover, .nexa-launch:focus-visible { background: var(--color-accent-faint); outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.nexa-launch [data-nexa-badge] { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); }
+.nexa-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(20, 30, 40, .4); }
+.nexa-backdrop[hidden], .nexa-panel[hidden], .nexa-panel__risk[hidden] { display: none; }
+.nexa-panel { position: fixed; top: 0; right: 0; z-index: 81; display: flex; flex-direction: column; width: min(100vw, 430px); height: 100dvh; min-height: 0; color: var(--color-text); background: var(--color-surface); border-left: 1px solid var(--color-border); box-shadow: -16px 0 45px rgba(0,0,0,.17); }
+.nexa-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 19px 21px 14px; border-bottom: 1px solid var(--color-border); }
+.nexa-panel__header h2 { margin: 2px 0 0; color: var(--color-primary-dark); font-size: 23px; }
+.nexa-panel__eyebrow { color: var(--color-text-muted); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.nexa-panel__close { width: 38px; height: 38px; color: var(--color-text-muted); background: transparent; border: 0; border-radius: 10px; font-size: 28px; cursor: pointer; }
+.nexa-panel__close:hover, .nexa-panel__close:focus-visible { color: var(--color-primary-dark); background: var(--color-accent-soft); }
+.nexa-panel__context { margin: 0; padding: 10px 21px; color: var(--color-text-muted); background: var(--color-surface-soft); border-bottom: 1px solid var(--color-border-soft); font-size: 12px; }
+.nexa-panel__risk { margin: 12px 18px 0; padding: 12px 14px; color: var(--color-text); background: var(--color-warning-soft); border: 1px solid var(--color-border); border-radius: 12px; font-size: 12px; overflow-wrap: anywhere; }
+.nexa-panel__risk strong, .nexa-panel__risk small { display: block; }
+.nexa-panel__risk small { margin-top: 5px; }
+.nexa-panel__messages { display: flex; flex: 1; flex-direction: column; min-height: 0; gap: 12px; overflow-y: auto; padding: 18px; }
+.nexa-message { max-width: 94%; margin: 0; padding: 12px 14px; border-radius: 14px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nexa-message--assistant { align-self: flex-start; color: var(--color-text); background: var(--color-surface-soft); border: 1px solid var(--color-border-soft); }
+.nexa-message--user { align-self: flex-end; color: var(--color-surface); background: var(--brand-primary); }
+.nexa-panel__sources { display: block; margin-top: 9px; font-size: 11px; }
+.nexa-panel__sources a { color: var(--color-primary); text-decoration: underline; }
+.nexa-panel__form { padding: 14px 18px 18px; border-top: 1px solid var(--color-border); }
+.nexa-panel__form label { display: block; margin-bottom: 7px; color: var(--color-text-muted); font-size: 12px; font-weight: 700; }
+.nexa-panel__form textarea { display: block; width: 100%; min-height: 74px; padding: 11px 12px; resize: vertical; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; font: inherit; font-size: 13px; }
+.nexa-panel__form textarea:focus { border-color: var(--color-accent); outline: 2px solid var(--color-focus); }
+.nexa-panel__actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.nexa-panel__actions span { color: var(--color-text-muted); font-size: 11px; }
+.nexa-panel__actions button { min-height: 38px; padding: 7px 15px; }
+@media (max-width: 680px) { .nexa-launch { margin: 2px 0 0 auto; } .connection-status { display: none; } }

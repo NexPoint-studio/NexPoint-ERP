@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">DIAGNÓSTICO › FINGERPRINT</p>
+    <h1>{{ summary.fingerprint }}</h1>
+    <p>{{ summary.occurrence_count }} ocorrência{% if summary.occurrence_count != 1 %}s{% endif %} sanitizada{% if summary.occurrence_count != 1 %}s{% endif %} no escopo autorizado.</p>
+  </div>
+  <div class="heading-actions">
+    <a class="button button--primary" href="/nexa?event={{ representative_event.event_id }}">Investigar com Nexa</a>
+    <a class="button button--secondary" href="/diagnostico?fingerprint={{ summary.fingerprint }}">Ver no Log Explorer</a>
+    <a class="button button--secondary" href="/diagnostico">Voltar</a>
+  </div>
+</header>
+
+<section class="detail-summary detail-summary--diagnostic">
+  <div><span>Ocorrências</span><strong>{{ summary.occurrence_count }}</strong></div>
+  <div><span>Primeira</span><strong>{{ summary.first_seen_at|datetime_br }}</strong></div>
+  <div><span>Última</span><strong>{{ summary.last_seen_at|datetime_br }}</strong></div>
+  <div><span>Empresas afetadas</span><strong>{{ summary.affected_tenants }}</strong></div>
+  <div><span>Módulo</span><strong>{{ summary.module }}</strong></div>
+  <div><span>Severidade recente</span><strong><span class="badge badge--{{ summary.latest_level|lower }}">{{ summary.latest_level }}</span></strong></div>
+</section>
+
+<section class="two-grid">
+  <article class="panel">
+    <header class="panel-heading"><div><h2>Empresas afetadas</h2><p>Somente empresas dentro do escopo do operador.</p></div></header>
+    <ul>{% for tenant in affected_tenants %}<li>{{ tenant }}</li>{% else %}<li>Nenhuma empresa autorizada.</li>{% endfor %}</ul>
+  </article>
+  <article class="panel">
+    <header class="panel-heading"><div><h2>Eventos recentes</h2><p>Evidências técnicas sanitizadas.</p></div></header>
+    <div class="mini-list">
+      {% for item in events %}
+      <a class="mini-row" href="/diagnostico/{{ item.event_id }}"><span><strong>{{ item.event_type }}</strong><small>{{ tenant_names.get(item.tenant_id, item.tenant_id) }} · {{ item.timestamp|datetime_br }}</small></span><span class="badge badge--{{ item.level|lower }}">{{ item.level }}</span></a>
+      {% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}

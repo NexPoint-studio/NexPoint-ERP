@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <link rel="icon" href="data:,">
+  <title>{% block title %}{{ page_title }}{% endblock %} — NexPoint Control Center</title>
+  <link rel="stylesheet" href="{{ url_for('control_static', path='/control.css') }}">
+  <script defer src="{{ url_for('control_static', path='/control.js') }}"></script>
+</head>
+<body>
+  <div class="control-shell">
+    <aside class="control-sidebar" id="control-sidebar">
+      <a class="control-brand" href="/"><span>NP</span><div><strong>NexPoint</strong><small>ERP Control Center</small></div></a>
+      <p class="nav-label">Operação interna</p>
+      <nav class="control-nav" aria-label="Navegação do Control Center">
+        {% for item in control_navigation %}
+        <a href="{{ item.path }}" class="{% if current_section == item.id %}is-active{% endif %}" {% if current_section == item.id %}aria-current="page"{% endif %}>
+          <span aria-hidden="true">{{ item.icon }}</span>{{ item.label }}
+        </a>
+        {% endfor %}
+      </nav>
+      <div class="control-user">
+        <div><strong>{{ platform_user.display_name }}</strong><small>Administrador NexPoint</small></div>
+        <form action="/logout" method="post"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button type="submit" class="text-button">Sair</button></form>
+      </div>
+    </aside>
+    <section class="control-workspace">
+      <header class="control-topbar">
+        <button type="button" class="menu-toggle" data-menu-toggle aria-label="Abrir menu">☰</button>
+        <div><span>Área privada NexPoint</span><strong>{{ page_title }}</strong></div>
+        <p><i></i>Somente local</p>
+      </header>
+      <main class="control-content">
+        {% if flash %}<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </section>
+  </div>
+  <button type="button" class="menu-backdrop" data-menu-toggle aria-label="Fechar menu"></button>
+</body>
+</html>

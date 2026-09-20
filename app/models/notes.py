@@ -46,11 +46,11 @@ class ServiceNote(Base):
             name="ck_service_notes_series_shape",
         ),
         CheckConstraint(
-            "operational_status in ('RECEBIDO','EM_ANDAMENTO','PRONTO','ENTREGUE','CANCELADO')",
+            "operational_status in ('RECEBIDO','EM_ANDAMENTO','PRONTO','ENTREGUE','FECHADO','CANCELADO')",
             name="ck_service_notes_operational_status",
         ),
         CheckConstraint(
-            "financial_status in ('PENDENTE','PAGO')",
+            "financial_status in ('PENDENTE','PARCIAL','PAGO')",
             name="ck_service_notes_financial_status",
         ),
         CheckConstraint(
@@ -102,7 +102,7 @@ class ServiceNote(Base):
             name="ck_service_notes_totals",
         ),
         CheckConstraint(
-            "(financial_status = 'PENDENTE' and total_cents > 0 "
+            "(financial_status in ('PENDENTE','PARCIAL') and total_cents > 0 "
             "and financial_settlement_reason is null) "
             "or (financial_status = 'PAGO' and financial_settlement_reason is not null "
             "and ((total_cents = 0 "

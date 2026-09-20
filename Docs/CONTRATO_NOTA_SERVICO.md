@@ -213,24 +213,31 @@ permanece 2 dias, inclusive depois da entrega. Nota CANCELADA permanece no
 histórico e não deve ser apresentada como produção pendente em alertas ativos;
 cancelamento não fabrica um evento PRONTO nem apaga o atraso já registrado.
 
-## 8. Financeiro e os três fluxos
+## 8. Financeiro e os fluxos de recebimento
 
-Os únicos estados financeiros iniciais são `PENDENTE` e `PAGO`.
-Não usar `PAGA` como código alternativo. Não implementar pagamento parcial.
+Os estados financeiros persistidos são `PENDENTE`, `PARCIAL` e `PAGO`.
+Não usar `PAGA` como código alternativo. `SALDO_DEVEDOR` é o estado derivado de
+apresentação para Nota fechada com valor em aberto. Todos são calculados a
+partir dos pagamentos reais; o operador não escolhe a situação financeira.
 
 São combinações válidas, entre outras:
 
 - `EM_ANDAMENTO + PAGO`;
+- `EM_ANDAMENTO + PARCIAL`;
 - `PRONTO + PENDENTE`;
 - `ENTREGUE + PENDENTE`;
-- `ENTREGUE + PAGO`.
+- `ENTREGUE + PAGO`;
+- `FECHADO + SALDO_DEVEDOR`.
 
 | Fluxo | Operacional | Financeiro | Caixa |
 |---|---|---|---|
 | Já pago / receber antecipadamente | Mantém estado operacional | Pagamento confirmado torna PAGO | Uma entrada ligada ao pagamento |
+| Receber parcialmente | Mantém estado operacional | PENDENTE passa a PARCIAL | Uma entrada por recebimento |
 | Concluir/entregar e receber | Passa a ENTREGUE | Confirma pagamento e torna PAGO | Entrada na mesma transação |
 | Concluir/entregar sem receber | Passa a ENTREGUE | Permanece PENDENTE | Nenhuma entrada |
-| Receber depois | Mantém atendimento encerrado | PENDENTE passa a PAGO | Uma entrada ligada ao pagamento |
+| Receber depois | Mantém atendimento encerrado | Estado deriva do novo total pago | Uma entrada ligada ao pagamento |
+| Fechar com saldo | Passa a FECHADO | Apresenta SALDO_DEVEDOR | Nenhuma entrada adicional |
+| Quitar dívida fechada | Permanece FECHADO | Saldo diminui até PAGO | Uma entrada por valor recebido |
 
 A exceção de total zero segue a seção 5, sem pagamento nem entrada.
 
@@ -244,13 +251,18 @@ Idempotência impede duplicidade por repetição de requisição ou concorrênci
 A origem do movimento usa o ID técnico do pagamento, com referência à Nota;
 o número manual é somente apresentação. Usar unicidade persistida, não apenas
 bloqueio de duplo clique na interface. Esta versão admite um pagamento integral
-válido por Nota; o histórico de correções não será apagado.
+ou vários pagamentos parciais por Nota; cada UUID representa um recebimento
+imutável e possui exatamente uma origem de Caixa. O histórico não é apagado.
 
 Taxa de recebimento não é dívida do cliente: Nota de R$ 100,00 com pagamento
 bruto de R$ 100,00 e taxa de R$ 3,00 fica PAGO; o Caixa recebe R$ 97,00 líquidos.
 Pagamentos e taxas antigos também conservam os valores utilizados no momento.
 
-## 9. Edição depois da quitação
+## 9. Edição depois de receber
+
+Enquanto a Nota estiver aberta e não totalmente paga, uma edição pode aumentar
+ou reduzir o total, mas nunca abaixo da soma já recebida. Os Payments existentes
+permanecem no ledger e o saldo é recalculado; não existe estorno automático.
 
 Após ficar PAGO, bloquear alteração de qualquer campo que modifique valores:
 serviços, quantidade, preço, entrega, desconto, subtotal e total. O servidor

@@ -10,6 +10,9 @@ from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_UP
 
 MIN_CENTS = -(2**63)
 MAX_CENTS = 2**63 - 1
+# O Caixa legado persiste NUMERIC(14, 2) no SQLite. Valores maiores que
+# doze casas inteiras em reais não têm conversão confiável nesse contrato.
+MAX_CASH_CENTS = 99_999_999_999_999
 _CENT = Decimal("0.01")
 
 

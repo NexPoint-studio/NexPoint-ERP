@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">VERSÕES</p><h1>Distribuição de versões</h1><p>Comparação rápida de saúde e regressões entre instalações.</p></div></header>
+<section class="version-grid">{% for item in versions %}<article class="panel version-card"><header><span>ERP</span><strong>{{ item.version }}</strong></header><dl><div><dt>Instalações</dt><dd>{{ item.installation_count }}</dd></div><div><dt>Saudáveis</dt><dd>{{ item.healthy_count }}</dd></div><div><dt>Com alerta</dt><dd>{{ item.warning_count }}</dd></div><div><dt>Risco alto</dt><dd>{{ item.high_risk_count }}</dd></div></dl></article>{% else %}<article class="empty-card"><h2>Sem versões registradas</h2></article>{% endfor %}</section>
+{% endblock %}

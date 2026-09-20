@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">CHAMADOS</p><h1>Fila de suporte</h1><p>Chamados enviados pelos ERPs por contrato sanitizado.</p></div></header>
+<form method="get" class="filter-bar filter-bar--wide">
+  <label>Status<select name="status"><option value="">Todos</option>{% for value,label in ticket_status_labels.items() %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Empresa<select name="tenant"><option value="">Todas</option>{% for tenant in tenants %}<option value="{{ tenant.id }}" {% if selected_tenant == tenant.id %}selected{% endif %}>{{ tenant.display_name }}</option>{% endfor %}</select></label>
+  <label>Prioridade<select name="priority"><option value="">Todas</option>{% for value,label in priority_labels.items() %}<option value="{{ value }}" {% if selected_priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Categoria<select name="category"><option value="">Todas</option>{% for value,label in category_labels.items() %}<option value="{{ value }}" {% if selected_category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="button button--secondary" type="submit">Filtrar</button>
+</form>
+<section class="panel table-wrap"><table><thead><tr><th>Protocolo</th><th>Empresa</th><th>Assunto</th><th>Categoria</th><th>Prioridade</th><th>Status</th><th>Atualização</th></tr></thead><tbody>{% for ticket in tickets %}<tr><td><a href="/chamados/{{ ticket.id }}"><strong>{{ ticket.protocol }}</strong></a>{% if ticket.is_demo %}<small class="demo-inline">DEMO</small>{% endif %}</td><td>{{ tenant_names.get(ticket.tenant_id, ticket.tenant_id) }}</td><td>{{ ticket.subject }}</td><td>{{ category_labels.get(ticket.category, ticket.category) }}</td><td><span class="badge badge--{{ ticket.priority }}">{{ priority_labels[ticket.priority] }}</span></td><td><span class="badge badge--{{ ticket.status }}">{{ ticket_status_labels[ticket.status] }}</span></td><td>{{ ticket.updated_at|datetime_br }}</td></tr>{% else %}<tr><td colspan="7" class="empty-row">Nenhum chamado corresponde aos filtros.</td></tr>{% endfor %}</tbody></table></section>
+{% endblock %}

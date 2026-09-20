@@ -10,6 +10,7 @@ class TabDefinition:
     path: str
     permission: str
     description: str
+    visible: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,8 +25,16 @@ class ModuleDefinition:
     tabs: tuple[TabDefinition, ...]
 
 
-def tab(id_: str, name: str, path: str, permission: str, description: str) -> TabDefinition:
-    return TabDefinition(id_, name, path, permission, description)
+def tab(
+    id_: str,
+    name: str,
+    path: str,
+    permission: str,
+    description: str,
+    *,
+    visible: bool = True,
+) -> TabDefinition:
+    return TabDefinition(id_, name, path, permission, description, visible)
 
 
 MODULES = (
@@ -48,9 +57,9 @@ MODULES = (
         tab("servicos", "Serviços", "/admin/servicos", "admin.services.view", "Gestão do catálogo, categorias, unidades e preços."),
         tab("financeiro", "Financeiro", "/admin/financeiro", "finance.overview.view", "Saldo, histórico e relatórios globais."),
         tab("pagamentos", "Pagamentos e taxas", "/admin/pagamentos", "finance.config.manage", "Formas, terminais e regras de taxa."),
-        tab("usuarios", "Usuários e permissões", "/admin/usuarios", "admin.users", "Gestão local de acesso e papéis."),
-        tab("empresa", "Empresa", "/admin/empresa", "admin.settings", "Dados institucionais usados pelo ERP."),
-        tab("suporte", "Suporte", "/admin/suporte", "admin.support.manage", "Autorizações temporárias e auditáveis de suporte."),
+        tab("usuarios", "Usuários e permissões", "/admin/usuarios", "admin.users", "Estrutura interna de identidade e autorização.", visible=False),
+        tab("empresa", "Empresa", "/admin/empresa", "admin.settings", "Dados institucionais preservados para o onboarding.", visible=False),
+        tab("suporte", "Suporte", "/admin/suporte", "admin.support.manage", "Abertura e acompanhamento de chamados para a NexPoint."),
         tab("auditoria", "Auditoria", "/admin/auditoria", "admin.audit.view", "Consulta protegida dos eventos administrativos."),
         tab("sistema", "Sistema", "/admin/sistema", "admin.system.view", "Versão, banco, backups e restauração local."),
     )),

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Acesso interno — NexPoint Control Center</title>
+  <link rel="stylesheet" href="{{ url_for('control_static', path='/control.css') }}">
+</head>
+<body class="login-body">
+  <main class="login-panel">
+    <div class="login-mark" aria-hidden="true">NP</div>
+    <p class="eyebrow">ÁREA PRIVADA NEXPOINT</p>
+    <h1>ERP Control Center</h1>
+    <p>Acesso exclusivo para operação técnica autorizada da plataforma.</p>
+    {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+    <form action="/login" method="post" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label>Usuário interno<input name="username" value="{{ username }}" autocomplete="username" maxlength="180" required autofocus></label>
+      <label>Senha<input type="password" name="password" autocomplete="current-password" maxlength="1024" required></label>
+      <button type="submit" class="button button--primary">Entrar no Control Center</button>
+    </form>
+    <small>Ambiente local · nenhum acesso ao banco operacional do cliente</small>
+  </main>
+</body>
+</html>

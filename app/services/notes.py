@@ -1,7 +1,7 @@
 """Regras operacionais, cálculos e transações das Notas de Serviço."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Context, Decimal, InvalidOperation, localcontext
 import json
@@ -32,6 +32,9 @@ from app.services.note_validation import (
 )
 from app.services.cash_validation import project_zone
 from app.services.transactions import atomic_write
+from app.repositories.receivables import ReceivableRepository
+from app.models.receivables import NoteReceivableLink
+from app.repositories.payments import PaymentRepository
 
 
 class NoteValidationError(Exception):
@@ -110,6 +113,12 @@ class NoteListRow:
     @property
     def days_late(self) -> int:
         return self.deadline.days_late
+
+    @property
+    def financial_status_code(self) -> str:
+        if self.note.operational_status == "FECHADO" and self.note.financial_status != "PAGO":
+            return "SALDO_DEVEDOR"
+        return self.note.financial_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,11 +513,33 @@ class NoteService:
             raise DuplicateNoteNumberError()
 
     @atomic_write
-    def create(self, data: NoteInput, user_id: int) -> ServiceNote:
+    def create(
+        self,
+        data: NoteInput,
+        user_id: int,
+        *,
+        receivable_ids: list[int] | None = None,
+        commit: bool = True,
+    ) -> ServiceNote:
         if data.revision is not None:
             data.errors["form"] = "A versão da Nota não pode ser definida no cadastro."
         calculation = self._calculate(data)
         self._check_duplicate(data)
+        selected_debts = []
+        requested_ids = receivable_ids or []
+        if len(requested_ids) != len(set(requested_ids)) or any(
+            not isinstance(identifier, int) or isinstance(identifier, bool)
+            or identifier <= 0 or identifier >= 2**63 for identifier in requested_ids
+        ):
+            data.errors["receivable_ids"] = "Seleção de saldos anteriores inválida."
+            raise NoteValidationError(data)
+        debt_repository = ReceivableRepository(self.session)
+        for identifier in requested_ids:
+            debt = debt_repository.get(identifier)
+            if debt is None or debt.customer_id != data.customer_id or debt.remaining_amount_cents <= 0:
+                data.errors["receivable_ids"] = "O saldo anterior não está aberto para este cliente."
+                raise NoteValidationError(data)
+            selected_debts.append(debt)
         note = ServiceNote(
             number_original=data.number,
             number_normalized=data.number_normalized,
@@ -542,6 +573,17 @@ class NoteService:
             raise
         for position, item in enumerate(calculation.items, start=1):
             note.items.append(self._new_item(item, position))
+        for debt in selected_debts:
+            self.session.add(NoteReceivableLink(
+                note_id=note.id, receivable_id=debt.id,
+                amount_snapshot_cents=debt.remaining_amount_cents,
+                created_by=user_id,
+            ))
+            self._event(note.id, "RECEIVABLE_LINKED", user_id, {
+                "receivable_id": debt.id,
+                "source_note_id": debt.source_note_id,
+                "amount_snapshot_cents": debt.remaining_amount_cents,
+            })
         self._event(note.id, "NOTE_CREATED", user_id, {
             "operational_status": note.operational_status,
             "financial_status": note.financial_status,
@@ -559,7 +601,10 @@ class NoteService:
             "series": note.series_original,
             "total_cents": note.total_cents,
         })
-        self._commit()
+        if commit:
+            self._commit()
+        else:
+            self.session.flush()
         return note
 
     @staticmethod
@@ -589,18 +634,39 @@ class NoteService:
 
     @atomic_write
     def update(self, note_id: int, data: NoteInput, user_id: int) -> ServiceNote:
+        if "receivable_ids" in data.provided_fields:
+            raise NoteStateError("Os saldos anteriores vinculados não podem ser alterados pela edição da Nota.")
         note = self.repository.get(note_id)
         if note is None:
             raise NoteNotFoundError()
         if note.operational_status == "CANCELADO":
             raise NoteStateError("Notas canceladas são imutáveis.")
+        if ReceivableRepository(self.session).closure(note.id) is not None:
+            raise NoteStateError("Notas fechadas são imutáveis.")
         if note.financial_status == "PAGO":
             raise NoteStateError("Notas pagas permitem alterar somente as observações.")
+        paid_cents = PaymentRepository(self.session).paid_cents_for_note(note.id)
+        payments = PaymentRepository(self.session).confirmed_payments_for_note(note.id)
+        if payments and data.received_at > min(payment.paid_at for payment in payments):
+            raise NoteStateError("A data de recebimento da Nota não pode ser posterior a um pagamento já registrado.")
+        if paid_cents and data.customer_id != note.customer_id:
+            raise NoteStateError("Uma Nota com recebimentos não pode trocar de cliente.")
+        if ReceivableRepository(self.session).links(note.id) and data.customer_id != note.customer_id:
+            raise NoteStateError("Remova o vínculo de saldo anterior antes de trocar o cliente da Nota.")
         if note.ready_at is not None and (
             data.received_at != note.received_at or data.expected_ready_at != note.expected_ready_at
         ):
             raise NoteStateError("As datas de produção não podem ser alteradas depois de marcar a Nota como pronta.")
         calculation = self._calculate(data, note)
+        if calculation.total_cents < paid_cents:
+            data.errors["form"] = "O novo total não pode ficar abaixo do valor já recebido."
+            raise NoteValidationError(data)
+        if paid_cents:
+            calculation = replace(
+                calculation,
+                financial_status="PAGO" if calculation.total_cents == paid_cents else "PARCIAL",
+                financial_settlement_reason="PAYMENT" if calculation.total_cents == paid_cents else None,
+            )
         self._check_duplicate(data, exclude_id=note.id)
         expected_revision = self._expected_revision(note, data.revision)
         self._claim_revision(note, expected_revision)
@@ -699,6 +765,8 @@ class NoteService:
             raise NoteNotFoundError()
         if note.operational_status == "CANCELADO":
             raise NoteStateError("Notas canceladas são imutáveis.")
+        if ReceivableRepository(self.session).closure(note.id) is not None:
+            raise NoteStateError("Notas fechadas são imutáveis.")
         if note.financial_status != "PAGO":
             raise NoteStateError("Use a edição completa para uma Nota pendente.")
         unexpected = {
@@ -798,6 +866,12 @@ class NoteService:
             raise ValueError("O motivo deve ter no máximo 500 caracteres.")
         if note.operational_status == "CANCELADO":
             raise NoteStateError("A Nota já está cancelada.")
+        if ReceivableRepository(self.session).closure(note.id) is not None:
+            raise NoteStateError("Notas fechadas não podem ser canceladas.")
+        if any(payment.status == "CONFIRMED" for payment in note.payments):
+            raise NoteStateError(
+                "A Nota possui recebimentos. Registre uma reversão financeira antes de cancelar."
+            )
         revision = self._expected_revision(note, expected_revision)
         now = _utc_now()
         before = note.operational_status
@@ -848,11 +922,20 @@ class NoteService:
     def available_services(self) -> list[AvailableService]:
         return self.repository.available_services()
 
-    def form_customers(self):
-        return self.repository.customers(active_only=True)
+    def form_customers(
+        self,
+        *,
+        selected_id: int | None = None,
+        preserve_inactive_selected: bool = False,
+    ):
+        return CustomerRepository(self.session).options(
+            active_only=True,
+            selected_id=selected_id,
+            preserve_inactive_selected=preserve_inactive_selected,
+        )
 
-    def filter_customers(self):
-        return self.repository.customers(active_only=False)
+    def filter_customers(self, *, selected_id: int | None = None):
+        return CustomerRepository(self.session).options(selected_id=selected_id)
 
     def form_from_note(self, note: ServiceNote) -> dict[str, object]:
         discount_input = note.discount_input if note.discount_type else ""
@@ -910,7 +993,7 @@ class NoteService:
             raise ValueError("Selecione um cliente válido.")
         if operational_status not in {"ALL", *OPERATIONAL_TRANSITIONS}:
             raise ValueError("Selecione um status operacional válido.")
-        if financial_status not in {"ALL", "PENDENTE", "PAGO"}:
+        if financial_status not in {"ALL", "PENDENTE", "PARCIAL", "PAGO", "SALDO_DEVEDOR"}:
             raise ValueError("Selecione um status financeiro válido.")
         if deadline_status not in {"ALL", "OVERDUE", "TODAY"}:
             raise ValueError("Selecione uma situação de prazo válida.")

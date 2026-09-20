@@ -49,7 +49,9 @@ quem possui a permissão adequada.
 
 ADMINISTRAÇÃO
 É a área funcional do Proprietário: visão geral, gestão de Serviços, Financeiro,
-formas de pagamento e taxas, usuários e permissões e dados da empresa.
+formas de pagamento e taxas, Suporte, Auditoria e Sistema. Os backends legados
+de usuários/permissões e dados da empresa ficam preservados, mas suas abas não
+aparecem na navegação normal desta versão.
 
 COMO ESSAS PARTES TRABALHAM JUNTAS
 
@@ -59,8 +61,9 @@ O fluxo principal é Cliente → Nota de Serviço → Pagamento → Caixa:
 - Registrar uma visita não cria cobrança nem recebimento.
 - Criar uma Nota registra um atendimento no histórico do Cliente e congela os
   serviços, unidades e preços daquele momento.
-- Confirmar o pagamento integral de uma Nota positiva cria uma entrada automática
-  no Caixa. Não faça outra entrada manual para o mesmo recebimento.
+- Confirmar cada pagamento integral ou parcial de uma Nota positiva cria uma
+  entrada automática no Caixa. Não faça outra entrada manual para o mesmo
+  recebimento.
 - Nota de total zero fica paga sem Pagamento e sem Caixa.
 - Entrada e Saída manuais continuam disponíveis para valores que não vieram do
   recebimento de uma Nota.
@@ -78,18 +81,20 @@ com celular, outro computador ou o sistema oficial NIL LAV.
 ENTRAR
 
 1. Abra o aplicativo ERP disponibilizado neste computador.
-2. Na janela de login, confira o campo "Usuário".
-3. Para o ambiente de teste atual, use:
+2. Na janela de login, confira o campo "Login ou e-mail".
+3. Use a credencial local fornecida pelo responsável pela instalação. Não
+   existe senha padrão. Em ambientes QA ou Demo, use somente a credencial
+   exibida pelo launcher daquele ambiente.
+4. Se este for um computador próprio e confiável, marque "Manter conectado
+   neste dispositivo". Essa opção guarda somente uma sessão revogável; a senha
+   não é salva.
+5. Clique em "Entrar".
+6. A tela inicial após o login é a Lista de Clientes.
 
-   Usuário: adm
-   Senha:   adm
-
-4. Clique em "Entrar".
-5. A tela inicial após o login é a Lista de Clientes.
-
-Os campos podem já vir preenchidos para facilitar o teste. Se a sua sessão
-continuar aberta, o aplicativo pode entrar diretamente, sem pedir login.
-Não há uma opção "Manter conectado" para marcar nesta tela atual.
+No modo Demo, o usuário pode vir preenchido para facilitar o teste; a senha não
+é publicada neste guia. Com "Manter conectado neste dispositivo", o aplicativo
+pode entrar diretamente ao reabrir, inclusive offline, enquanto a sessão local
+estiver válida. Essa opção nunca desbloqueia a Administração protegida.
 
 Essas credenciais pertencem ao ERP local de teste; este guia não muda
 as contas dos outros sistemas.
@@ -312,7 +317,10 @@ CRIAR E ACOMPANHAR UMA NOTA DE SERVIÇO
 5. Adicione um ou mais serviços e informe a quantidade permitida pela unidade.
 6. Informe entrega ou desconto somente quando fizer parte do atendimento.
 7. Confira subtotais, desconto, entrega e total calculados pelo servidor.
-8. Salve e acompanhe a Nota em "Serviços > Notas de Serviço".
+8. Se já recebeu algum valor, marque "Registrar pagamento agora" e informe
+   valor, forma e data/hora. O pagamento inicial é opcional.
+9. Salve e acompanhe a Nota em "Serviços > Notas de Serviço". Clique em qualquer
+   ponto da linha para abrir o detalhe.
 
 A Nota congela nomes, unidades, preços e totais. Ao criá-la, o histórico do
 Cliente recebe uma atividade de atendimento. Alterar o catálogo depois não muda
@@ -323,14 +331,21 @@ Entregue. Uma Nota cancelada fica preservada e não aceita novas operações.
 
 RECEBER UMA NOTA
 
-- "Registrar pagamento" confirma a quitação integral sem mudar o estado
-  operacional. Pode ser usado antes ou depois da produção.
+- "Registrar pagamento" aceita valor integral ou parcial sem mudar o estado
+  operacional. Pode ser usado antes ou depois da produção e repetido até quitar
+  o saldo.
 - Em uma Nota pronta, "Entregar e receber" faz entrega e recebimento juntos.
 - "Entregar sem receber" mantém o financeiro Pendente. Use "Registrar pagamento"
   quando o valor for recebido depois.
 - Cartão exige terminal, Débito ou Crédito e quantidade de parcelas.
-- Não existe pagamento parcial. Boleto só deve ser escolhido quando já foi pago.
+- Boleto só deve ser escolhido quando o valor já foi recebido.
 - Nota de total zero já fica Paga e não solicita forma de pagamento.
+
+O detalhe mostra Total, Recebido, Saldo, situação e cada pagamento separado. Os
+estados Não pago, Parcialmente pago e Pago vêm dos recebimentos reais. Ao fechar
+uma Nota com saldo, o ERP registra a dívida sem criar Caixa; use "Registrar
+pagamento do saldo" quando o dinheiro entrar. A Nota fechada não pode ser
+editada.
 
 O pagamento da Nota cria automaticamente uma entrada SYSTEM no Caixa. Nunca
 registre outra entrada manual para o mesmo recebimento.
@@ -772,11 +787,19 @@ Na configuração inicial dos perfis:
 - Entrega: ainda não recebe acesso automático a esses módulos.
 
 Esses são os perfis previstos. Isso não significa que existe uma conta
-separada pronta para cada perfil. O acesso de teste deste guia é adm/adm.
+separada pronta para cada perfil. Use a credencial fornecida pelo responsável
+ou exibida uma única vez pelo launcher QA/Demo.
 Permissões de uma conta podem diferir se tiverem sido ajustadas pelo responsável.
 
 Se um botão não aparecer ou houver "Acesso negado", peça orientação ao
 responsável. Isso pode ser uma restrição de acesso, não uma perda de dados.
+
+A Administração possui uma senha adicional, separada do login. Se o
+Proprietário esquecê-la, use "Solicitar recuperação à NexPoint" na tela do
+cadeado. Não há código offline nem token para copiar. Sem internet, a solicitação
+fica salva e será enviada automaticamente quando a conexão voltar; as demais
+áreas autorizadas continuam funcionando. Após a NexPoint autorizar, a mesma tela
+mostra apenas os campos para definir e confirmar a nova senha.
 
 O QUE EXISTE EM ADMINISTRAÇÃO HOJE
 
@@ -785,9 +808,12 @@ O QUE EXISTE EM ADMINISTRAÇÃO HOJE
 - Serviços: catálogo administrativo, categorias, unidades e preços.
 - Financeiro: saldo, Histórico e Relatórios completos.
 - Pagamentos e taxas: formas, terminais e regras com vigência.
-- Usuários e permissões: criar, editar, ativar/inativar, atribuir papel,
-  redefinir senha e configurar a matriz de acesso.
-- Empresa: nome, contato, endereço, logo local e fuso horário.
+- Suporte: abrir e acompanhar chamados autorizados.
+- Auditoria: consultar eventos permitidos com dados sensíveis ocultados.
+- Sistema: versão, integridade, backup e restauração local.
+
+Os backends de Usuários/Permissões e Empresa continuam preservados para
+compatibilidade e onboarding, mas suas abas estão ocultas na interface normal.
 
 O último Proprietário não pode ser inativado nem perder as permissões essenciais.
 Uma gestão delegada não pode assumir o papel Proprietário, alterar essa conta ou

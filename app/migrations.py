@@ -27,11 +27,16 @@ from app.migration_definitions import (
     CASH_PAYMENT_METHODS_0009_CREATE_STATEMENTS,
     CUSTOMER_ACTIVITIES_0011_CREATE_STATEMENTS,
     CUSTOMER_ACTIVITY_SOURCES_0011_STATEMENTS,
+    OFFLINE_FINANCE_ADMIN_0013_STATEMENTS,
+    FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS,
+    REMEMBER_SESSIONS_0015_STATEMENTS,
     PAYMENT_METHOD_DEFAULTS_0009,
     PAYMENTS_0010_STATEMENTS,
     PAYMENT_CONFIGURATION_0009_STATEMENTS,
     SERVICE_CATALOG_0003_STATEMENTS,
     SERVICE_NOTES_0008_STATEMENTS,
+    SERVICE_NOTES_0013_CREATE,
+    SERVICE_NOTES_0013_INDEXES,
     SUPPORT_GRANTS_0012_STATEMENTS,
     USERS_AUTH_VERSION_0012_STATEMENT,
 )
@@ -50,6 +55,9 @@ SUPPORTED_SCHEMA_VERSIONS = (
     "0010_payments",
     "0011_customer_activity_sources",
     "0012_administration_security",
+    "0013_offline_finance_admin",
+    "0014_functional_ux_recovery",
+    "0015_remember_sessions",
 )
 LATEST_SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSIONS[-1]
 
@@ -713,6 +721,133 @@ def _migrate_administration_security(connection: Connection) -> None:
         )
 
 
+def _migrate_offline_finance_admin(connection: Connection) -> None:
+    """Reconstroi notas sem perder IDs e cria o ledger offline/financeiro.
+
+    O chamador suspende foreign_keys antes de BEGIN IMMEDIATE. As duas direcoes
+    de EXCEPT e as contagens protegem os dados antes da troca da tabela.
+    """
+
+    if int(connection.exec_driver_sql("pragma foreign_keys").scalar_one()) != 0:
+        raise MigrationInvariantError("O rebuild de service_notes exige foreign_keys=OFF.")
+    if not _table_exists(connection, "service_notes"):
+        raise MigrationInvariantError("service_notes nao existe para a migration 0013.")
+    if _table_exists(connection, "service_notes__0013_new"):
+        raise MigrationInvariantError("Encontrada tabela temporaria de migration 0013.")
+    _require_model_columns(connection, "service_notes")
+    definitions = _index_definitions(connection, "payments")
+    if definitions.get("uq_payments_confirmed_service_note") != (
+        ("service_note_id",), True, True
+    ):
+        raise MigrationInvariantError("O indice unico historico de pagamentos diverge.")
+
+    before_notes = int(connection.exec_driver_sql("select count(*) from service_notes").scalar_one())
+    before_payments = int(connection.exec_driver_sql("select count(*) from payments").scalar_one())
+    before_cash = (
+        int(connection.exec_driver_sql("select count(*) from cash_movements").scalar_one())
+        if _table_exists(connection, "cash_movements") else None
+    )
+    columns = tuple(Base.metadata.tables["service_notes"].columns.keys())
+    projection = ", ".join(f'"{column}"' for column in columns)
+    connection.exec_driver_sql(SERVICE_NOTES_0013_CREATE)
+    connection.exec_driver_sql(
+        f'insert into "service_notes__0013_new" ({projection}) '
+        f'select {projection} from "service_notes"'
+    )
+    after_copy = int(
+        connection.exec_driver_sql("select count(*) from service_notes__0013_new").scalar_one()
+    )
+    if before_notes != after_copy:
+        raise MigrationInvariantError("A copia de service_notes alterou a contagem de linhas.")
+    for left, right in (
+        ("service_notes", "service_notes__0013_new"),
+        ("service_notes__0013_new", "service_notes"),
+    ):
+        difference = connection.exec_driver_sql(
+            f'select {projection} from "{left}" except '
+            f'select {projection} from "{right}" limit 1'
+        ).first()
+        if difference is not None:
+            raise MigrationInvariantError("A copia de service_notes alterou dados existentes.")
+
+    connection.exec_driver_sql("drop table service_notes")
+    connection.exec_driver_sql("alter table service_notes__0013_new rename to service_notes")
+    for statement in SERVICE_NOTES_0013_INDEXES:
+        connection.exec_driver_sql(statement)
+    connection.exec_driver_sql("drop index uq_payments_confirmed_service_note")
+    for statement in OFFLINE_FINANCE_ADMIN_0013_STATEMENTS:
+        connection.exec_driver_sql(statement)
+
+    if int(connection.exec_driver_sql("select count(*) from service_notes").scalar_one()) != before_notes:
+        raise MigrationInvariantError("A migration 0013 alterou a quantidade de notas.")
+    if int(connection.exec_driver_sql("select count(*) from payments").scalar_one()) != before_payments:
+        raise MigrationInvariantError("A migration 0013 alterou a quantidade de pagamentos.")
+    if before_cash is not None and int(
+        connection.exec_driver_sql("select count(*) from cash_movements").scalar_one()
+    ) != before_cash:
+        raise MigrationInvariantError("A migration 0013 alterou a quantidade de movimentos de caixa.")
+
+
+def _migrate_functional_ux_recovery(connection: Connection) -> None:
+    before_payments = int(
+        connection.exec_driver_sql("select count(*) from payments").scalar_one()
+    )
+    before_locks = int(
+        connection.exec_driver_sql("select count(*) from admin_locks").scalar_one()
+    )
+    payment_columns = _table_columns(connection, "payments")
+    if "notes" not in payment_columns:
+        connection.exec_driver_sql(FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[0])
+
+    lock_columns = _table_columns(connection, "admin_locks")
+    lock_additions = (
+        ("failed_attempt_count", FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[1]),
+        ("lockout_until", FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[2]),
+        ("recovery_failed_attempt_count", FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[3]),
+        ("recovery_lockout_until", FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[4]),
+        ("last_recovery_at", FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[5]),
+    )
+    for column_name, statement in lock_additions:
+        if column_name not in lock_columns:
+            connection.exec_driver_sql(statement)
+    if not _table_exists(connection, "admin_recovery_codes"):
+        connection.exec_driver_sql(FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[6])
+    for statement in FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS[7:]:
+        connection.exec_driver_sql(
+            statement.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+        )
+    if int(connection.exec_driver_sql("select count(*) from payments").scalar_one()) != before_payments:
+        raise MigrationInvariantError("A migration 0014 alterou a quantidade de pagamentos.")
+    if int(connection.exec_driver_sql("select count(*) from admin_locks").scalar_one()) != before_locks:
+        raise MigrationInvariantError("A migration 0014 alterou o cadeado administrativo.")
+
+
+def _migrate_remember_sessions(connection: Connection) -> None:
+    before_users = int(connection.exec_driver_sql("select count(*) from users").scalar_one())
+    before_codes = int(
+        connection.exec_driver_sql("select count(*) from admin_recovery_codes").scalar_one()
+    )
+    if not _table_exists(connection, "remember_sessions"):
+        connection.exec_driver_sql(REMEMBER_SESSIONS_0015_STATEMENTS[0])
+    for statement in REMEMBER_SESSIONS_0015_STATEMENTS[1:]:
+        connection.exec_driver_sql(
+            statement.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ", 1)
+        )
+    # A funcionalidade de códigos foi retirada do produto. Preservamos as
+    # linhas históricas, mas nenhuma credencial antiga pode continuar ativa.
+    connection.exec_driver_sql(
+        "UPDATE admin_recovery_codes SET status='REVOKED', "
+        "invalidated_at=COALESCE(invalidated_at, CURRENT_TIMESTAMP) "
+        "WHERE status='ACTIVE'"
+    )
+    if int(connection.exec_driver_sql("select count(*) from users").scalar_one()) != before_users:
+        raise MigrationInvariantError("A migration 0015 alterou usuários existentes.")
+    if int(
+        connection.exec_driver_sql("select count(*) from admin_recovery_codes").scalar_one()
+    ) != before_codes:
+        raise MigrationInvariantError("A migration 0015 removeu códigos históricos.")
+
+
 def _assert_phase_two_schema(connection: Connection, applied: set[str]) -> None:
     if "0007_billing_units" in applied:
         _require_model_columns(connection, "billing_units")
@@ -983,12 +1118,16 @@ def _assert_phase_three_schema(connection: Connection, applied: set[str]) -> Non
             connection,
             "payments",
             global_columns={("request_uid",)},
-            partial_indexes={
-                "uq_payments_confirmed_service_note": (
-                    ("service_note_id",),
-                    "status = 'CONFIRMED'",
-                ),
-            },
+            partial_indexes=(
+                {}
+                if "0013_offline_finance_admin" in applied
+                else {
+                    "uq_payments_confirmed_service_note": (
+                        ("service_note_id",),
+                        "status = 'CONFIRMED'",
+                    ),
+                }
+            ),
         )
         _require_named_checks(connection, "payments", {
             "ck_payments_request_uid",
@@ -998,12 +1137,17 @@ def _assert_phase_three_schema(connection: Connection, applied: set[str]) -> Non
             "ck_payments_card_details",
             "ck_payments_money",
             "ck_payments_reversal",
+            *({"ck_payments_notes"} if "0014_functional_ux_recovery" in applied else set()),
         })
         _require_named_indexes(connection, "payments", {
             "ix_payments_created_by": ("created_by",),
             "ix_payments_customer_paid": ("customer_id", "paid_at"),
             "ix_payments_method_paid": ("payment_method_id", "paid_at"),
             "ix_payments_status_paid": ("status", "paid_at"),
+            **(
+                {"ix_payments_note_status_paid": ("service_note_id", "status", "paid_at")}
+                if "0013_offline_finance_admin" in applied else {}
+            ),
         })
 
     if "0011_customer_activity_sources" in applied:
@@ -1082,6 +1226,181 @@ def _assert_phase_four_schema(connection: Connection, applied: set[str]) -> None
             "ix_audit_events_created_at": ("created_at",),
             "ix_audit_events_user_created_at": ("user_id", "created_at"),
         })
+
+
+def _assert_0013_schema(connection: Connection, applied: set[str]) -> None:
+    if "0013_offline_finance_admin" not in applied:
+        return
+    tables = (
+        "admin_locks", "outbox_items", "diagnostic_events", "nonce_receipts",
+        "note_closures", "customer_receivables", "note_receivable_links",
+        "payment_allocations", "receivable_payments",
+    )
+    for name in tables:
+        _require_model_columns(connection, name)
+
+    foreign_keys = {
+        "admin_locks": {("configured_by", "users", "id", "SET NULL")},
+        "outbox_items": set(),
+        "diagnostic_events": set(),
+        "nonce_receipts": set(),
+        "note_closures": {
+            ("service_note_id", "service_notes", "id", "RESTRICT"),
+            ("closed_by", "users", "id", "RESTRICT"),
+        },
+        "customer_receivables": {
+            ("customer_id", "customers", "id", "RESTRICT"),
+            ("source_note_id", "service_notes", "id", "RESTRICT"),
+        },
+        "note_receivable_links": {
+            ("note_id", "service_notes", "id", "RESTRICT"),
+            ("receivable_id", "customer_receivables", "id", "RESTRICT"),
+            ("created_by", "users", "id", "RESTRICT"),
+        },
+        "payment_allocations": {
+            ("payment_id", "payments", "id", "RESTRICT"),
+            ("receivable_id", "customer_receivables", "id", "RESTRICT"),
+        },
+        "receivable_payments": {
+            ("receivable_id", "customer_receivables", "id", "RESTRICT"),
+            ("payment_method_id", "cash_payment_methods", "id", "RESTRICT"),
+            ("created_by", "users", "id", "RESTRICT"),
+        },
+    }
+    for name, expected in foreign_keys.items():
+        _require_foreign_keys(connection, name, expected)
+
+    unique_columns = {
+        "admin_locks": set(),
+        "outbox_items": {("id",), ("idempotency_key",)},
+        "diagnostic_events": {("event_uid",)},
+        "nonce_receipts": {("peer_id", "nonce")},
+        "note_closures": {("service_note_id",), ("request_uid",)},
+        "customer_receivables": {("source_note_id",)},
+        "note_receivable_links": {("note_id", "receivable_id")},
+        "receivable_payments": {("request_uid",)},
+    }
+    for name, expected in unique_columns.items():
+        _require_unique_columns(connection, name, expected)
+    _require_unique_index_definitions(
+        connection, "payment_allocations",
+        global_columns={("payment_id", "receivable_id")},
+        partial_indexes={
+            "uq_payment_allocations_current_note": (("payment_id",), "receivable_id IS NULL")
+        },
+    )
+
+    named_indexes = {
+        "admin_locks": {},
+        "outbox_items": {
+            "ix_outbox_items_dispatch": ("status", "next_retry_at", "created_at"),
+            "ix_outbox_items_lease": ("status", "lease_until"),
+            "ix_outbox_items_acked": ("status", "acked_at"),
+        },
+        "diagnostic_events": {
+            "ix_diagnostic_events_time": ("last_seen_at",),
+            "ix_diagnostic_events_fingerprint": ("fingerprint", "last_seen_at"),
+        },
+        "nonce_receipts": {"ix_nonce_receipts_expiry": ("expires_at",)},
+        "note_closures": {},
+        "customer_receivables": {
+            "ix_customer_receivables_customer_status": ("customer_id", "status")
+        },
+        "note_receivable_links": {
+            "ix_note_receivable_links_receivable": ("receivable_id",)
+        },
+        "payment_allocations": {
+            "ix_payment_allocations_receivable": ("receivable_id",)
+        },
+        "receivable_payments": {
+            "ix_receivable_payments_receivable_paid": ("receivable_id", "paid_at"),
+            "ix_receivable_payments_method_paid": ("payment_method_id", "paid_at"),
+        },
+    }
+    for name, expected in named_indexes.items():
+        _require_named_indexes(connection, name, expected)
+
+    named_checks = {
+        "admin_locks": {
+            "ck_admin_locks_singleton", "ck_admin_locks_version",
+            "ck_admin_locks_timeout_minutes",
+            *({
+                "ck_admin_locks_failed_attempt_count",
+                "ck_admin_locks_recovery_failed_attempt_count",
+            } if "0014_functional_ux_recovery" in applied else set()),
+        },
+        "outbox_items": {
+            "ck_outbox_items_status", "ck_outbox_items_attempts",
+            "ck_outbox_items_schema_version",
+        },
+        "diagnostic_events": set(),
+        "nonce_receipts": set(),
+        "note_closures": {"ck_note_closures_request_uid", "ck_note_closures_amounts"},
+        "customer_receivables": {
+            "ck_customer_receivables_status", "ck_customer_receivables_money"
+        },
+        "note_receivable_links": {"ck_note_receivable_links_amount"},
+        "payment_allocations": {"ck_payment_allocations_amount"},
+        "receivable_payments": {
+            "ck_receivable_payments_request_uid", "ck_receivable_payments_amount"
+        },
+    }
+    for name, expected in named_checks.items():
+        _require_named_checks(connection, name, expected)
+
+
+def _assert_0014_schema(connection: Connection, applied: set[str]) -> None:
+    if "0014_functional_ux_recovery" not in applied:
+        return
+    for name in ("payments", "admin_locks", "admin_recovery_codes"):
+        _require_model_columns(connection, name)
+    _require_foreign_keys(connection, "admin_recovery_codes", {
+        ("created_by", "users", "id", "RESTRICT"),
+        ("used_by", "users", "id", "RESTRICT"),
+    })
+    _require_unique_columns(connection, "admin_recovery_codes", {("code_hash",)})
+    _require_named_indexes(connection, "admin_recovery_codes", {
+        "ix_admin_recovery_codes_batch_status": ("batch_uid", "status"),
+        "ix_admin_recovery_codes_status": ("status",),
+    })
+    _require_named_checks(connection, "admin_recovery_codes", {
+        "ck_admin_recovery_codes_batch_uid",
+        "ck_admin_recovery_codes_status",
+        "ck_admin_recovery_codes_lifecycle",
+    })
+
+
+def _assert_0015_schema(connection: Connection, applied: set[str]) -> None:
+    if "0015_remember_sessions" not in applied:
+        return
+    _require_model_columns(connection, "remember_sessions")
+    _require_foreign_keys(connection, "remember_sessions", {
+        ("user_id", "users", "id", "RESTRICT"),
+    })
+    _require_unique_columns(
+        connection, "remember_sessions", {("id",), ("token_hash",)}
+    )
+    _require_named_indexes(connection, "remember_sessions", {
+        "ix_remember_sessions_user_status_expiry": (
+            "user_id", "status", "expires_at"
+        ),
+        "ix_remember_sessions_status_expiry": ("status", "expires_at"),
+    })
+    _require_named_checks(connection, "remember_sessions", {
+        "ck_remember_sessions_id",
+        "ck_remember_sessions_token_hash",
+        "ck_remember_sessions_generation_hash",
+        "ck_remember_sessions_auth_version",
+        "ck_remember_sessions_status",
+        "ck_remember_sessions_lifecycle",
+    })
+    active_codes = int(connection.exec_driver_sql(
+        "select count(*) from admin_recovery_codes where status='ACTIVE'"
+    ).scalar_one())
+    if active_codes:
+        raise MigrationInvariantError(
+            "Códigos de recuperação legados não podem permanecer ativos."
+        )
 
 
 def _apply_pending_migrations(connection: Connection, versions: Table) -> set[str]:
@@ -1168,10 +1487,31 @@ def _apply_pending_migrations(connection: Connection, versions: Table) -> set[st
             )
         )
         applied.add("0012_administration_security")
+    if "0013_offline_finance_admin" not in applied:
+        _migrate_offline_finance_admin(connection)
+        connection.execute(
+            insert(versions).values(version="0013_offline_finance_admin", applied_at=now())
+        )
+        applied.add("0013_offline_finance_admin")
+    if "0014_functional_ux_recovery" not in applied:
+        _migrate_functional_ux_recovery(connection)
+        connection.execute(
+            insert(versions).values(version="0014_functional_ux_recovery", applied_at=now())
+        )
+        applied.add("0014_functional_ux_recovery")
+    if "0015_remember_sessions" not in applied:
+        _migrate_remember_sessions(connection)
+        connection.execute(
+            insert(versions).values(version="0015_remember_sessions", applied_at=now())
+        )
+        applied.add("0015_remember_sessions")
 
     _assert_phase_two_schema(connection, applied)
     _assert_phase_three_schema(connection, applied)
     _assert_phase_four_schema(connection, applied)
+    _assert_0013_schema(connection, applied)
+    _assert_0014_schema(connection, applied)
+    _assert_0015_schema(connection, applied)
     return applied
 
 
@@ -1193,9 +1533,16 @@ def run_schema_migrations(engine: Engine, *, infrastructure_tables=()) -> None:
     with engine.connect() as connection:
         # Banco novo passa primeiro pelo schema histórico de 0003 e também será
         # reconstruído por 0007 dentro da mesma transação.
+        pending_0013 = not _table_exists(connection, "schema_migrations") or (
+            connection.exec_driver_sql(
+                "select 1 from schema_migrations where version = ?",
+                ("0013_offline_finance_admin",),
+            ).first() is None
+        )
         disable_foreign_keys = (
             not _table_exists(connection, "services")
             or _legacy_services_need_rebuild(connection)
+            or (pending_0013 and _table_exists(connection, "service_notes"))
         )
         if connection.in_transaction():
             connection.commit()

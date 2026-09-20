@@ -32,7 +32,12 @@ _ALLOWED_FORM_FIELDS = {
     "number", "series", "customer_id", "received_at", "expected_ready_at",
     "notes", "delivery_enabled", "delivery_amount", "discount_type",
     "discount_input", "item_id", "item_id[]", "service_id", "service_id[]",
-    "quantity", "quantity[]", "revision", "submit",
+    "quantity", "quantity[]", "revision", "submit", "receivable_ids",
+    "initial_payment_enabled", "initial_payment_request_uid",
+    "initial_payment_amount", "initial_payment_method_id",
+    "initial_payment_terminal_id", "initial_payment_card_mode",
+    "initial_payment_installments", "initial_payment_paid_at",
+    "initial_payment_notes",
 }
 
 

@@ -5,16 +5,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
+  <link rel="icon" href="data:,">
   <title>{% block title %}{{ page_title }}{% endblock %} — {{ app_name }}</title>
-  <link rel="icon" href="{{ logo_path }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/nexa.css') }}">
   <script defer src="{{ url_for('static', path='/js/app.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/js/nexa.js') }}"></script>
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="{{ logo_path }}" alt="SEU LOGO">
         <div><strong>{{ company_name }}</strong><span>{{ app_name }} · Versão {{ app_version }}</span></div>
       </div>
       <p class="sidebar__eyebrow">Módulos</p>
@@ -37,13 +38,33 @@
         <button class="menu-button" type="button" data-sidebar-toggle aria-label="Abrir menu">{{ icon('menu') }}</button>
         {% if selected_module %}<div class="module-context"><span>Módulo atual</span><strong>{{ selected_module.name }}</strong></div>{% endif %}
         <div class="tabs-capsule"><nav class="tabs" aria-label="Abas de {{ selected_module.name if selected_module else 'módulo' }}">
-          {% if selected_module %}{% for tab in selected_module.tabs %}{% if current_user.can(tab.permission) %}<a href="{{ tab.path }}" class="tab {% if selected_tab and selected_tab.id == tab.id %}is-active{% endif %}">{{ tab.name }}</a>{% endif %}{% endfor %}{% endif %}
+          {% if selected_module %}{% for tab in selected_module.tabs %}{% if tab.visible and current_user.can(tab.permission) %}<a href="{{ tab.path }}" class="tab {% if selected_tab and selected_tab.id == tab.id %}is-active{% endif %}">{{ tab.name }}</a>{% endif %}{% endfor %}{% endif %}
         </nav></div>
-        <div class="connection-status"><span></span>Somente local</div>
+        <button class="nexa-launch" type="button" data-nexa-open aria-controls="nexa-panel" aria-expanded="false">Nexa <span data-nexa-badge hidden aria-label="Alerta de risco"></span></button>
+        <div class="connection-status is-unknown" data-sync-status role="status" aria-live="polite">
+          <span aria-hidden="true"></span><span data-sync-status-text>Sincronização local</span>
+        </div>
       </header>
       <main class="content" id="main-content">{% block content %}{% endblock %}</main>
     </section>
   </div>
   <div class="sidebar-backdrop" data-sidebar-toggle></div>
+  <div class="nexa-backdrop" data-nexa-close hidden></div>
+  <aside class="nexa-panel" id="nexa-panel" role="dialog" aria-modal="true" aria-labelledby="nexa-title" hidden>
+    <header class="nexa-panel__header">
+      <div><span class="nexa-panel__eyebrow">Assistente do ERP</span><h2 id="nexa-title">Nexa</h2></div>
+      <button class="nexa-panel__close" type="button" data-nexa-close aria-label="Fechar Nexa">&times;</button>
+    </header>
+    <p class="nexa-panel__context" data-nexa-context role="status">Abra a Nexa para obter ajuda com esta tela.</p>
+    <section class="nexa-panel__risk" data-nexa-risk hidden aria-label="Alertas preventivos"></section>
+    <div class="nexa-panel__messages" data-nexa-messages role="log" aria-live="polite" aria-relevant="additions">
+      <p class="nexa-message nexa-message--assistant">Posso ajudar com a tela atual e investigar problemas usando informações permitidas do ERP.</p>
+    </div>
+    <form class="nexa-panel__form" data-nexa-form>
+      <label for="nexa-message">Sua pergunta</label>
+      <textarea id="nexa-message" name="message" rows="3" maxlength="2000" placeholder="Descreva sua dúvida ou o erro que encontrou" required></textarea>
+      <div class="nexa-panel__actions"><span data-nexa-status role="status"></span><button class="button button--primary" type="submit">Enviar</button></div>
+    </form>
+  </aside>
 </body>
 </html>

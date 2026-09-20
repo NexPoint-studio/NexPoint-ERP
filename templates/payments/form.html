@@ -1,7 +1,7 @@
 {% extends "layout/base.html" %}
 {% block content %}
 <header class="page-header page-header--split">
-  <div><p class="eyebrow">SERVIÇOS › NOTA {{ note.number_original }}</p><h1>{{ 'Entregar e receber' if deliver else 'Registrar pagamento' }}</h1><p>{{ note.customer.name }} · quitação integral</p></div>
+  <div><p class="eyebrow">SERVIÇOS › NOTA {{ note.number_original }}</p><h1>{{ 'Entregar e receber' if deliver else 'Registrar pagamento' }}</h1><p>{{ note.customer.name }} · recebimento auditável</p></div>
   <a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Voltar à Nota</a>
 </header>
 {% if errors.form %}<div class="alert alert--error" role="alert">{{ errors.form }}</div>{% endif %}
@@ -9,7 +9,7 @@
   <article class="metric-card"><span class="metric-card__label">Nota</span><strong class="metric-card__value note-metric-text">{{ note.number_original }}</strong><small>{{ note.series_original or 'Sem série' }}</small></article>
   <article class="metric-card"><span class="metric-card__label">Operacional</span><strong class="metric-card__value note-metric-text">{{ operational_status_labels.get(note.operational_status, note.operational_status) }}</strong></article>
   <article class="metric-card"><span class="metric-card__label">Financeiro</span><strong class="metric-card__value note-metric-text">{{ financial_status_labels.get(note.financial_status, note.financial_status) }}</strong></article>
-  <article class="metric-card metric-card--positive"><span class="metric-card__label">Valor a quitar</span><strong class="metric-card__value">{{ note.total_cents|money_cents }}</strong><small>A taxa não vira pendência do cliente</small></article>
+  <article class="metric-card metric-card--positive"><span class="metric-card__label">Total a cobrar</span><strong class="metric-card__value">{{ total_collectible_cents|money_cents }}</strong><small>Nota atual: {{ outstanding_cents|money_cents }} · saldo anterior: {{ linked_outstanding_cents|money_cents }}</small></article>
 </section>
 <form method="post" class="customer-form" data-payment-form>
   <input type="hidden" name="request_uid" value="{{ form.request_uid }}">
@@ -18,6 +18,10 @@
   <section class="panel form-section">
     <div class="section-heading"><div><span class="section-kicker">Recebimento confirmado</span><h2>Forma de pagamento</h2><p>Boleto nesta tela significa que o valor já foi recebido.</p></div></div>
     <div class="form-grid">
+      <label class="field">Valor recebido *
+        <input name="amount" inputmode="decimal" required value="{{ form.amount or (total_collectible_cents|money_cents)|replace('R$', '')|trim }}" {% if deliver %}readonly{% endif %}>
+        {% if errors.amount %}<small class="field-error">{{ errors.amount }}</small>{% endif %}
+      </label>
       <label class="field">Forma de pagamento *
         <select name="payment_method_id" required data-payment-method>
           <option value="">Selecione</option>
@@ -26,6 +30,10 @@
         {% if errors.payment_method_id %}<small class="field-error">{{ errors.payment_method_id }}</small>{% endif %}
       </label>
       <label class="field">Data e hora do pagamento *<input type="datetime-local" name="paid_at" required value="{{ form.paid_at }}">{% if errors.paid_at %}<small class="field-error">{{ errors.paid_at }}</small>{% endif %}</label>
+      <label class="field field--wide">Observação
+        <textarea name="notes" maxlength="1000" placeholder="Informação opcional sobre este recebimento">{{ form.notes or '' }}</textarea>
+        {% if errors.notes %}<small class="field-error">{{ errors.notes }}</small>{% endif %}
+      </label>
     </div>
     <div class="note-conditional-field" data-card-payment-fields hidden>
       <div class="form-grid">
@@ -35,6 +43,7 @@
       </div>
       <p class="panel-note">A taxa é escolhida e calculada pelo servidor conforme terminal, modalidade, parcelas e vigência.</p>
     </div>
+    {% if linked_outstanding_cents %}<p class="panel-note">O recebimento quita primeiro os saldos anteriores vinculados, do mais antigo ao mais recente. O restante será aplicado à Nota atual. Cada parcela ficará registrada no histórico.</p>{% endif %}
   </section>
   {% if deliver %}<div class="alert alert--warning"><strong>Operação única.</strong> A Nota será entregue e paga na mesma transação. Se qualquer etapa falhar, nenhuma alteração será salva.</div>{% endif %}
   <div class="form-actions form-actions--sticky"><a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Cancelar</a><button class="button button--primary" type="submit">{{ 'Confirmar entrega e recebimento' if deliver else 'Confirmar pagamento' }}</button></div>

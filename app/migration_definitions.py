@@ -564,3 +564,224 @@ AUDIT_INDEXES_0012_STATEMENTS = (
     "CREATE INDEX ix_audit_events_created_at ON audit_events (created_at)",
     "CREATE INDEX ix_audit_events_user_created_at ON audit_events (user_id, created_at)",
 )
+
+
+# Evolução offline e financeira. O rebuild usa exclusivamente o DDL histórico
+# congelado de 0008, ampliando apenas o estado operacional; nenhuma coluna ou
+# registro legado é descartado. As demais estruturas são novas e literais.
+SERVICE_NOTES_0013_CREATE = SERVICE_NOTES_0008_STATEMENTS[0].replace(
+    "CREATE TABLE service_notes (",
+    "CREATE TABLE service_notes__0013_new (",
+    1,
+).replace(
+    "('RECEBIDO','EM_ANDAMENTO','PRONTO','ENTREGUE','CANCELADO')",
+    "('RECEBIDO','EM_ANDAMENTO','PRONTO','ENTREGUE','FECHADO','CANCELADO')",
+    1,
+).replace(
+    "financial_status in ('PENDENTE','PAGO')",
+    "financial_status in ('PENDENTE','PARCIAL','PAGO')",
+    1,
+).replace(
+    "(financial_status = 'PENDENTE' and total_cents > 0 and financial_settlement_reason is null)",
+    "(financial_status in ('PENDENTE','PARCIAL') and total_cents > 0 and financial_settlement_reason is null)",
+    1,
+)
+SERVICE_NOTES_0013_INDEXES = tuple(
+    statement for statement in SERVICE_NOTES_0008_STATEMENTS
+    if statement.startswith("CREATE INDEX ") and " ON service_notes " in statement
+)
+
+OFFLINE_FINANCE_ADMIN_0013_STATEMENTS = (
+    """CREATE TABLE admin_locks (
+        id INTEGER NOT NULL PRIMARY KEY, password_hash VARCHAR(255) NOT NULL,
+        version INTEGER DEFAULT 1 NOT NULL, timeout_minutes INTEGER DEFAULT 15 NOT NULL,
+        configured_by INTEGER, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+        CONSTRAINT ck_admin_locks_singleton CHECK (id = 1),
+        CONSTRAINT ck_admin_locks_version CHECK (version >= 1),
+        CONSTRAINT ck_admin_locks_timeout_minutes CHECK (timeout_minutes between 1 and 480),
+        FOREIGN KEY(configured_by) REFERENCES users (id) ON DELETE SET NULL
+    )""",
+    """CREATE TABLE outbox_items (
+        id VARCHAR(36) NOT NULL PRIMARY KEY, event_type VARCHAR(64) NOT NULL,
+        aggregate_type VARCHAR(64) NOT NULL, aggregate_id VARCHAR(128) NOT NULL,
+        payload_json TEXT NOT NULL, schema_version INTEGER DEFAULT 1 NOT NULL,
+        status VARCHAR(16) DEFAULT 'pending' NOT NULL, attempts INTEGER DEFAULT 0 NOT NULL,
+        next_retry_at DATETIME, idempotency_key VARCHAR(128) NOT NULL,
+        last_error TEXT, remote_id VARCHAR(128), acked_at DATETIME, lease_until DATETIME,
+        created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+        CONSTRAINT uq_outbox_items_idempotency_key UNIQUE (idempotency_key),
+        CONSTRAINT ck_outbox_items_status CHECK (status in ('pending','sending','synced','failed','dead_letter')),
+        CONSTRAINT ck_outbox_items_attempts CHECK (attempts >= 0),
+        CONSTRAINT ck_outbox_items_schema_version CHECK (schema_version >= 1)
+    )""",
+    "CREATE INDEX ix_outbox_items_dispatch ON outbox_items (status, next_retry_at, created_at)",
+    "CREATE INDEX ix_outbox_items_lease ON outbox_items (status, lease_until)",
+    "CREATE INDEX ix_outbox_items_acked ON outbox_items (status, acked_at)",
+    """CREATE TABLE diagnostic_events (
+        id INTEGER NOT NULL PRIMARY KEY, event_uid VARCHAR(32) NOT NULL,
+        fingerprint VARCHAR(20) NOT NULL, module VARCHAR(64) NOT NULL,
+        operation VARCHAR(64) NOT NULL, category VARCHAR(32) NOT NULL,
+        severity VARCHAR(16) NOT NULL, error_code VARCHAR(64) NOT NULL,
+        request_id VARCHAR(64), duration_ms INTEGER, retry_count INTEGER NOT NULL,
+        environment VARCHAR(40) NOT NULL, metadata_json TEXT NOT NULL, user_id INTEGER,
+        occurrence_count INTEGER NOT NULL, first_seen_at DATETIME NOT NULL,
+        last_seen_at DATETIME NOT NULL,
+        CONSTRAINT uq_diagnostic_events_uid UNIQUE (event_uid)
+    )""",
+    "CREATE INDEX ix_diagnostic_events_time ON diagnostic_events (last_seen_at)",
+    "CREATE INDEX ix_diagnostic_events_fingerprint ON diagnostic_events (fingerprint, last_seen_at)",
+    """CREATE TABLE nonce_receipts (
+        id INTEGER NOT NULL PRIMARY KEY, peer_id VARCHAR(128) NOT NULL,
+        nonce VARCHAR(128) NOT NULL, received_at DATETIME NOT NULL, expires_at DATETIME NOT NULL,
+        CONSTRAINT uq_nonce_receipts_peer_nonce UNIQUE (peer_id, nonce)
+    )""",
+    "CREATE INDEX ix_nonce_receipts_expiry ON nonce_receipts (expires_at)",
+    """CREATE TABLE note_closures (
+        id INTEGER NOT NULL PRIMARY KEY, request_uid VARCHAR(36) NOT NULL,
+        service_note_id INTEGER NOT NULL, total_amount_cents INTEGER NOT NULL,
+        paid_amount_cents INTEGER NOT NULL, outstanding_amount_cents INTEGER NOT NULL,
+        closed_at DATETIME NOT NULL, closed_by INTEGER NOT NULL,
+        CONSTRAINT uq_note_closures_note UNIQUE (service_note_id),
+        CONSTRAINT uq_note_closures_request_uid UNIQUE (request_uid),
+        CONSTRAINT ck_note_closures_request_uid CHECK (length(request_uid) = 36 and request_uid = lower(request_uid) and substr(request_uid, 9, 1) = '-' and substr(request_uid, 14, 1) = '-' and substr(request_uid, 19, 1) = '-' and substr(request_uid, 24, 1) = '-' and request_uid not glob '*[^0-9a-f-]*'),
+        CONSTRAINT ck_note_closures_amounts CHECK (typeof(total_amount_cents) = 'integer' and total_amount_cents between 0 and 9223372036854775807 and typeof(paid_amount_cents) = 'integer' and paid_amount_cents between 0 and total_amount_cents and typeof(outstanding_amount_cents) = 'integer' and outstanding_amount_cents = total_amount_cents - paid_amount_cents),
+        FOREIGN KEY(service_note_id) REFERENCES service_notes (id) ON DELETE RESTRICT,
+        FOREIGN KEY(closed_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    """CREATE TABLE customer_receivables (
+        id INTEGER NOT NULL PRIMARY KEY, customer_id INTEGER NOT NULL,
+        source_note_id INTEGER NOT NULL, original_amount_cents INTEGER NOT NULL,
+        remaining_amount_cents INTEGER NOT NULL, status VARCHAR(20) NOT NULL,
+        created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
+        CONSTRAINT uq_customer_receivables_source_note UNIQUE (source_note_id),
+        CONSTRAINT ck_customer_receivables_status CHECK (status in ('OPEN','PARTIALLY_PAID','SETTLED')),
+        CONSTRAINT ck_customer_receivables_money CHECK (original_amount_cents between 1 and 9223372036854775807 and remaining_amount_cents between 0 and original_amount_cents),
+        FOREIGN KEY(customer_id) REFERENCES customers (id) ON DELETE RESTRICT,
+        FOREIGN KEY(source_note_id) REFERENCES service_notes (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_customer_receivables_customer_status ON customer_receivables (customer_id, status)",
+    """CREATE TABLE note_receivable_links (
+        id INTEGER NOT NULL PRIMARY KEY, note_id INTEGER NOT NULL,
+        receivable_id INTEGER NOT NULL, amount_snapshot_cents INTEGER NOT NULL,
+        created_at DATETIME NOT NULL, created_by INTEGER NOT NULL,
+        CONSTRAINT uq_note_receivable_links_pair UNIQUE (note_id, receivable_id),
+        CONSTRAINT ck_note_receivable_links_amount CHECK (amount_snapshot_cents between 1 and 9223372036854775807),
+        FOREIGN KEY(note_id) REFERENCES service_notes (id) ON DELETE RESTRICT,
+        FOREIGN KEY(receivable_id) REFERENCES customer_receivables (id) ON DELETE RESTRICT,
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_note_receivable_links_receivable ON note_receivable_links (receivable_id)",
+    """CREATE TABLE payment_allocations (
+        id INTEGER NOT NULL PRIMARY KEY, payment_id INTEGER NOT NULL,
+        receivable_id INTEGER, amount_cents INTEGER NOT NULL, created_at DATETIME NOT NULL,
+        CONSTRAINT uq_payment_allocations_target UNIQUE (payment_id, receivable_id),
+        CONSTRAINT ck_payment_allocations_amount CHECK (amount_cents between 1 and 9223372036854775807),
+        FOREIGN KEY(payment_id) REFERENCES payments (id) ON DELETE RESTRICT,
+        FOREIGN KEY(receivable_id) REFERENCES customer_receivables (id) ON DELETE RESTRICT
+    )""",
+    "CREATE UNIQUE INDEX uq_payment_allocations_current_note ON payment_allocations (payment_id) WHERE receivable_id IS NULL",
+    "CREATE INDEX ix_payment_allocations_receivable ON payment_allocations (receivable_id)",
+    """CREATE TABLE receivable_payments (
+        id INTEGER NOT NULL PRIMARY KEY, request_uid VARCHAR(36) NOT NULL,
+        receivable_id INTEGER NOT NULL, payment_method_id INTEGER NOT NULL,
+        method_name_snapshot VARCHAR(80) NOT NULL, amount_cents INTEGER NOT NULL,
+        paid_at DATETIME NOT NULL, created_by INTEGER NOT NULL, created_at DATETIME NOT NULL,
+        CONSTRAINT uq_receivable_payments_request_uid UNIQUE (request_uid),
+        CONSTRAINT ck_receivable_payments_request_uid CHECK (length(request_uid) = 36 and request_uid = lower(request_uid) and substr(request_uid, 9, 1) = '-' and substr(request_uid, 14, 1) = '-' and substr(request_uid, 19, 1) = '-' and substr(request_uid, 24, 1) = '-' and request_uid not glob '*[^0-9a-f-]*'),
+        CONSTRAINT ck_receivable_payments_amount CHECK (amount_cents between 1 and 9223372036854775807),
+        FOREIGN KEY(receivable_id) REFERENCES customer_receivables (id) ON DELETE RESTRICT,
+        FOREIGN KEY(payment_method_id) REFERENCES cash_payment_methods (id) ON DELETE RESTRICT,
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_receivable_payments_receivable_paid ON receivable_payments (receivable_id, paid_at)",
+    "CREATE INDEX ix_receivable_payments_method_paid ON receivable_payments (payment_method_id, paid_at)",
+    "CREATE INDEX ix_payments_note_status_paid ON payments (service_note_id, status, paid_at)",
+)
+
+
+# Correção funcional de UX e recuperação administrativa. Todas as mudanças
+# são aditivas e preservam integralmente pagamentos, cadeado e usuários.
+FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS = (
+    "ALTER TABLE payments ADD COLUMN notes VARCHAR(1000) "
+    "CONSTRAINT ck_payments_notes CHECK (notes is null or length(notes) <= 1000)",
+    "ALTER TABLE admin_locks ADD COLUMN failed_attempt_count INTEGER NOT NULL DEFAULT 0 "
+    "CONSTRAINT ck_admin_locks_failed_attempt_count CHECK (failed_attempt_count between 0 and 1000000)",
+    "ALTER TABLE admin_locks ADD COLUMN lockout_until DATETIME",
+    "ALTER TABLE admin_locks ADD COLUMN recovery_failed_attempt_count INTEGER NOT NULL DEFAULT 0 "
+    "CONSTRAINT ck_admin_locks_recovery_failed_attempt_count CHECK (recovery_failed_attempt_count between 0 and 1000000)",
+    "ALTER TABLE admin_locks ADD COLUMN recovery_lockout_until DATETIME",
+    "ALTER TABLE admin_locks ADD COLUMN last_recovery_at DATETIME",
+    """CREATE TABLE admin_recovery_codes (
+        id INTEGER NOT NULL PRIMARY KEY,
+        batch_uid VARCHAR(36) NOT NULL,
+        code_hash VARCHAR(255) NOT NULL,
+        status VARCHAR(12) NOT NULL,
+        created_at DATETIME NOT NULL,
+        created_by INTEGER NOT NULL,
+        used_at DATETIME,
+        used_by INTEGER,
+        invalidated_at DATETIME,
+        CONSTRAINT uq_admin_recovery_codes_hash UNIQUE (code_hash),
+        CONSTRAINT ck_admin_recovery_codes_batch_uid CHECK (length(batch_uid) = 36 and batch_uid = lower(batch_uid)),
+        CONSTRAINT ck_admin_recovery_codes_status CHECK (status in ('ACTIVE','USED','REVOKED')),
+        CONSTRAINT ck_admin_recovery_codes_lifecycle CHECK (
+            (status = 'ACTIVE' and used_at is null and used_by is null and invalidated_at is null)
+            or (status = 'USED' and used_at is not null and used_by is not null)
+            or (status = 'REVOKED' and invalidated_at is not null)
+        ),
+        FOREIGN KEY(created_by) REFERENCES users (id) ON DELETE RESTRICT,
+        FOREIGN KEY(used_by) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_admin_recovery_codes_batch_status ON admin_recovery_codes (batch_uid, status)",
+    "CREATE INDEX ix_admin_recovery_codes_status ON admin_recovery_codes (status)",
+)
+
+
+# Sessão persistente opcional para o login normal. O token nunca é armazenado:
+# somente o SHA-256 de um segredo aleatório de alta entropia fica no SQLite.
+# A tabela de códigos de recuperação permanece apenas por compatibilidade; a
+# migration revoga todos os códigos ativos sem apagar histórico.
+REMEMBER_SESSIONS_0015_STATEMENTS = (
+    """CREATE TABLE remember_sessions (
+        id VARCHAR(32) NOT NULL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        token_hash VARCHAR(64) NOT NULL,
+        installation_id VARCHAR(80) NOT NULL,
+        auth_version INTEGER NOT NULL,
+        session_generation_hash VARCHAR(64) NOT NULL,
+        status VARCHAR(10) NOT NULL,
+        created_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        last_used_at DATETIME NOT NULL,
+        rotated_at DATETIME NOT NULL,
+        revoked_at DATETIME,
+        CONSTRAINT uq_remember_sessions_token_hash UNIQUE (token_hash),
+        CONSTRAINT ck_remember_sessions_id CHECK (
+            length(id) = 32 and id = lower(id) and id not glob '*[^0-9a-f]*'
+        ),
+        CONSTRAINT ck_remember_sessions_token_hash CHECK (
+            length(token_hash) = 64 and token_hash = lower(token_hash)
+            and token_hash not glob '*[^0-9a-f]*'
+        ),
+        CONSTRAINT ck_remember_sessions_generation_hash CHECK (
+            length(session_generation_hash) = 64
+            and session_generation_hash = lower(session_generation_hash)
+            and session_generation_hash not glob '*[^0-9a-f]*'
+        ),
+        CONSTRAINT ck_remember_sessions_auth_version CHECK (
+            typeof(auth_version) = 'integer' and auth_version >= 1
+        ),
+        CONSTRAINT ck_remember_sessions_status CHECK (
+            status in ('ACTIVE','REVOKED','EXPIRED')
+        ),
+        CONSTRAINT ck_remember_sessions_lifecycle CHECK (
+            (status = 'ACTIVE' and revoked_at is null)
+            or (status in ('REVOKED','EXPIRED') and revoked_at is not null)
+        ),
+        FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_remember_sessions_user_status_expiry "
+    "ON remember_sessions (user_id, status, expires_at)",
+    "CREATE INDEX ix_remember_sessions_status_expiry "
+    "ON remember_sessions (status, expires_at)",
+)

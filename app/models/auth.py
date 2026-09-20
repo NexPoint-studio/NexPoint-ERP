@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Table, Column, Text, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Table, Column, Text, event, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -77,3 +78,26 @@ class AuditEvent(Base):
     resource: Mapped[str] = mapped_column(String(160))
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+@event.listens_for(AuditEvent, "before_insert")
+def _attach_audit_correlation(_mapper, _connection, target: AuditEvent) -> None:
+    """Correlate audit and diagnostics while keeping their stores distinct."""
+    from app.observability.context import current_correlation_id
+
+    correlation_id = current_correlation_id()
+    if not correlation_id:
+        return
+    if target.details:
+        try:
+            details = json.loads(target.details)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(details, dict):
+            return
+    else:
+        details = {}
+    details.setdefault("correlation_id", correlation_id)
+    target.details = json.dumps(
+        details, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    )

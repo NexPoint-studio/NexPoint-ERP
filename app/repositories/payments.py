@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
@@ -16,6 +16,7 @@ from app.models import (
     PaymentTerminal,
     ServiceNote,
 )
+from app.models.receivables import PaymentAllocation
 
 
 class PaymentRepository:
@@ -66,6 +67,38 @@ class PaymentRepository:
                 Payment.status == "CONFIRMED",
             ).limit(1)
         )
+
+    def confirmed_payments_for_note(self, note_id: int) -> list[Payment]:
+        if not self._valid_id(note_id):
+            return []
+        return list(self.session.scalars(
+            select(Payment).where(
+                Payment.service_note_id == note_id,
+                Payment.status == "CONFIRMED",
+            ).order_by(Payment.paid_at, Payment.id)
+        ))
+
+    def paid_cents_for_note(self, note_id: int) -> int:
+        if not self._valid_id(note_id):
+            return 0
+        # Payments created before the allocation ledger belong wholly to their
+        # own note. Newer payments may also settle linked older receivables.
+        allocated = select(func.sum(PaymentAllocation.amount_cents)).where(
+            PaymentAllocation.payment_id == Payment.id,
+            PaymentAllocation.receivable_id.is_(None),
+        ).scalar_subquery()
+        has_allocations = select(PaymentAllocation.id).where(
+            PaymentAllocation.payment_id == Payment.id,
+        ).exists()
+        return int(self.session.scalar(select(func.coalesce(func.sum(
+            case(
+                (has_allocations, func.coalesce(allocated, 0)),
+                else_=Payment.gross_amount_cents,
+            )
+        ), 0)).where(
+            Payment.service_note_id == note_id,
+            Payment.status == "CONFIRMED",
+        )) or 0)
 
     def payment_method(self, method_id: int | None) -> CashPaymentMethod | None:
         if method_id is None or not self._valid_id(method_id):

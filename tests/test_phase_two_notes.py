@@ -664,7 +664,7 @@ def test_note_pages_render_catalog_units_list_filters_and_detail(client, app):
     detail = client.get(f"/servicos/notas/{created_id}")
     assert catalog.status_code == listing.status_code == detail.status_code == 200
     assert "R$ 120,00" in catalog.text and "Hora" in catalog.text
-    assert "0187" in listing.text and "Pendente" in listing.text
+    assert "0187" in listing.text and "Não pago" in listing.text
     assert "Consultoria por hora" in detail.text and "R$ 150,00" in detail.text
 
 

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">EMPRESAS › DETALHE</p><h1>{{ tenant.display_name }} {% if tenant.tenant_type == 'TEST' %}<small class="test-label">TESTE</small>{% elif tenant.is_demo %}<small class="demo-label">DEMO</small>{% endif %}</h1><p>ID técnico {{ tenant.id }}</p></div><a href="/empresas" class="button button--secondary">Voltar</a></header>
+<section class="detail-summary"><div><span>Status</span><strong><span class="badge badge--{{ tenant.status }}">{{ tenant_status_labels[tenant.status] }}</span></strong></div><div><span>Saúde</span><strong><span class="badge badge--{{ tenant.health_status }}">{{ health_labels[tenant.health_status] }}</span></strong></div><div><span>Versão ERP</span><strong>{{ tenant.erp_version }}</strong></div><div><span>Ambiente</span><strong>{{ tenant.environment }}</strong></div><div><span>Último contato</span><strong>{{ tenant.last_seen_at|datetime_br }}</strong></div></section>
+<section class="panel"><header class="panel-heading"><div><h2>Instalações</h2><p>Dispositivos identificados sem fingerprint invasivo.</p></div></header><div class="table-wrap"><table><thead><tr><th>Instalação</th><th>Versão/build</th><th>Plataforma</th><th>Saúde</th><th>Último contato</th></tr></thead><tbody>{% for item in installations %}<tr><td>{{ item.installation_id }}</td><td>{{ item.version }} / {{ item.build }}</td><td>{{ item.platform }}</td><td><span class="badge badge--{{ item.health }}">{{ health_labels[item.health] }}</span></td><td>{{ item.last_seen_at|datetime_br }}</td></tr>{% else %}<tr><td colspan="5" class="empty-row">Nenhuma instalação registrada.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="three-grid"><article class="panel"><header class="panel-heading"><h2>Chamados</h2><a href="/chamados?tenant={{ tenant.id }}">Ver fila</a></header>{% for ticket in tickets %}<a class="mini-row" href="/chamados/{{ ticket.id }}"><span>{{ ticket.protocol }} · {{ ticket.subject }}</span><span class="badge badge--{{ ticket.status }}">{{ ticket_status_labels[ticket.status] }}</span></a>{% else %}<p class="empty-copy">Sem chamados.</p>{% endfor %}</article><article class="panel"><header class="panel-heading"><h2>Riscos</h2><a href="/riscos?tenant={{ tenant.id }}">Ver riscos</a></header>{% for risk in risks %}<div class="mini-row"><span>{{ risk.module }} · {{ risk.fingerprint }}</span><span class="badge badge--{{ risk.level }}">{{ risk_labels[risk.level] }}</span></div>{% else %}<p class="empty-copy">Sem riscos.</p>{% endfor %}</article><article class="panel"><header class="panel-heading"><h2>Incidentes</h2><a href="/incidentes?tenant={{ tenant.id }}">Ver incidentes</a></header>{% for incident in incidents %}<a class="mini-row" href="/incidentes?selected={{ incident.id }}"><span>{{ incident.title }}</span><span class="badge badge--{{ incident.status }}">{{ incident_status_labels[incident.status] }}</span></a>{% else %}<p class="empty-copy">Sem incidentes.</p>{% endfor %}</article></section>
+{% if can_manage_qa %}
+<section class="qa-console">
+  <article class="panel">
+    <header class="panel-heading"><div><p class="eyebrow">AMBIENTE CONTROLADO</p><h2>Cenários de QA</h2><p>Gera somente evidência fictícia e rastreável neste tenant TEST.</p></div><span class="test-label">TESTE</span></header>
+    {% if qa_mode %}
+    <form action="/empresas/{{ tenant.id }}/qa/cenarios" method="post" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label>Cenário<select name="scenario" required>{% for value,label in qa_scenario_labels.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+      <label>Confirmação explícita<input name="confirmation" required maxlength="160" autocomplete="off" placeholder="EXECUTAR codigo_do_cenario"><small>Digite EXECUTAR e o código técnico do cenário selecionado, por exemplo: EXECUTAR timeout.</small></label>
+      <button class="button button--primary" type="submit">Executar cenário controlado</button>
+    </form>
+    {% else %}
+    <div class="qa-disabled"><strong>Modo QA desativado</strong><p>Ative CONTROL_CENTER_QA_MODE somente no ambiente local de testes para liberar os cenários.</p></div>
+    {% endif %}
+  </article>
+  <article class="panel">
+    <header class="panel-heading"><div><h2>Execuções recentes</h2><p>Resultado e correlation ID de cada cenário.</p></div></header>
+    <div class="qa-run-list">
+      {% for run in qa_runs %}<a class="mini-row" href="/diagnostico?tenant={{ tenant.id }}&amp;correlation={{ run.correlation_id }}"><span><strong>{{ qa_scenario_labels.get(run.scenario, run.scenario) }}</strong><small>{{ run.started_at|datetime_br }} · <code>{{ run.correlation_id }}</code></small></span><span class="badge badge--{{ run.status }}">{{ run.status|upper }}</span></a>{% else %}<p class="empty-copy">Nenhum cenário executado.</p>{% endfor %}
+    </div>
+  </article>
+  <article class="panel danger-panel">
+    <header class="panel-heading"><div><h2>Reset do ambiente TEST</h2><p>Remove apenas artefatos QA deste tenant e preserva sua identidade.</p></div></header>
+    <form action="/empresas/{{ tenant.id }}/qa/reset" method="post" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label>Confirme digitando <code>RESETAR {{ tenant.id }}</code><input name="confirmation" required maxlength="180" autocomplete="off"></label>
+      <button class="button button--danger" type="submit">Resetar somente este tenant TEST</button>
+    </form>
+  </article>
+</section>
+{% endif %}
+{% endblock %}

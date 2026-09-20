@@ -131,10 +131,11 @@ def _support_insert_sql(*, values: str) -> str:
     )
 
 
-def test_fresh_database_has_phase_four_schema_and_twelve_versions(tmp_path):
+def test_fresh_database_has_current_schema_and_fifteen_versions(tmp_path):
     engine = _initialized_engine(tmp_path / "fresh.sqlite3")
-    assert LATEST_SCHEMA_VERSION == PHASE_FOUR_VERSION
-    assert len(SUPPORTED_SCHEMA_VERSIONS) == 12
+    assert PHASE_FOUR_VERSION in SUPPORTED_SCHEMA_VERSIONS
+    assert LATEST_SCHEMA_VERSION == "0015_remember_sessions"
+    assert len(SUPPORTED_SCHEMA_VERSIONS) == 15
 
     with engine.connect() as connection:
         assert tuple(connection.exec_driver_sql(
@@ -179,7 +180,7 @@ def test_phase_four_upgrade_preserves_every_phase_three_row(tmp_path):
         ).scalar_one() == 0
         assert connection.exec_driver_sql(
             "select count(*) from schema_migrations"
-        ).scalar_one() == 12
+        ).scalar_one() == 15
         assert connection.exec_driver_sql("pragma foreign_key_check").all() == []
         assert connection.exec_driver_sql("pragma integrity_check").scalar_one() == "ok"
     engine.dispose()
@@ -411,7 +412,7 @@ def test_reexecution_detects_missing_phase_four_index(tmp_path, index_name):
     engine.dispose()
 
 
-def test_concurrent_phase_four_upgrade_records_one_twelfth_version(tmp_path):
+def test_concurrent_phase_four_upgrade_records_each_version_once(tmp_path):
     engine = _phase_three_engine(tmp_path / "concurrent.sqlite3")
     gate = Barrier(2)
     result_lock = Lock()
@@ -439,7 +440,10 @@ def test_concurrent_phase_four_upgrade_records_one_twelfth_version(tmp_path):
     with engine.connect() as connection:
         assert connection.exec_driver_sql(
             "select count(*), count(distinct version) from schema_migrations"
-        ).one() == (12, 12)
+            ).one() == (
+                len(SUPPORTED_SCHEMA_VERSIONS),
+                len(SUPPORTED_SCHEMA_VERSIONS),
+            )
         assert connection.exec_driver_sql(
             "select count(*) from schema_migrations where version = ?",
             (PHASE_FOUR_VERSION,),

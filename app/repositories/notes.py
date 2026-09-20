@@ -155,7 +155,12 @@ class NoteRepository:
             conditions.append(ServiceNote.customer_id == customer_id)
         if operational_status != "ALL":
             conditions.append(ServiceNote.operational_status == operational_status)
-        if financial_status != "ALL":
+        if financial_status == "SALDO_DEVEDOR":
+            conditions.extend((
+                ServiceNote.operational_status == "FECHADO",
+                ServiceNote.financial_status != "PAGO",
+            ))
+        elif financial_status != "ALL":
             conditions.append(ServiceNote.financial_status == financial_status)
         if received_from is not None:
             conditions.append(ServiceNote.received_at >= received_from)

@@ -21,4 +21,7 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "control_center*"]
+
+[tool.setuptools.package-data]
+control_center = ["templates/*.html", "static/*.css", "static/*.js"]
