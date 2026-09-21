@@ -19,8 +19,8 @@
 
 - [ ] Promover a infraestrutura preparada para PROD {sector:SETOR_COORDENACAO}
   - [x] Validar migration PostgreSQL, RLS, grants, isolamento, idempotência e retenção localmente {weight:10} {sector:SETOR_BANCO_DADOS}
-  - [ ] Aplicar a migration aditiva no projeto Supabase NexPoint-ERP {weight:5} {sector:SETOR_BANCO_DADOS}
-  - [ ] Publicar `erp-sync`, `erp-admin-recovery` e `erp-chat` {weight:5} {sector:SETOR_BACKEND}
+  - [x] Aplicar a migration aditiva no projeto Supabase NexPoint-ERP {weight:5} {sector:SETOR_BANCO_DADOS}
+  - [x] Publicar `erp-sync`, `erp-admin-recovery` e `erp-chat` {weight:5} {sector:SETOR_BACKEND}
   - [ ] Configurar providers da Nexa diretamente no secret manager {weight:3} {sector:SETOR_SEGURANCA}
 
 ## Concluídas
