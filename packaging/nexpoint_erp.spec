@@ -7,7 +7,8 @@ import os
 from PyInstaller.utils.hooks import collect_submodules
 
 
-project_root = Path(SPECPATH).resolve().parent.parent
+# PyInstaller exposes SPECPATH as the directory that contains this recipe.
+project_root = Path(SPECPATH).resolve().parent
 manifest = Path(
     os.environ.get(
         "NEXPOINT_BUILD_MANIFEST",
