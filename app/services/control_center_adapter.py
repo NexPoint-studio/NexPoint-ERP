@@ -13,10 +13,36 @@ import time
 from typing import Mapping
 
 from app.repositories import ConfigurationRepository
+from app.services.connectivity import ConnectivityState
+from app.services.erp_preflight import run_preflight
 from control_center.domain import ErpInstallation, HealthSnapshot, RiskSummary, Tenant
 from control_center.local_repository import LocalControlCenterRepository
 from control_center.sanitization import sanitize_mapping, sanitize_text
 from app.repositories.sync import OutboxRepository
+
+
+_HEALTH_RANK = {
+    "healthy": 0,
+    "normal": 0,
+    "unknown": 1,
+    "warning": 2,
+    "degraded": 2,
+    "unavailable": 3,
+    "offline": 3,
+    "high": 4,
+    "critical": 5,
+}
+
+
+def _worst_health(*states: str) -> str:
+    values = tuple(state for state in states if state in _HEALTH_RANK)
+    return max(values, key=lambda state: _HEALTH_RANK[state]) if values else "unknown"
+
+
+def _check_state(status: str) -> str:
+    return {"PASS": "healthy", "WARN": "warning", "FAIL": "critical"}.get(
+        str(status).upper(), "unknown"
+    )
 
 
 def control_center_database_for(erp_database_path: Path, *, operational: bool) -> Path:
@@ -161,9 +187,65 @@ class ControlTelemetryAdapter:
         score = report.overall_score if report is not None else 0
         observed = bool(events)
         calculated_health = "critical" if score >= 90 else "high" if score >= 75 else "warning" if score >= 25 else "healthy"
+        preflight = (
+            run_preflight(app.state.engine)
+            if self.outbox_only and getattr(app.state, "engine", None) is not None
+            else None
+        )
+        findings_by_check = {
+            finding.check: finding
+            for finding in (preflight.findings if preflight is not None else ())
+        }
+        database_state = _worst_health(
+            *(
+                _check_state(findings_by_check[name].status)
+                for name in ("required_tables", "sqlite_integrity", "foreign_keys")
+                if name in findings_by_check
+            )
+        )
+        migration_state = _check_state(
+            findings_by_check["schema"].status
+            if "schema" in findings_by_check
+            else "UNKNOWN"
+        )
+        with app.state.session_factory() as outbox_session:
+            # Heartbeats and health snapshots must not change their own queue
+            # metrics on the next publication within the same time bucket.
+            outbox_counts = OutboxRepository(outbox_session).counts(
+                exclude_event_types=("heartbeat", "health")
+            )
+        if outbox_counts.get("dead_letter", 0):
+            outbox_state = "high"
+        elif outbox_counts.get("failed", 0):
+            outbox_state = "warning"
+        else:
+            outbox_state = "healthy"
+        connectivity = getattr(app.state, "connectivity_service", None)
+        connectivity_state = (
+            connectivity.snapshot().state
+            if connectivity is not None
+            else ConnectivityState.UNKNOWN
+        )
+        sync_state = {
+            ConnectivityState.ONLINE: "healthy",
+            ConnectivityState.DEGRADED: "degraded",
+            ConnectivityState.OFFLINE: "offline",
+            ConnectivityState.UNKNOWN: "unknown",
+        }[connectivity_state]
+        nexa_state = (
+            "normal"
+            if str(getattr(app.state.settings, "nexa_bridge_url", "")).strip()
+            else "unavailable"
+        )
         previous_tenant = None if self.outbox_only else self.repository.get_tenant(tenant_id)
         previous_installation = None if self.outbox_only else self.repository.get_installation(installation_id)
-        health = calculated_health if observed else (
+        health = _worst_health(
+            calculated_health,
+            database_state,
+            migration_state,
+            outbox_state,
+            sync_state,
+        ) if self.outbox_only else calculated_health if observed else (
             previous_installation.health if previous_installation is not None
             else previous_tenant.health_status if previous_tenant is not None
             else "unknown"
@@ -172,6 +254,12 @@ class ControlTelemetryAdapter:
         version = sanitize_text(settings.get("app.version") or app.state.settings.version, maximum=80) or "unknown"
         environment = sanitize_text(app.state.settings.environment, maximum=40) or "local"
         build = sanitize_text(app.state.settings.build, maximum=80) or "unknown"
+        commit = sanitize_text(
+            getattr(app.state.settings, "commit", "unknown"), maximum=40
+        ) or "unknown"
+        channel = sanitize_text(
+            getattr(app.state.settings, "channel", "LOCAL"), maximum=16
+        ) or "LOCAL"
         tenant = Tenant(
             id=tenant_id, display_name=display_name, status="active", created_at=now, updated_at=now,
             erp_version=version, environment=environment, last_seen_at=now, health_status=health,
@@ -182,7 +270,10 @@ class ControlTelemetryAdapter:
         installation = ErpInstallation(
             id=installation_id, tenant_id=tenant_id, installation_id="primary-local", version=version,
             build=build, environment=environment, last_seen_at=now, health=health, platform="windows-local",
-            metadata=sanitize_mapping({"product": "NexPoint ERP", "mode": "local"}),
+            metadata=sanitize_mapping({
+                "product": "NexPoint ERP", "mode": environment,
+                "channel": channel, "commit": commit,
+            }),
             created_at=now, updated_at=now, is_demo=tenant.is_demo,
         )
         if self.outbox_only:
@@ -193,28 +284,62 @@ class ControlTelemetryAdapter:
                 heartbeat_bucket * self.interval_seconds, tz=timezone.utc
             )
             heartbeat_id = "heartbeat_" + sha256(
-                f"{installation_id}:{heartbeat_bucket}:{health}:{score}:{heartbeat_risk_level}".encode()
+                (
+                    f"{installation_id}:{heartbeat_bucket}:{health}:{score}:"
+                    f"{heartbeat_risk_level}:{version}:{build}:{commit}:{channel}"
+                ).encode()
             ).hexdigest()[:24]
             outbox_payloads.append(("heartbeat", "installation", heartbeat_id, {
                 "tenant_id": tenant_id, "tenant_alias": tenant_id, "installation_id": installation_id,
                 "tenant_name": display_name, "tenant_type": tenant.tenant_type,
-                "version": version, "build": build, "environment": environment, "health": health,
+                "version": version, "build": build, "commit": commit,
+                "channel": channel, "environment": environment, "health": health,
                 "risk_summary": {"score": score, "level": heartbeat_risk_level},
                 "last_seen": heartbeat_seen.isoformat(),
             }, f"heartbeat:{heartbeat_id}"))
+            health_id = "health_" + sha256(
+                (
+                    f"{installation_id}:{heartbeat_bucket}:{health}:{database_state}:"
+                    f"{migration_state}:{outbox_state}:{sync_state}:{nexa_state}:{score}:"
+                    f"{sum(outbox_counts.values())}:{outbox_counts.get('dead_letter', 0)}:"
+                    f"{sum(event.occurrence_count for event in events)}:"
+                    f"{sum(event.retry_count for event in events)}:"
+                    f"{','.join(event.fingerprint for event in events)}:"
+                    f"{','.join(finding.fingerprint for finding in findings[:50])}"
+                ).encode()
+            ).hexdigest()[:24]
+            doctor_counts = {
+                status: sum(
+                    finding.status == status
+                    for finding in (preflight.findings if preflight is not None else ())
+                )
+                for status in ("PASS", "WARN", "FAIL")
+            }
+            outbox_payloads.append(("health", "health", health_id, {
+                "tenant_id": tenant_id, "installation_id": installation_id, "status": health,
+                "database_state": database_state, "migration_state": migration_state,
+                "outbox_state": outbox_state, "sync_state": sync_state,
+                "nexa_state": nexa_state, "risk_score": score,
+                "recent_errors": sum(e.occurrence_count for e in events if e.severity in {"ERROR", "CRITICAL"}),
+                "retry_count": sum(e.retry_count for e in events),
+                "pending_outbox": sum(
+                    outbox_counts.get(state, 0)
+                    for state in ("pending", "sending", "failed", "dead_letter")
+                ),
+                "dead_letter_count": outbox_counts.get("dead_letter", 0),
+                "latency_ms": max((e.duration_ms for e in events if e.duration_ms is not None), default=None),
+                "fingerprints": list(dict.fromkeys(e.fingerprint for e in events))[:20],
+                "active_risk_fingerprints": [finding.fingerprint for finding in findings[:50]],
+                "doctor_pass": doctor_counts["PASS"],
+                "doctor_warn": doctor_counts["WARN"],
+                "doctor_fail": doctor_counts["FAIL"],
+                "captured_at": heartbeat_seen.isoformat(),
+                "details": {
+                    "event_count": sum(e.occurrence_count for e in events),
+                    "preflight_status": preflight.status if preflight is not None else "UNKNOWN",
+                },
+            }, f"health:{health_id}"))
             if observed:
-                health_id = "health_" + sha256(f"{installation_id}:{now.isoformat()}".encode()).hexdigest()[:24]
-                outbox_payloads.append(("health", "health", health_id, {
-                    "tenant_id": tenant_id, "installation_id": installation_id, "status": health,
-                    "risk_score": score,
-                    "recent_errors": sum(e.occurrence_count for e in events if e.severity in {"ERROR", "CRITICAL"}),
-                    "retry_count": sum(e.retry_count for e in events),
-                    "latency_ms": max((e.duration_ms for e in events if e.duration_ms is not None), default=None),
-                    "fingerprints": list(dict.fromkeys(e.fingerprint for e in events))[:20],
-                    "active_risk_fingerprints": [finding.fingerprint for finding in findings[:50]],
-                    "captured_at": now.isoformat(),
-                    "details": {"event_count": sum(e.occurrence_count for e in events)},
-                }, f"health:{health_id}"))
                 for event in pending_events:
                     structured_store = getattr(monitor, "observability_store", None)
                     if structured_store is not None and event.sync_state != "pending":

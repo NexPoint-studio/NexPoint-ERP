@@ -256,7 +256,10 @@ def test_only_server_issued_nexa_reply_reference_is_attached_once(
     )
     monkeypatch.setattr(
         "app.routes.nexa._send_signed",
-        lambda *_args: {"reply": "Resposta confirmada pela ponte Nexa.", "sources": []},
+        lambda *_args, **_kwargs: {
+            "reply": "Resposta confirmada pela ponte Nexa.",
+            "sources": [],
+        },
     )
     login(client, "admin@local")
     chat = client.post(
@@ -340,7 +343,10 @@ def test_nexa_reference_and_screen_survive_validation_retry(client, app, monkeyp
     )
     monkeypatch.setattr(
         "app.routes.nexa._send_signed",
-        lambda *_args: {"reply": "Diagnostico preservado entre tentativas.", "sources": []},
+        lambda *_args, **_kwargs: {
+            "reply": "Diagnostico preservado entre tentativas.",
+            "sources": [],
+        },
     )
     login(client, "admin@local")
     chat = client.post(

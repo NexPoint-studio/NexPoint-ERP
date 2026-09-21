@@ -1,0 +1,34 @@
+# Send only the stateless Control Center runtime to the Docker builder.
+**
+!Dockerfile
+!app/
+!app/**
+!control_center/
+!control_center/**
+!sanitization_contract.py
+!requirements/
+!requirements/windows-runtime.lock
+
+# Never include generated files, local data or configuration even if they are
+# created under an allowed source directory later.
+**/__pycache__/
+**/*.py[cod]
+**/.env
+**/.env.*
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.sqlite3
+**/*.sqlite3-*
+**/*.log
+**/*.pem
+**/*.key
+**/*credentials*
+**/*.session
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/test-results/
+**/playwright-report/
+**/.tmp_*/

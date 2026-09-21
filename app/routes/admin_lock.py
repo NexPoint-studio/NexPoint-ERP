@@ -76,7 +76,16 @@ def _owner(request: Request):
 
 def _available_authorization(request: Request, session):
     identity = client_support_identity(request, session)
-    repository = ensure_control_center_repository(request.app)
+    production = str(request.app.state.settings.environment).strip().casefold() in {
+        "prod", "production"
+    }
+    repository = (
+        getattr(request.app.state, "admin_recovery_remote", None)
+        if production
+        else ensure_control_center_repository(request.app)
+    )
+    if repository is None:
+        raise RuntimeError("O servico remoto de recuperacao nao esta configurado.")
     authorization = repository.find_available_admin_reset_authorization(
         tenant_id=identity.tenant_id,
         installation_id=identity.installation_id,
@@ -339,12 +348,41 @@ async def complete_recovery(request: Request):
             confirmation = str(form.get("confirmation") or "")
             service.validate_authorized_reset_request(actor.id, new_password, confirmation)
             identity = client_support_identity(request, session)
-            repository = ensure_control_center_repository(request.app)
-            authorization = repository.consume_available_admin_reset_authorization(
-                tenant_id=identity.tenant_id,
-                installation_id=identity.installation_id,
-                requester_ref=identity.actor_ref,
-            )
+            production = str(request.app.state.settings.environment).strip().casefold() in {
+                "prod", "production"
+            }
+            if production:
+                identity, repository, expected_authorization = _available_authorization(
+                    request, session
+                )
+                if expected_authorization is None:
+                    raise RuntimeError(
+                        "A autorizacao de redefinicao nao esta mais disponivel."
+                    )
+            else:
+                repository = ensure_control_center_repository(request.app)
+                expected_authorization = None
+            consume_scope = {
+                "tenant_id": identity.tenant_id,
+                "installation_id": identity.installation_id,
+                "requester_ref": identity.actor_ref,
+            }
+            if expected_authorization is not None:
+                authorization = repository.consume_available_admin_reset_authorization(
+                    **consume_scope,
+                    expected_authorization_id=expected_authorization.id,
+                )
+            else:
+                authorization = repository.consume_available_admin_reset_authorization(
+                    **consume_scope
+                )
+            if expected_authorization is not None and (
+                authorization.id != expected_authorization.id
+                or authorization.ticket_id != expected_authorization.ticket_id
+            ):
+                raise RuntimeError(
+                    "A autorizacao remota mudou durante a redefinicao."
+                )
             lock = service.complete_authorized_reset(
                 actor.id,
                 new_password,

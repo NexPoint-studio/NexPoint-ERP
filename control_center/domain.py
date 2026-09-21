@@ -16,7 +16,7 @@ JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "Jso
 
 
 TENANT_STATUSES = frozenset({"active", "inactive", "suspended"})
-TENANT_TYPES = frozenset({"CUSTOMER", "TEST", "DEMO"})
+TENANT_TYPES = frozenset({"CUSTOMER", "INTERNAL", "TEST", "DEMO"})
 HEALTH_STATUSES = frozenset(
     {"healthy", "normal", "warning", "high", "critical", "offline", "unknown"}
 )
@@ -25,7 +25,7 @@ TICKET_STATUSES = frozenset(
 )
 TICKET_PRIORITIES = frozenset({"normal", "high"})
 ADMIN_RESET_AUTHORIZATION_STATUSES = frozenset({"active", "consumed", "expired", "revoked"})
-RISK_LEVELS = frozenset({"normal", "low", "medium", "high", "critical"})
+RISK_LEVELS = frozenset({"normal", "low", "warning", "medium", "high", "critical"})
 RISK_STATUSES = frozenset({"open", "monitoring", "mitigated", "resolved", "dismissed"})
 INCIDENT_STATUSES = frozenset(
     {"open", "investigating", "monitoring", "resolved", "closed"}

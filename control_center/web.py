@@ -60,12 +60,15 @@ from control_center.domain import (
 )
 from control_center.local_repository import LocalControlCenterRepository
 from control_center.qa import QAScenarioDenied, QAScenarioRunner
+from control_center.repository import ControlCenterRepository
+from control_center.request_security import LoginRateLimiter, login_rate_key
 from control_center.sanitization import (
     sanitize_mapping,
     sanitize_sync_payload,
     sanitize_text,
 )
 from control_center.seed import seed_local_demo
+from control_center.supabase_repository import SupabaseControlCenterRepository
 
 
 CONTROL_CENTER_ROOT = Path(__file__).resolve().parent
@@ -202,7 +205,7 @@ def _json_pretty(value: object) -> str:
 templates.env.filters.update({"datetime_br": _datetime_br, "json_pretty": _json_pretty})
 
 
-def _same_origin(request: Request) -> bool:
+def _same_origin(request: Request, expected_origin: str = "") -> bool:
     reference = request.headers.get("origin") or request.headers.get("referer")
     if not reference:
         return True
@@ -210,9 +213,17 @@ def _same_origin(request: Request) -> bool:
         parsed = urlsplit(reference)
     except ValueError:
         return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    if expected_origin:
+        expected = urlsplit(expected_origin)
+        return (
+            parsed.scheme.casefold() == expected.scheme.casefold()
+            and parsed.netloc.casefold() == expected.netloc.casefold()
+        )
     return (
-        parsed.scheme == "http" and parsed.netloc.casefold() == request.headers.get("host", "").casefold()
-        and parsed.username is None and parsed.password is None
+        parsed.scheme.casefold() == request.url.scheme.casefold()
+        and parsed.netloc.casefold() == request.headers.get("host", "").casefold()
     )
 
 
@@ -271,7 +282,7 @@ def _tenant_scope(user: PlatformUser) -> tuple[str, ...] | None:
 
 
 def _require_tenant_access(
-    repository: LocalControlCenterRepository,
+    repository: ControlCenterRepository,
     user: PlatformUser,
     tenant_id: str,
 ) -> None:
@@ -361,6 +372,11 @@ def _base_context(request: Request, section: str, title: str, **extra: Any) -> d
         "current_section": section,
         "page_title": title,
         "csrf_token": _csrf_token(request),
+        "control_environment": getattr(
+            request.app.state, "control_environment", "local"
+        ),
+        "control_storage": getattr(request.app.state, "control_storage", "local"),
+        "control_port": getattr(request.app.state, "control_port", 8770),
         "flash": _take_flash(request),
         "tenant_status_labels": TENANT_LABELS,
         "health_labels": HEALTH_LABELS,
@@ -394,13 +410,13 @@ def _credential_version(user: PlatformUser) -> str:
     return sha256(user.password_hash.encode("utf-8")).hexdigest()
 
 
-def _tenant_maps(repository: LocalControlCenterRepository) -> tuple[list, dict[str, str]]:
+def _tenant_maps(repository: ControlCenterRepository) -> tuple[list, dict[str, str]]:
     tenants = repository.list_tenants()
     return tenants, {item.id: item.display_name for item in tenants}
 
 
 def _authorized_tenant_maps(
-    repository: LocalControlCenterRepository, user: PlatformUser
+    repository: ControlCenterRepository, user: PlatformUser
 ) -> tuple[list, dict[str, str]]:
     scope = _tenant_scope(user)
     tenants = list(repository.list_tenants()) if scope is None else [
@@ -411,7 +427,7 @@ def _authorized_tenant_maps(
 
 
 def _authorized_tenant_overviews(
-    repository: LocalControlCenterRepository,
+    repository: ControlCenterRepository,
     user: PlatformUser,
     filters: TenantFilters | None = None,
 ) -> tuple:
@@ -424,7 +440,7 @@ def _authorized_tenant_overviews(
 
 
 def _authorized_tickets(
-    repository: LocalControlCenterRepository,
+    repository: ControlCenterRepository,
     user: PlatformUser,
     *,
     filters: TicketFilters | None = None,
@@ -453,7 +469,7 @@ def _authorized_tickets(
 
 
 def _authorized_dashboard_summary(
-    repository: LocalControlCenterRepository, user: PlatformUser
+    repository: ControlCenterRepository, user: PlatformUser
 ) -> DashboardSummary:
     scope = _tenant_scope(user)
     if scope is None:
@@ -547,7 +563,7 @@ def _nexa_history(user_id: str, ticket_id: str) -> tuple[tuple[str, str], list[d
 
 
 def _record_control_nexa_event(
-    repository: LocalControlCenterRepository,
+    repository: ControlCenterRepository,
     *,
     tenant_id: str,
     installation_id: str,
@@ -593,7 +609,7 @@ def _record_control_nexa_event(
         pass
 
 
-def _build_nexa_payload(repository: LocalControlCenterRepository, ticket_id: str, message: str, user: PlatformUser, secret: str) -> tuple[dict, tuple[str, str], list[dict[str, str]]]:
+def _build_nexa_payload(repository: ControlCenterRepository, ticket_id: str, message: str, user: PlatformUser, secret: str) -> tuple[dict, tuple[str, str], list[dict[str, str]]]:
     ticket = repository.get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Chamado não encontrado.")
@@ -746,7 +762,7 @@ def _build_nexa_payload(repository: LocalControlCenterRepository, ticket_id: str
 
 
 def _build_nexa_observability_payload(
-    repository: LocalControlCenterRepository,
+    repository: ControlCenterRepository,
     event_id: str,
     message: str,
     user: PlatformUser,
@@ -931,7 +947,7 @@ def _build_nexa_observability_payload(
     }, key, history
 
 
-def _bootstrap_user(repository: LocalControlCenterRepository, username: str, password: str) -> None:
+def _bootstrap_user(repository: ControlCenterRepository, username: str, password: str) -> None:
     now = datetime.now(timezone.utc)
     existing = repository.get_platform_user_by_username(username)
     repository.save_platform_user(PlatformUser(
@@ -959,29 +975,74 @@ def create_control_center_app(
     nexa_secret: str | None = None,
     qa_mode: bool | None = None,
     environment: str | None = None,
+    repository: ControlCenterRepository | None = None,
+    settings: ControlCenterSettings | None = None,
 ) -> FastAPI:
-    configured: ControlCenterSettings | None = None
-    if database_path is None or credentials is None or session_secret is None:
+    configured = settings
+    if configured is None and (
+        repository is None
+        and (database_path is None or credentials is None or session_secret is None)
+    ):
         configured = get_control_center_settings()
-    path = Path(database_path or configured.database_path).resolve()
-    repository = LocalControlCenterRepository(path)
+
+    storage = configured.storage if configured else "local"
+    path: Path | None = None
+    if repository is None:
+        if storage == "supabase":
+            if configured is None:
+                raise RuntimeError("Configuracao Supabase ausente.")
+            repository = SupabaseControlCenterRepository(
+                configured.supabase_url,
+                configured.supabase_service_role_key,
+            )
+        else:
+            path = Path(database_path or configured.database_path).resolve()
+            repository = LocalControlCenterRepository(path)
+    elif storage == "local" and database_path is not None:
+        path = Path(database_path).resolve()
     effective_seed = (
         configured.seed_demo if seed_demo is None and configured
         else False if seed_demo is None
         else bool(seed_demo)
     )
+    if storage == "supabase" and effective_seed:
+        raise RuntimeError("Seed demo e proibido no Control Center Supabase.")
     if effective_seed:
         seed_local_demo(repository)
-    effective_credentials = credentials if credentials is not None else {configured.admin_username: configured.admin_password}
-    if len(effective_credentials) != 1:
-        raise ValueError("O Control Center V1 aceita um único administrador local inicial.")
-    username, password = next(iter(effective_credentials.items()))
-    if len(password) < 12:
-        raise ValueError("A senha interna deve possuir pelo menos 12 caracteres.")
-    _bootstrap_user(repository, username.strip().casefold(), password)
+    if storage == "local":
+        effective_credentials = (
+            credentials
+            if credentials is not None
+            else {configured.admin_username: configured.admin_password}
+        )
+        if len(effective_credentials) != 1:
+            raise ValueError(
+                "O Control Center V1 aceita um unico administrador local inicial."
+            )
+        username, password = next(iter(effective_credentials.items()))
+        if len(password) < 12:
+            raise ValueError("A senha interna deve possuir pelo menos 12 caracteres.")
+        _bootstrap_user(repository, username.strip().casefold(), password)
+    elif credentials:
+        raise RuntimeError(
+            "Credencial bootstrap nao pode ser usada no processo web de producao."
+        )
     effective_secret = session_secret or configured.session_secret
     if len(effective_secret) < 32:
         raise ValueError("O segredo de sessão interno deve possuir pelo menos 32 caracteres.")
+
+    production_security = bool(configured and configured.production)
+    allowed_hosts = configured.allowed_hosts if configured else LOCAL_HOSTS
+    public_origin = configured.public_origin if configured else ""
+    max_body_bytes = configured.max_body_bytes if configured else 262_144
+    login_limiter = LoginRateLimiter(
+        limit=configured.login_rate_limit if configured else 8,
+        window_seconds=configured.login_rate_window_seconds if configured else 300,
+    )
+    login_ip_limiter = LoginRateLimiter(
+        limit=(configured.login_rate_limit if configured else 8) * 3,
+        window_seconds=configured.login_rate_window_seconds if configured else 300,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -992,9 +1053,22 @@ def create_control_center_app(
     app.state.control_database_path = path
     app.state.control_port = port or (configured.port if configured else 8770)
     app.state.control_seed_demo = effective_seed
-    app.state.nexa_secret = nexa_secret if nexa_secret is not None else os.getenv("NEXA_ERP_BRIDGE_SECRET", "").strip()
+    app.state.control_storage = storage
+    app.state.login_rate_limiter = login_limiter
+    app.state.login_ip_rate_limiter = login_ip_limiter
+    app.state.nexa_secret = (
+        nexa_secret
+        if nexa_secret is not None
+        else configured.nexa_bridge_secret
+        if configured is not None
+        else os.getenv("NEXA_ERP_BRIDGE_SECRET", "").strip()
+    )
+    app.state.nexa_url = (
+        configured.nexa_bridge_url if configured is not None else (_bridge_url() or "")
+    )
     control_environment = str(
         environment if environment is not None
+        else configured.environment if configured is not None
         else os.getenv("CONTROL_CENTER_ENVIRONMENT", "local")
     ).strip().casefold() or "local"
     effective_qa_mode = (
@@ -1037,24 +1111,79 @@ def create_control_center_app(
 
     @app.middleware("http")
     async def secure_local_requests(request: Request, call_next):
-        if request.method in UNSAFE_METHODS and not _same_origin(request):
-            return PlainTextResponse("Solicitação local inválida.", status_code=403)
+        if production_security and request.url.scheme.casefold() != "https":
+            return PlainTextResponse("HTTPS obrigatorio.", status_code=400)
+        if request.method in UNSAFE_METHODS:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    declared_length = int(content_length)
+                except ValueError:
+                    return PlainTextResponse(
+                        "Tamanho de requisicao invalido.", status_code=400
+                    )
+                if declared_length < 0 or declared_length > max_body_bytes:
+                    return PlainTextResponse("Requisicao muito grande.", status_code=413)
+            chunks: list[bytes] = []
+            received = 0
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > max_body_bytes:
+                    return PlainTextResponse("Requisicao muito grande.", status_code=413)
+                chunks.append(chunk)
+            request._body = b"".join(chunks)
+        if request.method in UNSAFE_METHODS and not _same_origin(
+            request, public_origin
+        ):
+            return PlainTextResponse("Solicitacao invalida.", status_code=403)
         response = await call_next(request)
         response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'")
-        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        response.headers.setdefault("Cache-Control", "no-store")
+        if production_security:
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
         return response
 
-    app.add_middleware(SessionMiddleware, secret_key=effective_secret, session_cookie=SESSION_COOKIE, same_site="strict", https_only=False, max_age=SESSION_MAX_AGE)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=effective_secret,
+        session_cookie=SESSION_COOKIE,
+        same_site="strict",
+        https_only=production_security,
+        max_age=SESSION_MAX_AGE,
+    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/css", ".css")
     app.mount("/static", StaticFiles(directory=CONTROL_CENTER_ROOT / "static"), name="control_static")
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "nexpoint-control-center", "storage": "local"}
+        try:
+            repository.initialize()
+        except Exception:
+            return JSONResponse({
+                "status": "unavailable",
+                "service": "nexpoint-control-center",
+                "environment": control_environment,
+                "storage": storage,
+            }, status_code=503)
+        return {
+            "status": "ok",
+            "service": "nexpoint-control-center",
+            "environment": control_environment,
+            "storage": storage,
+        }
 
     @app.get("/login")
     def login_page(request: Request):
@@ -1065,14 +1194,40 @@ def create_control_center_app(
     @app.post("/login")
     def login(request: Request, username: str = Form("", max_length=180), password: str = Form("", max_length=1024), csrf: str = Form("", alias="_csrf", max_length=128)):
         _require_csrf(request, csrf)
-        user = repository.authenticate_platform_user(username.strip().casefold(), password)
+        normalized_username = username.strip().casefold()
+        client_host = request.client.host if request.client is not None else "unknown"
+        rate_key = login_rate_key(client_host, normalized_username)
+        ip_rate_key = login_rate_key(client_host, "*")
+        retry_values = tuple(filter(None, (
+            login_limiter.retry_after(rate_key),
+            login_ip_limiter.retry_after(ip_rate_key),
+        )))
+        retry_after = max(retry_values) if retry_values else None
+        if retry_after is not None:
+            response = templates.TemplateResponse(
+                request,
+                "login.html",
+                {
+                    "request": request,
+                    "error": "Muitas tentativas. Aguarde antes de tentar novamente.",
+                    "username": username,
+                    "csrf_token": _csrf_token(request),
+                },
+                status_code=429,
+            )
+            response.headers["Retry-After"] = str(retry_after)
+            return response
+        user = repository.authenticate_platform_user(normalized_username, password)
         if user is None or not user.active or user.role not in PLATFORM_ROLES:
+            login_limiter.record_failure(rate_key)
+            login_ip_limiter.record_failure(ip_rate_key)
             return templates.TemplateResponse(request, "login.html", {"request": request, "error": "Usuário interno ou senha inválidos.", "username": username, "csrf_token": _csrf_token(request)}, status_code=401)
-        csrf_token = _csrf_token(request)
+        login_limiter.clear(rate_key)
+        login_ip_limiter.clear(ip_rate_key)
         request.session.clear()
-        request.session[CSRF_SESSION_KEY] = csrf_token
         request.session["platform_user_id"] = user.id
         request.session["platform_credential_version"] = _credential_version(user)
+        _csrf_token(request)
         return RedirectResponse("/", status_code=303)
 
     @app.post("/logout")
@@ -1762,7 +1917,7 @@ def create_control_center_app(
     async def nexa_chat(request: Request):
         _require_csrf(request)
         secret = app.state.nexa_secret
-        url = _bridge_url()
+        url = str(app.state.nexa_url or "")
         if len(secret) < 32 or url is None:
             return JSONResponse({"error": "A Nexa está temporariamente indisponível. O painel continua funcionando."}, status_code=503)
         try:
@@ -1825,7 +1980,14 @@ def create_control_center_app(
             status="started",
         )
         try:
-            data = await asyncio.to_thread(_send_signed, url, secret, payload, request_id)
+            data = await asyncio.to_thread(
+                _send_signed,
+                url,
+                secret,
+                payload,
+                request_id,
+                caller="control-center",
+            )
         except (HTTPError, URLError, OSError, ValueError, TimeoutError) as exc:
             duration = int((time.monotonic() - started_at) * 1000)
             _record_control_nexa_event(
@@ -1895,7 +2057,17 @@ def create_control_center_app(
 
     @app.get("/sistema")
     def system_page(request: Request):
-        return templates.TemplateResponse(request, "system.html", _base_context(request, "system", "Sistema", control_port=app.state.control_port, demo_seed_enabled=app.state.control_seed_demo))
+        return templates.TemplateResponse(
+            request,
+            "system.html",
+            _base_context(
+                request,
+                "system",
+                "Sistema",
+                control_port=app.state.control_port,
+                demo_seed_enabled=app.state.control_seed_demo,
+            ),
+        )
 
     @app.exception_handler(404)
     async def not_found(request: Request, _error):

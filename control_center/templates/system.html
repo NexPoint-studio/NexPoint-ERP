@@ -1,5 +1,33 @@
 {% extends "base.html" %}
 {% block content %}
-<header class="page-heading"><div><p class="eyebrow">SISTEMA</p><h1>Estado do Control Center</h1><p>Limites técnicos da primeira versão local.</p></div></header>
-<section class="two-grid"><article class="panel"><h2>Aplicação</h2><dl class="context-list"><div><dt>Execução</dt><dd>127.0.0.1:{{ control_port }}</dd></div><div><dt>Persistência</dt><dd>SQLite local separado</dd></div><div><dt>Repository</dt><dd>LocalControlCenterRepository</dd></div><div><dt>Cloud</dt><dd>Não configurada</dd></div><div><dt>Seed fictícia</dt><dd>{{ 'Ativa e identificada' if demo_seed_enabled else 'Desativada' }}</dd></div></dl></article><article class="panel"><h2>Limites de acesso</h2><ul class="check-list"><li>Perfil exclusivo platform_admin</li><li>Cookie de sessão separado do ERP cliente</li><li>Sem SQL arbitrário ou acesso remoto ao banco do cliente</li><li>Tools da Nexa somente leitura</li><li>Sem ações financeiras, billing ou licenciamento</li><li>Sem Supabase ou produção nesta versão</li></ul></article></section>
+<header class="page-heading">
+  <div>
+    <p class="eyebrow">SISTEMA</p>
+    <h1>Estado do Control Center</h1>
+    <p>Configuração técnica do painel privado NexPoint.</p>
+  </div>
+</header>
+<section class="two-grid">
+  <article class="panel">
+    <h2>Aplicação</h2>
+    <dl class="context-list">
+      <div><dt>Ambiente</dt><dd>{{ 'PROD' if control_environment == 'production' else 'QA' if control_environment == 'qa' else 'LOCAL' }}</dd></div>
+      <div><dt>Persistência</dt><dd>{{ 'Supabase NexPoint-ERP' if control_storage == 'supabase' else 'SQLite local separado' }}</dd></div>
+      <div><dt>Repository</dt><dd>{{ 'SupabaseControlCenterRepository' if control_storage == 'supabase' else 'LocalControlCenterRepository' }}</dd></div>
+      <div><dt>Porta interna</dt><dd>{{ control_port }}</dd></div>
+      <div><dt>Seed fictícia</dt><dd>{{ 'Ativa e identificada' if demo_seed_enabled else 'Desativada' }}</dd></div>
+    </dl>
+  </article>
+  <article class="panel">
+    <h2>Limites de acesso</h2>
+    <ul class="check-list">
+      <li>Funções globais restritas ao perfil platform_admin</li>
+      <li>Cookie de sessão separado do ERP cliente</li>
+      <li>Sem SQL arbitrário ou acesso remoto ao SQLite do cliente</li>
+      <li>Tools da Nexa somente leitura</li>
+      <li>Sem ações financeiras, billing ou licenciamento</li>
+      <li>QA permanece separado de PROD</li>
+    </ul>
+  </article>
+</section>
 {% endblock %}

@@ -36,6 +36,13 @@ def _login(client: TestClient, username: str, password: str) -> str:
         follow_redirects=False,
     )
     assert response.status_code == 303
+    authenticated = client.get("/")
+    rotated = re.search(
+        r'<meta name="csrf-token" content="([A-Za-z0-9_-]+)"',
+        authenticated.text,
+    )
+    assert rotated is not None
+    csrf = rotated.group(1)
     client.headers["X-CSRF-Token"] = csrf
     return csrf
 

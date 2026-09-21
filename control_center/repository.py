@@ -325,6 +325,10 @@ class ControlCenterRepository(Protocol):
         self, username: str, password: str
     ) -> PlatformUser | None: ...
 
+    def platform_user_can_access_tenant(
+        self, user: PlatformUser, tenant_id: str
+    ) -> bool: ...
+
     def dashboard_summary(
         self,
         *,

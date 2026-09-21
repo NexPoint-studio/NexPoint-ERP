@@ -140,12 +140,22 @@ def control_login(client: TestClient, *, password: str = CONTROL_PASSWORD):
     match = re.search(r'name="_csrf" value="([A-Za-z0-9_-]+)"', page.text)
     assert match is not None
     csrf_token = match.group(1)
-    client.headers["X-CSRF-Token"] = csrf_token
-    return client.post(
+    response = client.post(
         "/login",
         data={"username": CONTROL_USERNAME, "password": password, "_csrf": csrf_token},
         follow_redirects=False,
     )
+    if response.status_code == 303:
+        authenticated = client.get("/")
+        rotated = re.search(
+            r'<meta name="csrf-token" content="([A-Za-z0-9_-]+)"',
+            authenticated.text,
+        )
+        assert rotated is not None
+        client.headers["X-CSRF-Token"] = rotated.group(1)
+    else:
+        client.headers["X-CSRF-Token"] = csrf_token
+    return response
 
 
 def _status_options(html: str, action: str) -> set[str]:
@@ -519,9 +529,15 @@ def test_nexa_unavailable_returns_503_without_breaking_control_center(control_cl
 def test_nexa_receives_only_the_authorized_ticket_snapshot(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
 
-    def fake_send(url, secret, payload, request_id):
+    def fake_send(url, secret, payload, request_id, *, caller):
         captured.update(
-            {"url": url, "secret": secret, "payload": payload, "request_id": request_id}
+            {
+                "url": url,
+                "secret": secret,
+                "payload": payload,
+                "request_id": request_id,
+                "caller": caller,
+            }
         )
         return {"reply": "Diagnostico interno controlado.", "sources": []}
 
@@ -622,7 +638,7 @@ def test_nexa_chat_tolerates_non_list_sources(monkeypatch, tmp_path, invalid_sou
     )
     monkeypatch.setattr(
         "control_center.web._send_signed",
-        lambda *_args: {
+        lambda *_args, **_kwargs: {
             "reply": "Diagnostico interno controlado.",
             "sources": invalid_sources,
         },

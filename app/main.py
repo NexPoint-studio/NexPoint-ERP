@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
@@ -21,6 +22,10 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import ROOT_DIR, Settings, development_credentials, get_settings
 from app.core.database import build_engine, build_session_factory
+from app.core.installation_identity import (
+    InstallationCredentialStore,
+    InstallationCredentials,
+)
 from app.repositories import AuthRepository, ConfigurationRepository
 from app.routes import (
     audit_router,
@@ -48,7 +53,12 @@ from app.services.erp_diagnostics import DiagnosticMonitor
 from app.services.control_center_adapter import ControlTelemetryAdapter, control_center_identity_for
 from app.services.connectivity import ConnectivityService
 from app.services.sync_engine import OfflineSyncEngine, SyncWorker
-from app.services.sync_remote import LocalSyncRemote, SyncRemoteError
+from app.services.sync_remote import (
+    LocalSyncRemote,
+    SupabaseSyncRemote,
+    SyncRemoteError,
+)
+from app.services.admin_recovery_remote import SupabaseAdminRecoveryRemote
 from app.services.support_tickets import ensure_control_center_repository
 from app.services.remember_sessions import (
     RememberSessionService,
@@ -90,6 +100,18 @@ def _sqlite_database_path(database_url: str) -> Path:
     return Path(parsed.database).resolve()
 
 
+def _production_environment(settings: Settings) -> bool:
+    return settings.environment.strip().casefold() in {"prod", "production"}
+
+
+def _path_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def _same_origin(request: Request) -> bool:
     reference = request.headers.get("origin") or request.headers.get("referer")
     if not reference:
@@ -129,7 +151,7 @@ def create_app(
             raise RuntimeError(
                 "database_url diverge da configuracao explicita da aplicacao."
             )
-        if base_settings.environment.strip().casefold() == "production" and base_settings.qa_mode:
+        if _production_environment(base_settings) and base_settings.qa_mode:
             raise RuntimeError("ERP_QA_MODE não pode ser habilitado em produção.")
         if base_settings.qa_mode and base_settings.tenant_type.strip().upper() != "TEST":
             raise RuntimeError("ERP_QA_MODE exige ERP_TENANT_TYPE=TEST.")
@@ -143,6 +165,32 @@ def create_app(
     effective_database_url = database_url or base_settings.database_url
     database_path = _sqlite_database_path(effective_database_url)
     operational_database_path = (ROOT_DIR / "data" / "erp.sqlite3").resolve()
+    production_credentials: InstallationCredentials | None = None
+    if _production_environment(base_settings):
+        if base_settings.sync_backend != "supabase":
+            raise RuntimeError("PROD exige o remote de sincronizacao Supabase.")
+        if not base_settings.sync_endpoint:
+            raise RuntimeError("PROD exige endpoint de sincronizacao configurado.")
+        if not base_settings.installation_credentials_path:
+            raise RuntimeError("PROD exige credencial protegida por instalacao.")
+        if _path_within(database_path, ROOT_DIR):
+            raise RuntimeError("O banco operacional PROD deve ficar fora do projeto.")
+        production_credentials = InstallationCredentialStore(
+            Path(base_settings.installation_credentials_path)
+        ).load()
+        base_settings = replace(
+            base_settings,
+            session_secret=production_credentials.local_session_secret(),
+            tenant_type=production_credentials.tenant_kind,
+        )
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        if not database_path.is_file() or database_path.stat().st_size < 100:
+            raise RuntimeError(
+                "O banco PROD ainda nao foi instalado. Execute o provisionamento "
+                "controlado antes de iniciar o ERP."
+            )
+    elif base_settings.sync_backend != "local":
+        raise RuntimeError("LOCAL e QA exigem o remote local de sincronizacao.")
     explicit_control_path: Path | None = None
     if control_center_database_path is not None:
         explicit_control_path = Path(
@@ -180,7 +228,9 @@ def create_app(
                 "O modo QA exige um Control Center identificado como QA."
             )
     backup_root = (
-        ROOT_DIR / "backups"
+        database_path.parent / "backups"
+        if _production_environment(base_settings)
+        else ROOT_DIR / "backups"
         if database_url is None and settings_override is None
         else database_path.parent / "backups"
     )
@@ -250,12 +300,32 @@ def create_app(
     app.state.session_cookie_name = session_cookie
     app.state.backup_root = backup_root
     app.state.restore_result = restore_result
-    app.state.nexa_secret = os.getenv("NEXA_ERP_BRIDGE_SECRET", "").strip()
+    app.state.nexa_secret = (
+        production_credentials.secret
+        if production_credentials is not None
+        else os.getenv("NEXA_ERP_BRIDGE_SECRET", "").strip()
+    )
+    app.state.nexa_url = (
+        base_settings.nexa_bridge_url
+        if production_credentials is not None
+        else ""
+    )
+    app.state.nexa_tenant_id = (
+        production_credentials.tenant_id if production_credentials is not None else ""
+    )
+    app.state.nexa_installation_id = (
+        production_credentials.installation_id
+        if production_credentials is not None else ""
+    )
     with factory() as identity_session:
         persisted_settings = ConfigurationRepository(identity_session).settings()
-    _source_identity, observability_tenant_id, observability_installation_id = (
-        control_center_identity_for(persisted_settings)
-    )
+    if production_credentials is not None:
+        observability_tenant_id = production_credentials.tenant_id
+        observability_installation_id = production_credentials.installation_id
+    else:
+        _source_identity, observability_tenant_id, observability_installation_id = (
+            control_center_identity_for(persisted_settings)
+        )
     app.state.remember_installation_id = observability_installation_id
     observability_database_path = database_path.with_name(
         f"{database_path.stem}_observability.sqlite3"
@@ -291,14 +361,21 @@ def create_app(
         debug_enabled=base_settings.observability_debug,
     )
     app.state.control_center_repository = None
+    app.state.admin_recovery_remote = None
     app.state.control_telemetry_adapter = None
+    app.state.control_center_tenant_id = observability_tenant_id
+    app.state.control_center_installation_id = observability_installation_id
     app.state.connectivity_service = ConnectivityService()
     app.state.sync_engine = None
     app.state.sync_worker = None
     if explicit_control_path is not None:
         app.state.control_center_database_path = explicit_control_path
     try:
-        if control_center_database_path is None and database_url is None:
+        if (
+            not _production_environment(base_settings)
+            and control_center_database_path is None
+            and database_url is None
+        ):
             app.state.control_center_database_path = get_control_center_database_path()
         app.state.control_center_repository = ensure_control_center_repository(app)
     except Exception as exc:
@@ -312,14 +389,36 @@ def create_app(
     # The durable outbox and its worker must exist even when the sidecar file
     # cannot be opened at startup. Later retries reconnect without restarting ERP.
     app.state.control_telemetry_adapter = ControlTelemetryAdapter(
-        app.state.control_center_repository, outbox_only=True,
+        app.state.control_center_repository,
+        interval_seconds=base_settings.heartbeat_interval_seconds,
+        outbox_only=True,
     )
+    if production_credentials is not None:
+        sync_remote = SupabaseSyncRemote(
+            base_settings.sync_endpoint,
+            production_credentials,
+            timeout_seconds=base_settings.sync_timeout_seconds,
+        )
+        recovery_endpoint = base_settings.sync_endpoint.removesuffix("/erp-sync") + (
+            "/erp-admin-recovery"
+        )
+        app.state.admin_recovery_remote = SupabaseAdminRecoveryRemote(
+            recovery_endpoint,
+            production_credentials,
+            timeout_seconds=base_settings.sync_timeout_seconds,
+        )
+    else:
+        sync_remote = _ReconnectingLocalSyncRemote(app)
     app.state.sync_engine = OfflineSyncEngine(
-        factory, _ReconnectingLocalSyncRemote(app),
+        factory, sync_remote,
         connectivity=app.state.connectivity_service,
         diagnostic_monitor=app.state.diagnostic_monitor,
     )
-    app.state.sync_worker = SyncWorker(app.state.sync_engine)
+    app.state.sync_worker = SyncWorker(
+        app.state.sync_engine,
+        before_run=lambda: app.state.control_telemetry_adapter.maybe_publish(app),
+        shutdown_timeout_seconds=base_settings.sync_timeout_seconds + 2,
+    )
     app.state.control_telemetry_adapter.maybe_publish(app, force=True)
 
     def apply_remember_cookie(request: Request, response):
@@ -546,7 +645,11 @@ def create_app(
     # externa: request.session já existe quando load_current_user é executado.
     app.add_middleware(
         SessionMiddleware,
-        secret_key=session_secret or base_settings.session_secret,
+        secret_key=(
+            base_settings.session_secret
+            if _production_environment(base_settings)
+            else session_secret or base_settings.session_secret
+        ),
         session_cookie=session_cookie,
         same_site="strict",
         https_only=False,

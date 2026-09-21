@@ -23,7 +23,7 @@
         {% endfor %}
       </nav>
       <div class="control-user">
-        <div><strong>{{ platform_user.display_name }}</strong><small>Administrador NexPoint</small></div>
+        <div><strong>{{ platform_user.display_name }}</strong><small>{{ 'Administrador da plataforma' if platform_user.role == 'platform_admin' else 'Suporte NexPoint' }}</small></div>
         <form action="/logout" method="post"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button type="submit" class="text-button">Sair</button></form>
       </div>
     </aside>
@@ -31,7 +31,7 @@
       <header class="control-topbar">
         <button type="button" class="menu-toggle" data-menu-toggle aria-label="Abrir menu">☰</button>
         <div><span>Área privada NexPoint</span><strong>{{ page_title }}</strong></div>
-        <p><i></i>Somente local</p>
+        <p><i></i>{{ 'PROD' if control_environment == 'production' else 'QA' if control_environment == 'qa' else 'LOCAL' }}</p>
       </header>
       <main class="control-content">
         {% if flash %}<div class="alert alert--{{ flash.kind }}" role="status">{{ flash.message }}</div>{% endif %}

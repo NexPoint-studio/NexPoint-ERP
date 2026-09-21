@@ -33,6 +33,13 @@ def _login(client: TestClient) -> str:
         follow_redirects=False,
     )
     assert response.status_code == 303
+    authenticated = client.get("/")
+    rotated = re.search(
+        r'<meta name="csrf-token" content="([A-Za-z0-9_-]+)"',
+        authenticated.text,
+    )
+    assert rotated is not None
+    csrf = rotated.group(1)
     client.headers["X-CSRF-Token"] = csrf
     return csrf
 
@@ -247,12 +254,13 @@ def test_nexa_log_investigation_uses_only_sanitized_read_only_snapshots(
         ))
     captured = {}
 
-    def fake_send(url, bridge_secret, payload, request_id):
+    def fake_send(url, bridge_secret, payload, request_id, *, caller):
         captured.update({
             "url": url,
             "secret": bridge_secret,
             "payload": payload,
             "request_id": request_id,
+            "caller": caller,
         })
         return {
             "reply": "Diagnóstico baseado em evidências.",
@@ -361,7 +369,8 @@ def test_ticket_investigation_includes_scoped_read_only_log_tools(
     app = _app(tmp_path, nexa_secret="ticket-log-secret-with-at-least-32-characters")
     captured = {}
 
-    def fake_send(_url, _secret, payload, _request_id):
+    def fake_send(_url, _secret, payload, _request_id, *, caller):
+        assert caller == "control-center"
         captured.update(payload)
         return {"reply": "Evidência citada com confiança média.", "sources": []}
 

@@ -181,7 +181,8 @@ def test_nexa_bridge_sends_only_server_derived_context(client, monkeypatch):
     client.app.state.nexa_secret = "x" * 40
     captured = []
 
-    def fake_send(url, secret, payload, request_id):
+    def fake_send(url, secret, payload, request_id, **identity):
+        assert set(identity) == {"tenant_id", "installation_id"}
         captured.append(payload)
         return {"reply": "O módulo de clientes está disponível.", "sources": []}
 
@@ -211,7 +212,10 @@ def test_nexa_bridge_sends_only_server_derived_context(client, monkeypatch):
 
 def test_nexa_unavailable_does_not_break_erp(client, monkeypatch):
     client.app.state.nexa_secret = "y" * 40
-    monkeypatch.setattr("app.routes.nexa._send_signed", lambda *_: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(
+        "app.routes.nexa._send_signed",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")),
+    )
     login(client, "admin@local")
     result = client.post("/nexa/chat", json={"message": "Ajuda", "screen": "/clientes/lista"})
     assert result.status_code == 503
@@ -260,7 +264,11 @@ def test_nexa_source_filter_returns_only_bounded_public_https_fields():
 def test_nexa_diagnostic_events_are_isolated(client, monkeypatch):
     client.app.state.nexa_secret = "z" * 40
     captured = []
-    monkeypatch.setattr("app.routes.nexa._send_signed", lambda _u, _s, payload, _r: captured.append(payload) or {"reply": "ok"})
+    monkeypatch.setattr(
+        "app.routes.nexa._send_signed",
+        lambda _u, _s, payload, _r, **_identity: captured.append(payload)
+        or {"reply": "ok"},
+    )
     monitor = client.app.state.diagnostic_monitor
     with client.app.state.session_factory() as session:
         user_id = session.scalar(select(User.id).where(User.email == "usuario@local"))

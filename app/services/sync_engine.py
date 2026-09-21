@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import random
 from threading import Event, Lock, Thread
+from typing import Callable
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.repositories.sync import OutboxRepository
@@ -227,9 +228,15 @@ class OfflineSyncEngine:
 class SyncWorker:
     """Small daemon worker; requests only call wake() and never run network I/O."""
 
-    def __init__(self, engine: OfflineSyncEngine, *, interval_seconds: float = 30.0):
+    def __init__(self, engine: OfflineSyncEngine, *, interval_seconds: float = 30.0,
+                 before_run: Callable[[], object] | None = None,
+                 shutdown_timeout_seconds: float = 5.0):
         self.engine = engine
         self.interval_seconds = max(1.0, min(float(interval_seconds), 3600.0))
+        self.before_run = before_run
+        self.shutdown_timeout_seconds = max(
+            0.0, min(float(shutdown_timeout_seconds), 60.0)
+        )
         self._wake = Event()
         self._stop = Event()
         self._guard = Lock()
@@ -250,12 +257,13 @@ class SyncWorker:
     def wake(self) -> None:
         self._wake.set()
 
-    def stop(self, *, timeout: float = 5.0) -> None:
+    def stop(self, *, timeout: float | None = None) -> None:
         self._stop.set()
         self._wake.set()
         thread = self._thread
         if thread is not None:
-            thread.join(max(0.0, timeout))
+            wait_for = self.shutdown_timeout_seconds if timeout is None else max(0.0, timeout)
+            thread.join(wait_for)
 
     def _run(self) -> None:
         try:
@@ -271,6 +279,20 @@ class SyncWorker:
             self._wake.clear()
             if self._stop.is_set():
                 break
+            if self.before_run is not None:
+                try:
+                    self.before_run()
+                except Exception as exc:
+                    # Heartbeat/telemetry is best-effort. Existing Outbox items
+                    # still need a chance to sync during this cycle.
+                    self.engine._record(
+                        event_type="sync.periodic_task_failed",
+                        operation="before_run",
+                        status="failed",
+                        severity="WARNING",
+                        error_code="periodic_task_error",
+                        metadata={"exception_type": type(exc).__name__},
+                    )
             try:
                 self.engine.run_once()
             except Exception as exc:

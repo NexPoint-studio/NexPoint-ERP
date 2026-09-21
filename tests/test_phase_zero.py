@@ -165,7 +165,14 @@ def test_no_cloud_package_or_unapproved_external_runtime_reference():
         assert package not in pyproject
     # A ponte Nexa autorizada é exclusivamente server-side e fica isolada
     # nestes dois arquivos. O restante do ERP continua local/autocontido.
-    bridge_files = {root / "app/routes/nexa.py", root / "app/services/nexa_adapter.py"}
+    bridge_files = {
+        root / "app/routes/nexa.py",
+        root / "app/services/nexa_adapter.py",
+        root / "app/core/config.py",
+        root / "app/main.py",
+        root / "app/services/sync_remote.py",
+        root / "app/services/admin_recovery_remote.py",
+    }
     runtime_files = [
         *(path for path in root.joinpath("app").rglob("*.py") if path not in bridge_files),
         *root.joinpath("templates").rglob("*.html"),

@@ -8,12 +8,19 @@ import ipaddress
 import json
 import os
 import secrets
+import ssl
 import socket
 import time
 import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request as UrlRequest, urlopen
+from urllib.request import (
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    Request as UrlRequest,
+    build_opener,
+    urlopen,
+)
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -39,24 +46,34 @@ _LOCAL_SOURCE_SUFFIXES = (
     ".home",
     ".lan",
 )
+NEXA_INSTALLATION_REQUEST_SIGNATURE_DOMAIN = "nexa-erp-installation-v1"
+NEXA_INSTALLATION_RESPONSE_SIGNATURE_DOMAIN = "nexa-erp-installation-response-v1"
+_OPAQUE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$")
 
 
-def _bridge_url() -> str | None:
-    raw = os.getenv("NEXA_ERP_BRIDGE_URL", "http://127.0.0.1:54421/functions/v1/erp-chat").strip()
+def _bridge_url(*, production: bool = False) -> str | None:
+    raw = os.getenv(
+        "NEXA_ERP_BRIDGE_URL",
+        "" if production else "http://127.0.0.1:54421/functions/v1/erp-chat",
+    ).strip()
     parsed = urlsplit(raw)
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         return None
     if parsed.scheme == "https" and parsed.hostname:
         return raw
-    if parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}:
+    if (
+        not production
+        and parsed.scheme == "http"
+        and parsed.hostname in {"127.0.0.1", "localhost"}
+    ):
         return raw
     return None
 
 
-def _bridge_availability(secret: str) -> str:
+def _bridge_availability(secret: str, configured_url: str | None = None) -> str:
     """Reporta disponibilidade local real sem executar a função ou enviar dados."""
     global _AVAILABILITY_CACHE
-    url = _bridge_url()
+    url = configured_url or _bridge_url()
     if len(secret) < 32 or url is None:
         return "unconfigured"
     parsed = urlsplit(url)
@@ -148,36 +165,97 @@ def _response_signature_hex(
     nonce: str,
     request_id: str,
     raw_body: bytes,
+    *,
+    tenant_id: str | None = None,
+    installation_id: str | None = None,
 ) -> str:
-    signed_response = (
-        b"nexa-erp-response-v1\n"
-        + timestamp.encode("utf-8")
-        + b"\n"
-        + nonce.encode("utf-8")
-        + b"\n"
-        + request_id.encode("utf-8")
-        + b"\n"
-        + raw_body
-    )
+    if tenant_id is None and installation_id is None:
+        prefix = f"nexa-erp-response-v1\n{timestamp}\n{nonce}\n{request_id}\n"
+    elif (
+        isinstance(tenant_id, str)
+        and isinstance(installation_id, str)
+        and _OPAQUE_ID.fullmatch(tenant_id)
+        and _OPAQUE_ID.fullmatch(installation_id)
+    ):
+        prefix = (
+            f"{NEXA_INSTALLATION_RESPONSE_SIGNATURE_DOMAIN}\n{tenant_id}\n"
+            f"{installation_id}\n{timestamp}\n{nonce}\n{request_id}\n"
+        )
+    else:
+        raise ValueError("Escopo de instalacao Nexa invalido")
+    signed_response = prefix.encode("utf-8") + raw_body
     return hmac.new(
         secret.encode("utf-8"), signed_response, hashlib.sha256
     ).hexdigest()
 
 
-def _send_signed(url: str, secret: str, payload: dict, request_id: str) -> dict:
+class _RejectNexaRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
+def _open_production_nexa(request: UrlRequest, timeout: float):
+    context = ssl.create_default_context()
+    if hasattr(ssl, "TLSVersion"):
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return build_opener(
+        HTTPSHandler(context=context), _RejectNexaRedirects()
+    ).open(request, timeout=timeout)
+
+
+def _send_signed(
+    url: str,
+    secret: str,
+    payload: dict,
+    request_id: str,
+    *,
+    tenant_id: str | None = None,
+    installation_id: str | None = None,
+    caller: str | None = None,
+    production_opener=None,
+) -> dict:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     timestamp = str(int(time.time()))
-    nonce = str(uuid4())
-    signed = timestamp.encode() + b"\n" + nonce.encode() + b"\n" + body
+    production = tenant_id is not None or installation_id is not None
+    if production:
+        if (
+            not isinstance(tenant_id, str)
+            or not isinstance(installation_id, str)
+            or not _OPAQUE_ID.fullmatch(tenant_id)
+            or not _OPAQUE_ID.fullmatch(installation_id)
+        ):
+            raise ValueError("Escopo de instalacao Nexa invalido")
+        nonce = secrets.token_hex(32)
+        body_hash = hashlib.sha256(body).hexdigest()
+        signed = (
+            f"{NEXA_INSTALLATION_REQUEST_SIGNATURE_DOMAIN}\n{tenant_id}\n"
+            f"{installation_id}\n{timestamp}\n{nonce}\n{body_hash}"
+        ).encode("utf-8")
+    else:
+        nonce = str(uuid4())
+        signed = timestamp.encode() + b"\n" + nonce.encode() + b"\n" + body
     signature = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
-    request = UrlRequest(url, body, {
+    headers = {
         "Content-Type": "application/json",
         "X-ERP-Timestamp": timestamp,
         "X-ERP-Nonce": nonce,
-        "X-ERP-Signature": signature,
+        "X-ERP-Signature": f"v1={signature}" if production else signature,
         "X-Request-ID": request_id,
-    }, method="POST")
-    with urlopen(request, timeout=12) as response:
+    }
+    if production:
+        headers.update({
+            "Authorization": f"Bearer {secret}",
+            "X-Nexpoint-Tenant-Id": tenant_id,
+            "X-Nexpoint-Installation-Id": installation_id,
+        })
+    elif caller is not None:
+        if caller != "control-center":
+            raise ValueError("Origem Nexa invalida")
+        headers["X-Nexpoint-Caller"] = caller
+    request = UrlRequest(url, body, headers, method="POST")
+    opener = (production_opener or _open_production_nexa) if production else urlopen
+    with opener(request, timeout=12) as response:
         if response.status != 200:
             raise URLError("Nexa indisponível")
         raw = response.read(65537)
@@ -191,7 +269,13 @@ def _send_signed(url: str, secret: str, payload: dict, request_id: str) -> dict:
     if match is None:
         raise ValueError("Resposta da Nexa sem assinatura válida")
     expected_response_signature = _response_signature_hex(
-        secret, timestamp, nonce, request_id, raw
+        secret,
+        timestamp,
+        nonce,
+        request_id,
+        raw,
+        tenant_id=tenant_id,
+        installation_id=installation_id,
     )
     if not hmac.compare_digest(match.group(1), expected_response_signature):
         raise ValueError("Assinatura da resposta Nexa inválida")
@@ -273,7 +357,8 @@ def context(request: Request, screen: str = ""):
         except Exception:
             pass
     availability = _bridge_availability(
-        str(getattr(request.app.state, "nexa_secret", ""))
+        str(getattr(request.app.state, "nexa_secret", "")),
+        str(getattr(request.app.state, "nexa_url", "")) or None,
     )
     return {
         "module": safe_context["module"],
@@ -290,7 +375,20 @@ async def chat(request: Request):
     if request.state.current_user is None:
         raise HTTPException(status_code=401)
     secret = getattr(request.app.state, "nexa_secret", "")
-    url = _bridge_url()
+    settings = request.app.state.settings
+    production = settings.environment == "production"
+    url = (
+        str(getattr(request.app.state, "nexa_url", ""))
+        if production
+        else _bridge_url()
+    )
+    tenant_id = (
+        str(getattr(request.app.state, "nexa_tenant_id", "")) if production else None
+    )
+    installation_id = (
+        str(getattr(request.app.state, "nexa_installation_id", ""))
+        if production else None
+    )
     if len(secret) < 32 or url is None:
         emit_observability_event(
             module="nexa", component="erp_bridge",
@@ -333,7 +431,15 @@ async def chat(request: Request):
         request_id=request_id, sync_required=True,
     )
     try:
-        data = await asyncio.to_thread(_send_signed, url, secret, payload, request_id)
+        data = await asyncio.to_thread(
+            _send_signed,
+            url,
+            secret,
+            payload,
+            request_id,
+            tenant_id=tenant_id,
+            installation_id=installation_id,
+        )
     except (HTTPError, URLError, OSError, ValueError, TimeoutError) as exc:
         emit_observability_event(
             module="nexa", component="erp_bridge",

@@ -1,0 +1,47 @@
+previews:
+  generation: off
+
+services:
+  - type: web
+    name: nexpoint-erp-control-center
+    runtime: docker
+    numInstances: 1
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: CONTROL_CENTER_ENVIRONMENT
+        value: production
+      - key: CONTROL_CENTER_STORAGE
+        value: supabase
+      - key: CONTROL_CENTER_HOST
+        value: 0.0.0.0
+      - key: CONTROL_CENTER_SESSION_SECRET
+        generateValue: true
+      - key: CONTROL_CENTER_SUPABASE_URL
+        sync: false
+      - key: CONTROL_CENTER_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CONTROL_CENTER_SUPABASE_PROJECT_REF
+        sync: false
+      - key: CONTROL_CENTER_PUBLIC_ORIGIN
+        sync: false
+      - key: CONTROL_CENTER_ALLOWED_HOSTS
+        sync: false
+      - key: CONTROL_CENTER_NEXA_BRIDGE_SECRET
+        sync: false
+      - key: CONTROL_CENTER_TRUST_PROXY
+        value: "1"
+      - key: CONTROL_CENTER_FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: CONTROL_CENTER_MAX_BODY_BYTES
+        value: "262144"
+      - key: CONTROL_CENTER_LOGIN_RATE_LIMIT
+        value: "8"
+      - key: CONTROL_CENTER_LOGIN_RATE_WINDOW_SECONDS
+        value: "300"
+      - key: CONTROL_CENTER_QA_MODE
+        value: "0"
+      - key: CONTROL_CENTER_SEED_DEMO
+        value: "0"

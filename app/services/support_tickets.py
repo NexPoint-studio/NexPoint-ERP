@@ -151,26 +151,53 @@ def ensure_control_center_repository(app) -> ControlCenterRepository:
 
         with app.state.session_factory() as session:
             operational_settings = ConfigurationRepository(session).settings()
-        source_fingerprint, preferred_tenant_id, preferred_installation_id = (
-            control_center_identity_for(operational_settings)
-        )
-        path_fingerprint = sha256(
-            str(database_path).casefold().encode("utf-8")
-        ).hexdigest()
-        tenant_id, installation_id = repository.resolve_erp_identity(
-            source_fingerprint,
-            preferred_tenant_id,
-            preferred_installation_id,
-            migration_source_fingerprint=path_fingerprint,
-            legacy_tenant_id=(
-                legacy_id_for(database_path, secret, "tenant")
-                if len(secret) >= 32 else None
-            ),
-            legacy_installation_id=(
-                legacy_id_for(database_path, secret, "installation")
-                if len(secret) >= 32 else None
-            ),
-        )
+        production = str(app.state.settings.environment).strip().casefold() in {
+            "prod", "production"
+        }
+        if production:
+            preferred_tenant_id = _state_id(
+                app, "control_center_tenant_id", ""
+            )
+            preferred_installation_id = _state_id(
+                app, "control_center_installation_id", ""
+            )
+            source_fingerprint = sha256(
+                (
+                    "nexpoint-control-center:prod:"
+                    f"{preferred_tenant_id}:{preferred_installation_id}"
+                ).encode("utf-8")
+            ).hexdigest()
+            tenant_id, installation_id = repository.resolve_erp_identity(
+                source_fingerprint,
+                preferred_tenant_id,
+                preferred_installation_id,
+            )
+            if (tenant_id, installation_id) != (
+                preferred_tenant_id,
+                preferred_installation_id,
+            ):
+                raise RuntimeError("A identidade local diverge da instalacao PROD.")
+        else:
+            source_fingerprint, preferred_tenant_id, preferred_installation_id = (
+                control_center_identity_for(operational_settings)
+            )
+            path_fingerprint = sha256(
+                str(database_path).casefold().encode("utf-8")
+            ).hexdigest()
+            tenant_id, installation_id = repository.resolve_erp_identity(
+                source_fingerprint,
+                preferred_tenant_id,
+                preferred_installation_id,
+                migration_source_fingerprint=path_fingerprint,
+                legacy_tenant_id=(
+                    legacy_id_for(database_path, secret, "tenant")
+                    if len(secret) >= 32 else None
+                ),
+                legacy_installation_id=(
+                    legacy_id_for(database_path, secret, "installation")
+                    if len(secret) >= 32 else None
+                ),
+            )
         # Registration contains only local installation metadata. Keeping it
         # here preserves a stable tenant identity across restarts; operational
         # telemetry and tickets still travel exclusively through the Outbox.

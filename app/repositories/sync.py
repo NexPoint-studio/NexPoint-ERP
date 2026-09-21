@@ -153,9 +153,15 @@ class OutboxRepository:
         self.session.flush()
         return item.status
 
-    def counts(self) -> dict[str, int]:
-        return {status: int(count) for status, count in self.session.execute(
-            select(OutboxItem.status, func.count()).group_by(OutboxItem.status)).all()}
+    def counts(self, *, exclude_event_types: Sequence[str] = ()) -> dict[str, int]:
+        query = select(OutboxItem.status, func.count()).group_by(OutboxItem.status)
+        excluded = tuple(str(value) for value in exclude_event_types if value)
+        if excluded:
+            query = query.where(OutboxItem.event_type.not_in(excluded))
+        return {
+            status: int(count)
+            for status, count in self.session.execute(query).all()
+        }
 
     def list_unsynced(self, *, event_type: str | None = None, limit: int = 100) -> tuple[OutboxItem, ...]:
         query = select(OutboxItem).where(OutboxItem.status.in_((

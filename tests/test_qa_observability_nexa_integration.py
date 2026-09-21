@@ -74,6 +74,13 @@ def _login_support(client: TestClient) -> str:
         follow_redirects=False,
     )
     assert response.status_code == 303
+    authenticated = client.get("/")
+    rotated = re.search(
+        r'<meta name="csrf-token" content="([A-Za-z0-9_-]+)"',
+        authenticated.text,
+    )
+    assert rotated is not None
+    csrf = rotated.group(1)
     client.headers["X-CSRF-Token"] = csrf
     return csrf
 
@@ -150,9 +157,10 @@ def _assert_control_center_and_nexa_contract(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def evidence_driven_nexa_mock(url, secret, payload, request_id):
+    def evidence_driven_nexa_mock(url, secret, payload, request_id, *, caller):
         assert url == "http://127.0.0.1:54321"
         assert secret == NEXA_SECRET
+        assert caller == "control-center"
         tools = payload["tools"]
         timeline = tools["get_log_timeline"]["events"]
         matching = [
@@ -192,6 +200,7 @@ def _assert_control_center_and_nexa_contract(
         control_web, "_bridge_url", lambda: "http://127.0.0.1:54321"
     )
     monkeypatch.setattr(control_web, "_send_signed", evidence_driven_nexa_mock)
+    app.state.nexa_url = "http://127.0.0.1:54321"
 
     with TestClient(app) as client:
         _login_support(client)
