@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from io import StringIO
 import json
 from pathlib import Path
@@ -12,7 +13,7 @@ from control_center.security import verify_password
 from scripts import provision_prod
 
 
-PROJECT_REF = "abcdefghijklmnopqrst"
+PROJECT_REF = provision_prod.PRODUCTION_SUPABASE_PROJECT_REF
 SUPABASE_URL = f"https://{PROJECT_REF}.supabase.co"
 SERVICE_ROLE = "sb_secret_" + "R" * 40
 ADMIN_PASSWORD = "Senha-admin-muito-segura-2026"
@@ -43,6 +44,9 @@ class FakeSupabase:
         self.installation = None
         self.credential = None
         self.rpc_failure = None
+        self.probe_status = 200
+        self.probe_payload = {"users": []}
+        self.admin_select_status = 200
         self.calls = []
 
     @staticmethod
@@ -71,10 +75,21 @@ class FakeSupabase:
         assert headers["apikey"] == SERVICE_ROLE
         assert "Authorization" not in headers
 
+        if method == "GET" and parsed.path == "/auth/v1/admin/users":
+            assert query == {"page": ["1"], "per_page": ["1"]}
+            return self._json(self.probe_payload, status=self.probe_status)
         if method == "GET" and parsed.path == "/rest/v1/np_platform_users":
-            return self._json([self.admin] if self.admin else [])
+            return self._json(
+                [self.admin] if self.admin else [], status=self.admin_select_status
+            )
         if method == "GET" and parsed.path == "/rest/v1/np_tenants":
             return self._json([self.tenant] if self.tenant else [])
+        if method == "PATCH" and parsed.path == "/rest/v1/np_tenants":
+            assert self.tenant is not None
+            assert query.get("id") == [f"eq.{TENANT_UUID}"]
+            assert payload == {"billing_exempt": True}
+            self.tenant["billing_exempt"] = True
+            return self._json([self.tenant])
         if method == "GET" and parsed.path == "/rest/v1/np_installations":
             return self._json([self.installation] if self.installation else [])
         if (
@@ -115,6 +130,7 @@ class FakeSupabase:
                     "display_name": payload["p_display_name"],
                     "kind": payload["p_kind"],
                     "status": payload["p_tenant_status"],
+                    "billing_exempt": False,
                 }
             if self.installation is None:
                 self.installation = {
@@ -228,6 +244,33 @@ def test_first_provision_and_rerun_are_idempotent_without_sending_plaintext(tmp_
     assert rpc_posts[0]["payload"] == rpc_posts[1]["payload"]
     assert second_credentials == first_credentials
     assert path.read_bytes() == first_disk
+
+
+def test_internal_tenant_receives_explicit_billing_exemption_idempotently(tmp_path):
+    api = FakeSupabase()
+    config = replace(
+        configuration(tmp_path / "internal" / "installation.dpapi"),
+        tenant_kind="internal",
+        company_name="NexPoint",
+    )
+
+    provision_prod.provision(
+        config,
+        client=api.client(),
+        store_factory=_store_factory,
+        secret_factory=lambda: INSTALLATION_SECRET,
+    )
+    provision_prod.provision(
+        config,
+        client=api.client(),
+        store_factory=_store_factory,
+        secret_factory=lambda: pytest.fail("rerun must reuse the DPAPI secret"),
+    )
+
+    assert api.tenant["kind"] == "internal"
+    assert api.tenant["billing_exempt"] is True
+    assert len([call for call in api.calls if call["method"] == "PATCH"]) == 2
+    assert len([call for call in api.calls if call["method"] == "POST" and call["path"] == "/rest/v1/np_platform_users"]) == 1
 
 
 def test_existing_remote_installation_without_local_dpapi_fails_before_writes(tmp_path):
@@ -449,6 +492,204 @@ def test_service_role_jwt_must_match_role_and_project_ref():
         provision_prod._service_role_key(wrong_role, project_ref=PROJECT_REF)
     with pytest.raises(provision_prod.ProvisioningError, match="outro projeto"):
         provision_prod._service_role_key(wrong_ref, project_ref=PROJECT_REF)
+
+
+def test_server_credential_probe_accepts_secret_and_legacy_service_role_jwt():
+    jwt = (
+        f"{base64_url({'alg': 'HS256', 'typ': 'JWT'})}."
+        f"{base64_url({'role': 'service_role', 'ref': PROJECT_REF})}."
+        "synthetic-signature-for-transport-test"
+    )
+    for credential in (SERVICE_ROLE, jwt):
+        calls = []
+
+        def transport(method, url, headers, body, timeout):
+            calls.append((method, url, headers, body))
+            assert method == "GET"
+            assert url == f"{SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1"
+            assert headers["apikey"] == credential
+            if credential == jwt:
+                assert headers["Authorization"] == f"Bearer {jwt}"
+            else:
+                assert "Authorization" not in headers
+            assert body is None
+            return 200, {"Content-Type": "application/json"}, b'{"users":[]}'
+
+        client = provision_prod.SupabaseProvisioningClient(
+            SUPABASE_URL, credential, PROJECT_REF, transport=transport
+        )
+        client.validate_server_credential()
+        assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "credential",
+    [
+        None,
+        "",
+        "short",
+        "X" * 40,
+        "sb_publishable_" + "P" * 40,
+        "sb_secret_invalid space",
+        "SUBSTITUA_CHAVE_SERVICE_ROLE",
+    ],
+)
+def test_public_or_malformed_keys_are_rejected_before_network(credential):
+    with pytest.raises(provision_prod.ProvisioningError):
+        provision_prod._service_role_key(credential, project_ref=PROJECT_REF)
+
+
+@pytest.mark.parametrize(
+    "status,payload",
+    [(401, []), (403, []), (404, []), (500, []), (200, [{"id": ADMIN_UUID}])],
+)
+def test_server_credential_probe_rejects_remote_failure_without_exposing_key(
+    status, payload
+):
+    api = FakeSupabase()
+    api.probe_status = status
+    api.probe_payload = payload
+
+    with pytest.raises(provision_prod.ProvisioningError) as error:
+        api.client().validate_server_credential()
+
+    assert str(error.value) == "Supabase server credential: invalid."
+    assert SERVICE_ROLE not in str(error.value)
+    assert len(api.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "headers,body",
+    [
+        ({"Content-Type": "text/html"}, b"[]"),
+        ({"Content-Type": "application/json"}, b"not-json"),
+    ],
+)
+def test_server_credential_probe_rejects_malformed_response(headers, body):
+    def transport(*_args):
+        return 200, headers, body
+
+    client = provision_prod.SupabaseProvisioningClient(
+        SUPABASE_URL, SERVICE_ROLE, PROJECT_REF, transport=transport
+    )
+    with pytest.raises(provision_prod.ProvisioningError) as error:
+        client.validate_server_credential()
+    assert str(error.value) == "Supabase server credential: invalid."
+
+
+def test_valid_looking_keys_for_other_project_or_forged_jwt_fail_remote_probe():
+    forged_jwt = (
+        f"{base64_url({'alg': 'HS256', 'typ': 'JWT'})}."
+        f"{base64_url({'role': 'service_role', 'ref': PROJECT_REF})}."
+        "forged-signature-with-enough-length"
+    )
+    for credential in ("sb_secret_" + "W" * 40, forged_jwt):
+        calls = []
+
+        def transport(method, url, headers, body, timeout):
+            calls.append(method)
+            return 401, {"Content-Type": "application/json"}, b"{}"
+
+        client = provision_prod.SupabaseProvisioningClient(
+            SUPABASE_URL, credential, PROJECT_REF, transport=transport
+        )
+        with pytest.raises(provision_prod.ProvisioningError) as error:
+            client.validate_server_credential()
+        assert str(error.value) == "Supabase server credential: invalid."
+        assert credential not in str(error.value)
+        assert calls == ["GET"]
+
+
+def test_invalid_remote_credential_stops_before_any_write_or_dpapi(tmp_path):
+    api = FakeSupabase()
+    api.probe_status = 401
+    path = tmp_path / "credentials" / "installation.dpapi"
+
+    with pytest.raises(provision_prod.ProvisioningError, match="credential: invalid"):
+        provision_prod.provision(
+            configuration(path),
+            client=api.client(),
+            store_factory=_store_factory,
+            secret_factory=lambda: pytest.fail("secret must not be created"),
+        )
+
+    assert [(call["method"], call["path"]) for call in api.calls] == [
+        ("GET", "/auth/v1/admin/users")
+    ]
+    assert not path.exists()
+
+
+def test_missing_cloud_schema_is_not_reported_as_invalid_credential(tmp_path):
+    api = FakeSupabase()
+    api.admin_select_status = 404
+    path = tmp_path / "installation.dpapi"
+
+    with pytest.raises(provision_prod.ProvisioningError, match="schema Cloud PROD"):
+        provision_prod.provision(
+            configuration(path), client=api.client(), store_factory=_store_factory
+        )
+
+    assert [(call["method"], call["path"]) for call in api.calls] == [
+        ("GET", "/auth/v1/admin/users"),
+        ("GET", "/rest/v1/np_platform_users"),
+    ]
+    assert not path.exists()
+
+
+def test_cli_does_not_print_credential_on_remote_rejection(tmp_path):
+    api = FakeSupabase()
+    api.probe_status = 401
+    output = StringIO()
+    errors = StringIO()
+    path = tmp_path / "installation.dpapi"
+    environment = {
+        "CONTROL_CENTER_SUPABASE_URL": SUPABASE_URL,
+        "CONTROL_CENTER_SUPABASE_PROJECT_REF": PROJECT_REF,
+        "CONTROL_CENTER_SUPABASE_SERVICE_ROLE_KEY": SERVICE_ROLE,
+        "NEXPOINT_PROVISION_ADMIN_PASSWORD": ADMIN_PASSWORD,
+    }
+    argv = [
+        "--tenant-key", TENANT_KEY,
+        "--company-name", "NexPoint",
+        "--tenant-kind", "internal",
+        "--installation-key", INSTALLATION_KEY,
+        "--installation-label", "PC Principal NexPoint",
+        "--admin-username", "nexpoint-admin",
+        "--admin-display-name", "Administrador NexPoint",
+        "--credentials-file", str(path),
+    ]
+
+    exit_code = provision_prod.main(
+        argv,
+        environment=environment,
+        interactive=False,
+        client_factory=lambda _url, _key, _ref: api.client(),
+        store_factory=_store_factory,
+        stdout=output,
+        stderr=errors,
+    )
+
+    rendered = output.getvalue() + errors.getvalue()
+    assert exit_code == 1
+    assert "Supabase server credential: invalid." in rendered
+    assert SERVICE_ROLE not in rendered
+    assert ADMIN_PASSWORD not in rendered
+    assert not path.exists()
+
+
+def test_wrong_project_ref_is_rejected_before_network(tmp_path):
+    api = FakeSupabase()
+    wrong_ref = "zyxwvutsrqponmlkjihg"
+    config = replace(
+        configuration(tmp_path / "installation.dpapi"),
+        supabase_url=f"https://{wrong_ref}.supabase.co",
+        project_ref=wrong_ref,
+    )
+
+    with pytest.raises(provision_prod.ProvisioningError, match="project ref"):
+        provision_prod.provision(config, client=api.client(), store_factory=_store_factory)
+
+    assert api.calls == []
 
 
 def base64_url(value):

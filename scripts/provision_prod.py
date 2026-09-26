@@ -37,6 +37,7 @@ from app.core.installation_identity import (  # noqa: E402
     InstallationCredentials,
     InstallationCredentialStore,
 )
+from app.core.config import PRODUCTION_SUPABASE_PROJECT_REF  # noqa: E402
 from control_center.security import hash_password, verify_password  # noqa: E402
 
 
@@ -130,7 +131,10 @@ def _password(value: object) -> str:
 
 def _official_supabase_origin(raw_url: object, project_ref: object) -> tuple[str, str]:
     reference = str(project_ref or "").strip().casefold()
-    if not _PROJECT_REF.fullmatch(reference):
+    if (
+        not _PROJECT_REF.fullmatch(reference)
+        or reference != PRODUCTION_SUPABASE_PROJECT_REF
+    ):
         raise ProvisioningError("O project ref Supabase oficial e invalido.")
 
     value = str(raw_url or "").strip().rstrip("/")
@@ -293,6 +297,19 @@ class SupabaseProvisioningClient:
         )
         self._transport = transport or _default_transport
 
+    def validate_server_credential(self) -> None:
+        """Prove admin access independently of the application's migrations."""
+        try:
+            result = self._request(
+                "GET",
+                "/auth/v1/admin/users",
+                query=(("page", 1), ("per_page", 1)),
+            )
+        except ProvisioningError:
+            raise ProvisioningError("Supabase server credential: invalid.") from None
+        if not isinstance(result, Mapping) or not isinstance(result.get("users"), list):
+            raise ProvisioningError("Supabase server credential: invalid.")
+
     def _request(
         self,
         method: str,
@@ -303,7 +320,10 @@ class SupabaseProvisioningClient:
         prefer: str | None = None,
         expected: tuple[int, ...] = (200,),
     ) -> Any:
-        if not path.startswith("/rest/v1/") or ".." in path:
+        if (
+            path != "/auth/v1/admin/users"
+            and (not path.startswith("/rest/v1/") or ".." in path)
+        ):
             raise ProvisioningError("Caminho Supabase recusado.")
         suffix = "?" + urlencode(
             [(key, str(value)) for key, value in query]
@@ -338,6 +358,10 @@ class SupabaseProvisioningClient:
             _TIMEOUT_SECONDS,
         )
         if status not in expected:
+            if status == 404 and path.startswith("/rest/v1/np_"):
+                raise ProvisioningError(
+                    "O schema Cloud PROD nao esta disponivel; confira a migration oficial."
+                )
             raise ProvisioningError(
                 "O Supabase recusou uma operacao de provisionamento."
             )
@@ -422,10 +446,27 @@ class SupabaseProvisioningClient:
     def get_tenant(self, tenant_key: str) -> Mapping[str, Any] | None:
         return self._select_one(
             "np_tenants",
-            select="id,tenant_key,display_name,kind,status",
+            select="id,tenant_key,display_name,kind,status,billing_exempt",
             filter_name="tenant_key",
             filter_value=tenant_key,
         )
+
+    def set_internal_billing_exemption(self, tenant_id: str) -> None:
+        result = self._request(
+            "PATCH",
+            "/rest/v1/np_tenants",
+            query=(("id", f"eq.{tenant_id}"),),
+            payload={"billing_exempt": True},
+            prefer="return=representation",
+        )
+        if (
+            not isinstance(result, list)
+            or len(result) != 1
+            or not isinstance(result[0], Mapping)
+            or result[0].get("id") != tenant_id
+            or result[0].get("billing_exempt") is not True
+        ):
+            raise ProvisioningError("A isencao explicita do tenant interno nao foi confirmada.")
 
     def get_installation(self, installation_key: str) -> Mapping[str, Any] | None:
         return self._select_one(
@@ -639,6 +680,7 @@ def provision(
     remote = client or SupabaseProvisioningClient(
         config.supabase_url, config.service_role_key, config.project_ref
     )
+    remote.validate_server_credential()
 
     existing_admin = remote.get_platform_admin(config.admin_username)
     tenant = remote.get_tenant(config.tenant_key)
@@ -698,6 +740,9 @@ def provision(
         or not _valid_uuid(response.get("installation_id"))
     ):
         raise ProvisioningError("O RPC nao confirmou a identidade provisionada.")
+
+    if config.tenant_kind == "internal":
+        remote.set_internal_billing_exemption(str(response["tenant_id"]))
 
     # Create the operator only after the tenant/installation transaction has
     # succeeded. A later admin failure is safely retryable without leaving an
