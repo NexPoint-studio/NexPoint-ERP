@@ -28,6 +28,38 @@ _BUILD_MANIFEST_KEYS = frozenset(
     }
 )
 PRODUCTION_SUPABASE_PROJECT_REF = "scfncgaiovztrbgrcvkt"
+_INSTALLATION_CONFIG_KEYS = frozenset(
+    {"schema_version", "company_name", "tenant_type", "supabase_project_ref"}
+)
+
+
+def _production_installation_config() -> dict[str, object]:
+    """Read only non-secret installation settings outside the packaged application."""
+    local_app_data = os.getenv("LOCALAPPDATA", "").strip()
+    if not local_app_data:
+        raise RuntimeError("LOCALAPPDATA e obrigatorio para a configuracao PROD.")
+    path = Path(local_app_data) / "NexPoint" / "ERP" / "installation.json"
+    if not path.exists():
+        return {}
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 4096:
+        raise RuntimeError("A configuracao da instalacao PROD e invalida.")
+    try:
+        decoded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("A configuracao da instalacao PROD e invalida.") from exc
+    if (
+        not isinstance(decoded, dict)
+        or set(decoded) != _INSTALLATION_CONFIG_KEYS
+        or decoded.get("schema_version") != 1
+        or decoded.get("supabase_project_ref") != PRODUCTION_SUPABASE_PROJECT_REF
+        or not isinstance(decoded.get("tenant_type"), str)
+        or decoded.get("tenant_type") not in {"INTERNAL", "CUSTOMER"}
+        or not isinstance(decoded.get("company_name"), str)
+        or not 1 <= len(decoded["company_name"].strip()) <= 160
+        or any(ord(char) < 32 or ord(char) == 127 for char in decoded["company_name"])
+    ):
+        raise RuntimeError("A configuracao da instalacao PROD e invalida.")
+    return decoded
 
 
 def _load_local_env() -> None:
@@ -293,6 +325,9 @@ def get_settings() -> Settings:
         ),
         environment=environment,
     )
+    installation_config = (
+        _production_installation_config() if environment == "production" else {}
+    )
     if environment == "production":
         data_directory = _production_data_directory(os.getenv("ERP_DATA_DIR", ""))
         product_root = data_directory.parent
@@ -345,7 +380,9 @@ def get_settings() -> Settings:
         secret = ""
     elif len(secret) < 32 or secret.startswith("SUBSTITUA_"):
         raise RuntimeError("Configure ERP_SESSION_SECRET com pelo menos 32 caracteres.")
-    tenant_type = os.getenv("ERP_TENANT_TYPE", "CUSTOMER").strip().upper() or "CUSTOMER"
+    tenant_type = os.getenv(
+        "ERP_TENANT_TYPE", installation_config.get("tenant_type", "CUSTOMER")
+    ).strip().upper() or "CUSTOMER"
     if tenant_type not in {"CUSTOMER", "INTERNAL", "TEST", "DEMO"}:
         raise RuntimeError("ERP_TENANT_TYPE deve ser CUSTOMER, INTERNAL, TEST ou DEMO.")
     qa_mode = os.getenv("ERP_QA_MODE", "0").strip().casefold() in {"1", "true", "yes"}
@@ -384,7 +421,9 @@ def get_settings() -> Settings:
         raise RuntimeError("ERP_COMMIT deve ser um SHA Git ou unknown.")
     return Settings(
         app_name=os.getenv("ERP_APP_NAME", "ERP").strip() or "ERP",
-        company_name=os.getenv("ERP_COMPANY_NAME", "Sua Empresa").strip() or "Sua Empresa",
+        company_name=os.getenv(
+            "ERP_COMPANY_NAME", installation_config.get("company_name", "Sua Empresa")
+        ).strip() or "Sua Empresa",
         logo_path=_local_asset_path(
             os.getenv("ERP_LOGO_PATH", "/static/img/logo-placeholder.svg")
         ),

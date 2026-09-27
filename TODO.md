@@ -12,10 +12,11 @@
 ## Em andamento
 
 - [ ] Provisionar e validar o primeiro uso real controlado {sector:SETOR_COORDENACAO}
-  - [ ] Receber diretamente no terminal os dados reais mínimos da empresa e do administrador {weight:3} {sector:SETOR_SEGURANCA}
+  - [ ] Obter a nova senha inicial válida por entrada local segura; o anexo recebido contém somente um marcador {weight:3} {sector:SETOR_SEGURANCA}
   - [x] Implementar validação da credencial Supabase server-side pela Auth Admin API e testar rejeição de chaves públicas {weight:5} {sector:SETOR_SEGURANCA}
   - [ ] Provisionar tenant e installation com credencial DPAPI exclusiva {weight:8} {sector:SETOR_SEGURANCA}
-  - [ ] Instalar a cópia validada do SQLite no diretório PROD externo {weight:5} {sector:SETOR_BANCO_DADOS}
+  - [ ] Criar SQLite PROD novo com migrations e proprietário local, sem copiar dados anteriores {weight:5} {sector:SETOR_BANCO_DADOS}
+  - [x] Implementar e testar criação do banco limpo e leitura de configuração PROD não sensível persistente {weight:5} {sector:SETOR_BACKEND}
   - [ ] Executar os cenários temporários online, financeiro, suporte, offline, Sync e ACK {weight:10} {sector:SETOR_QA_TESTES}
   - [ ] Cancelar ou identificar de forma auditável somente os registros temporários {weight:4} {sector:SETOR_COORDENACAO}
 - [ ] Promover a infraestrutura preparada para PROD {sector:SETOR_COORDENACAO}

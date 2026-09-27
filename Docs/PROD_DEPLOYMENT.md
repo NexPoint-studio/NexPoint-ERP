@@ -134,6 +134,13 @@ chave local de sessão e autentica sync/Nexa; não configure uma cópia em texto
 por variável. A aplicação exige que o SQLite e a credencial fiquem fora do
 repositório.
 
+Para iniciar o executável PROD sem variáveis manuais, a instalação pode manter
+`%LOCALAPPDATA%\NexPoint\ERP\installation.json` com apenas `schema_version: 1`,
+`company_name`, `tenant_type` (`INTERNAL` ou `CUSTOMER`) e
+`supabase_project_ref` oficial. O arquivo é validado ao iniciar, não aceita
+campos adicionais e nunca deve conter senhas, tokens ou chaves. A credencial
+operacional permanece exclusivamente no arquivo DPAPI separado.
+
 ### Edge Functions
 
 `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidas pelo runtime
