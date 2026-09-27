@@ -16,7 +16,7 @@ def test_prod_installation_config_reads_only_nonsecret_fields(tmp_path, monkeypa
         "company_name": "NexPoint",
         "tenant_type": "INTERNAL",
         "supabase_project_ref": config_module.PRODUCTION_SUPABASE_PROJECT_REF,
-    }), encoding="utf-8")
+    }), encoding="utf-8-sig")
 
     config = config_module._production_installation_config()
 
@@ -37,7 +37,7 @@ def test_prod_installation_config_reads_only_nonsecret_fields(tmp_path, monkeypa
         "environment": "production",
         "channel": "PROD",
         "supabase_project_ref": config_module.PRODUCTION_SUPABASE_PROJECT_REF,
-    }), encoding="utf-8")
+    }), encoding="utf-8-sig")
     monkeypatch.setattr(config_module.sys, "frozen", True, raising=False)
     monkeypatch.setattr(config_module.sys, "executable", str(executable))
     monkeypatch.delenv("ERP_COMPANY_NAME", raising=False)

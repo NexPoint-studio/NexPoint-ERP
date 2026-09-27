@@ -44,7 +44,7 @@ def _production_installation_config() -> dict[str, object]:
     if path.is_symlink() or not path.is_file() or path.stat().st_size > 4096:
         raise RuntimeError("A configuracao da instalacao PROD e invalida.")
     try:
-        decoded = json.loads(path.read_text(encoding="utf-8"))
+        decoded = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("A configuracao da instalacao PROD e invalida.") from exc
     if (
@@ -112,7 +112,7 @@ def _build_manifest() -> dict[str, object]:
         if path.stat().st_size > 16 * 1024:
             raise RuntimeError("build-manifest.json excede o limite permitido.")
         try:
-            decoded = json.loads(path.read_text(encoding="utf-8"))
+            decoded = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise RuntimeError("build-manifest.json invalido.") from exc
         if (
