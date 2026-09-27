@@ -5,6 +5,7 @@ services:
   - type: web
     name: nexpoint-erp-control-center
     runtime: docker
+    plan: free
     numInstances: 1
     dockerfilePath: ./Dockerfile
     dockerContext: .

@@ -13,6 +13,8 @@
 
 ## Concluídas
 
+- [x] Validar Blueprint do Control Center com plano Render Free explícito, sem infraestrutura adicional {weight:3} {sector:SETOR_COORDENACAO}
+
 - [x] Provisionar e validar o primeiro uso real controlado {sector:SETOR_COORDENACAO}
   - [x] Gerar senha inicial localmente, exibir uma vez e persistir somente hashes seguros {weight:3} {sector:SETOR_SEGURANCA}
   - [x] Implementar validação da credencial Supabase server-side pela Auth Admin API e testar rejeição de chaves públicas {weight:5} {sector:SETOR_SEGURANCA}
