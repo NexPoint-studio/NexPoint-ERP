@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
 import secrets
+import time
+import threading
 import traceback
 
 import pytest
+import httpx
+from fastapi.testclient import TestClient
+from itsdangerous import TimestampSigner
 
 from control_center import config as control_config
 from control_center.domain import ControlCenterError
 from control_center.supabase_repository import SupabaseControlCenterRepository
+from control_center import web as control_web
 
 
 PROJECT_REF = "abcdefghijklmnopqrst"
@@ -228,3 +235,172 @@ def test_control_center_rejects_supabase_url_for_another_project(monkeypatch):
 
     with pytest.raises(RuntimeError, match="nao corresponde"):
         control_config.get_control_center_settings()
+
+
+@pytest.fixture
+def production_web(production_environment, monkeypatch):
+    transport = RecordingTransport()
+    settings = control_config.get_control_center_settings()
+
+    def repository_factory(url, key, **kwargs):
+        assert kwargs["initialize"] is False
+        return SupabaseControlCenterRepository(url, key, transport=transport, **kwargs)
+
+    monkeypatch.setattr(control_web, "SupabaseControlCenterRepository", repository_factory)
+    app = control_web.create_control_center_app(settings=settings)
+    assert transport.calls == []  # Creation must work even while Supabase is offline.
+    return app, settings, transport
+
+
+def _signed_platform_cookie(settings):
+    payload = base64.b64encode(json.dumps({
+        "platform_user_id": "admin-probe",
+        "platform_credential_version": "test-version",
+    }).encode())
+    return TimestampSigner(settings.session_secret).sign(payload).decode()
+
+
+@pytest.mark.parametrize("with_cookie", [False, True])
+def test_production_liveness_never_accesses_repository_or_rpc(
+    production_web, monkeypatch, with_cookie, caplog
+):
+    app, settings, transport = production_web
+    repository = app.state.control_repository
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Liveness attempted remote I/O")
+
+    monkeypatch.setattr(repository, "initialize", forbidden)
+    monkeypatch.setattr(repository, "get_platform_user", forbidden)
+    monkeypatch.setattr(repository, "_transport", forbidden)
+    with TestClient(app, base_url=settings.public_origin) as client:
+        if with_cookie:
+            client.cookies.set(control_web.SESSION_COOKIE, _signed_platform_cookie(settings))
+        start = time.monotonic()
+        response = client.get("/health")
+        elapsed = time.monotonic() - start
+
+    assert response.status_code == 200
+    assert elapsed < 2  # Comfortably below the host's five-second deadline.
+    assert response.json() == {
+        "status": "ok", "service": "nexpoint-control-center",
+        "environment": "production", "storage": "supabase",
+    }
+    assert transport.calls == []
+    assert settings.session_secret not in response.text + caplog.text
+    assert settings.supabase_service_role_key not in response.text + caplog.text
+    assert settings.nexa_bridge_secret not in response.text + caplog.text
+
+
+@pytest.mark.parametrize("failure", [None, "supabase", "rpc"])
+def test_production_dependency_health_checks_tables_and_rpc_and_sanitizes_failures(
+    production_web, monkeypatch, failure, caplog
+):
+    app, settings, transport = production_web
+    calls = []
+    sensitive_error = "private SQL, token, headers: " + settings.supabase_service_role_key
+
+    def remote(method, url, headers, body, timeout):
+        calls.append(url)
+        if failure == "supabase" or (failure == "rpc" and "/rpc/" in url):
+            raise RuntimeError(sensitive_error)
+        return transport(method, url, headers, body, timeout)
+
+    monkeypatch.setattr(app.state.control_repository, "_transport", remote)
+    with TestClient(app, base_url=settings.public_origin) as client:
+        client.cookies.set(control_web.SESSION_COOKIE, _signed_platform_cookie(settings))
+        response = client.get("/health/dependencies")
+        count_after_readiness = len(calls)
+        assert client.get("/health").status_code == 200
+        assert len(calls) == count_after_readiness
+
+    assert response.status_code == (200 if failure is None else 503)
+    assert response.json() == {
+        "status": "ok" if failure is None else "unavailable",
+        "service": "nexpoint-control-center", "environment": "production", "storage": "supabase",
+    }
+    if failure != "supabase":
+        assert len(calls) == 9
+        for table in (
+            "np_platform_users", "np_tenants", "np_installations", "np_support_tickets",
+            "np_health_snapshots", "np_risks", "np_incidents", "np_observability_events",
+        ):
+            assert any(f"/rest/v1/{table}?" in url for url in calls)
+        assert "/rpc/np_admin_get_reset_authorization" in calls[-1]
+    assert sensitive_error not in response.text + caplog.text
+    for secret in (settings.session_secret, settings.supabase_service_role_key, settings.nexa_bridge_secret):
+        assert secret not in response.text + caplog.text
+
+
+def test_production_admin_access_remains_fail_closed_when_supabase_is_unavailable(
+    production_web, monkeypatch, caplog
+):
+    app, settings, transport = production_web
+    calls = []
+
+    def unavailable(*args):
+        calls.append(True)
+        raise RuntimeError("private backend failure " + settings.supabase_service_role_key)
+
+    monkeypatch.setattr(app.state.control_repository, "_transport", unavailable)
+    with TestClient(app, base_url=settings.public_origin) as client:
+        assert client.get("/empresas", follow_redirects=False).status_code == 303
+        assert calls == []
+        client.cookies.set(control_web.SESSION_COOKIE, _signed_platform_cookie(settings))
+        response = client.get("/empresas")
+        assert response.status_code == 503
+        assert calls == [True]  # No administrative data/action follows failed authentication.
+        assert client.get("/health").status_code == 200
+    assert "private backend failure" not in response.text + caplog.text
+    assert settings.supabase_service_role_key not in response.text + caplog.text
+
+
+def test_production_login_identifies_environment_on_initial_and_failed_login(production_web):
+    app, settings, _ = production_web
+    with TestClient(app, base_url=settings.public_origin) as client:
+        response = client.get("/login")
+        assert response.status_code == 200
+        assert "Ambiente PROD" in response.text
+        assert "Ambiente local" not in response.text
+        csrf = response.text.split('name="_csrf" value="', 1)[1].split('"', 1)[0]
+        response = client.post("/login", headers={"Origin": settings.public_origin}, data={
+            "username": "nonexistent-user", "password": "invalid-test-password", "_csrf": csrf,
+        })
+        assert response.status_code == 401
+        assert "Ambiente PROD" in response.text
+
+
+def test_liveness_remains_responsive_while_remote_authentication_is_waiting(
+    production_web, monkeypatch
+):
+    app, settings, _ = production_web
+    started = threading.Event()
+    release = threading.Event()
+
+    def waiting_backend(*args):
+        started.set()
+        if not release.wait(5):
+            raise TimeoutError("Synthetic backend deadline")
+        raise RuntimeError("Synthetic backend unavailable")
+
+    monkeypatch.setattr(app.state.control_repository, "get_platform_user", waiting_backend)
+
+    async def scenario():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url=settings.public_origin
+        ) as client:
+            pending = asyncio.create_task(client.get("/empresas", headers={
+                "Cookie": f"{control_web.SESSION_COOKIE}={_signed_platform_cookie(settings)}",
+            }))
+            try:
+                assert await asyncio.to_thread(started.wait, 2)
+                assert not pending.done()
+                response = await asyncio.wait_for(client.get("/health"), timeout=1)
+                assert response.status_code == 200
+                assert not pending.done()
+            finally:
+                release.set()
+                response = await pending
+                assert response.status_code == 503
+
+    asyncio.run(scenario())

@@ -13,6 +13,8 @@
 
 ## Concluídas
 
+- [x] Separar liveness de dependency health e corrigir o ambiente na tela de login {weight:5} {sector:SETOR_BACKEND}
+
 - [x] Compatibilizar session secret de produção com os 256 bits gerados pelo Render e validar regressões {weight:5} {sector:SETOR_SEGURANCA}
 
 - [x] Validar Blueprint do Control Center com plano Render Free explícito, sem infraestrutura adicional {weight:3} {sector:SETOR_COORDENACAO}

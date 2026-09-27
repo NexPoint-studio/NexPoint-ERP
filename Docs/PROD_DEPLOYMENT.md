@@ -383,8 +383,21 @@ publicar `erp-sync`. O gate pós-deploy é:
 6. um cliente piloto envia heartbeat e recebe ACK sem duplicação;
 7. Nexa falha de forma isolada quando propositalmente indisponível.
 
-O health check consulta a prontidão do repositório Supabase e retorna `503` se
-ela não puder ser comprovada. Não use a página autenticada como health check.
+O `healthCheckPath: /health` verifica somente liveness: retorna `200` sem
+consultar Supabase, RPC ou Nexa. A construção do processo web também não exige
+acesso ao Supabase. Assim, uma falha temporária de rede não provoca reinícios
+pelo health check do host.
+
+A consulta remota de autenticação roda na thread pool, preservando a capacidade
+do event loop de responder ao liveness enquanto o backend demora. Se a consulta
+falhar, a operação protegida retorna `503` sanitizado sem liberar acesso.
+
+`GET /health/dependencies` preserva a verificação das oito tabelas críticas e
+da RPC de readiness do Supabase, retornando `200` ou `503` com estado agregado
+sanitizado. Esse endpoint público não expõe detalhes, credenciais ou exceções.
+Não o configure como health check do host. As páginas administrativas continuam
+exigindo autenticação e acesso ao armazenamento real; a página Saúde continua
+mostrando a telemetria real. Não use a página autenticada como health check.
 
 ## Backup e restauração
 

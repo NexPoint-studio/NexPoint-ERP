@@ -20,7 +20,7 @@
       <label>Senha<input type="password" name="password" autocomplete="current-password" maxlength="1024" required></label>
       <button type="submit" class="button button--primary">Entrar no Control Center</button>
     </form>
-    <small>Ambiente local · nenhum acesso ao banco operacional do cliente</small>
+    <small>Ambiente {{ "PROD" if control_environment == "production" else control_environment|upper if control_environment != "local" else "local" }} · nenhum acesso ao banco operacional do cliente</small>
   </main>
 </body>
 </html>

@@ -25,6 +25,7 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -994,6 +995,7 @@ def create_control_center_app(
             repository = SupabaseControlCenterRepository(
                 configured.supabase_url,
                 configured.supabase_service_role_key,
+                initialize=False,
             )
         else:
             path = Path(database_path or configured.database_path).resolve()
@@ -1086,6 +1088,10 @@ def create_control_center_app(
     @app.middleware("http")
     async def authorize_platform_user(request: Request, call_next):
         request.state.platform_user = None
+        # Public probes expose only aggregate state and never resolve a cookie
+        # against Supabase. Liveness must remain independent of remote I/O.
+        if request.url.path in {"/health", "/health/dependencies"}:
+            return await call_next(request)
         user_id = request.session.get("platform_user_id")
         credential_version = request.session.get("platform_credential_version")
         if (
@@ -1093,7 +1099,10 @@ def create_control_center_app(
             and len(user_id) <= 80
             and isinstance(credential_version, str)
         ):
-            user = repository.get_platform_user(user_id)
+            try:
+                user = await run_in_threadpool(repository.get_platform_user, user_id)
+            except Exception:
+                return PlainTextResponse("Autenticacao temporariamente indisponivel.", status_code=503)
             expected_version = _credential_version(user) if user is not None else ""
             if (
                 user is not None
@@ -1168,7 +1177,16 @@ def create_control_center_app(
     app.mount("/static", StaticFiles(directory=CONTROL_CENTER_ROOT / "static"), name="control_static")
 
     @app.get("/health")
-    def health():
+    async def health():
+        return {
+            "status": "ok",
+            "service": "nexpoint-control-center",
+            "environment": control_environment,
+            "storage": storage,
+        }
+
+    @app.get("/health/dependencies")
+    def dependency_health():
         try:
             repository.initialize()
         except Exception:
@@ -1189,7 +1207,7 @@ def create_control_center_app(
     def login_page(request: Request):
         if request.state.platform_user is not None:
             return RedirectResponse("/", status_code=303)
-        return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "username": "", "csrf_token": _csrf_token(request)})
+        return templates.TemplateResponse(request, "login.html", {"request": request, "error": None, "username": "", "csrf_token": _csrf_token(request), "control_environment": control_environment})
 
     @app.post("/login")
     def login(request: Request, username: str = Form("", max_length=180), password: str = Form("", max_length=1024), csrf: str = Form("", alias="_csrf", max_length=128)):
@@ -1212,6 +1230,7 @@ def create_control_center_app(
                     "error": "Muitas tentativas. Aguarde antes de tentar novamente.",
                     "username": username,
                     "csrf_token": _csrf_token(request),
+                    "control_environment": control_environment,
                 },
                 status_code=429,
             )
@@ -1221,7 +1240,7 @@ def create_control_center_app(
         if user is None or not user.active or user.role not in PLATFORM_ROLES:
             login_limiter.record_failure(rate_key)
             login_ip_limiter.record_failure(ip_rate_key)
-            return templates.TemplateResponse(request, "login.html", {"request": request, "error": "Usuário interno ou senha inválidos.", "username": username, "csrf_token": _csrf_token(request)}, status_code=401)
+            return templates.TemplateResponse(request, "login.html", {"request": request, "error": "Usuário interno ou senha inválidos.", "username": username, "csrf_token": _csrf_token(request), "control_environment": control_environment}, status_code=401)
         login_limiter.clear(rate_key)
         login_ip_limiter.clear(ip_rate_key)
         request.session.clear()
