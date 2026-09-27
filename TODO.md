@@ -11,21 +11,23 @@
 
 ## Em andamento
 
-- [ ] Provisionar e validar o primeiro uso real controlado {sector:SETOR_COORDENACAO}
-  - [ ] Obter a nova senha inicial válida por entrada local segura; o anexo recebido contém somente um marcador {weight:3} {sector:SETOR_SEGURANCA}
+## Concluídas
+
+- [x] Provisionar e validar o primeiro uso real controlado {sector:SETOR_COORDENACAO}
+  - [x] Gerar senha inicial localmente, exibir uma vez e persistir somente hashes seguros {weight:3} {sector:SETOR_SEGURANCA}
   - [x] Implementar validação da credencial Supabase server-side pela Auth Admin API e testar rejeição de chaves públicas {weight:5} {sector:SETOR_SEGURANCA}
-  - [ ] Provisionar tenant e installation com credencial DPAPI exclusiva {weight:8} {sector:SETOR_SEGURANCA}
-  - [ ] Criar SQLite PROD novo com migrations e proprietário local, sem copiar dados anteriores {weight:5} {sector:SETOR_BANCO_DADOS}
+  - [x] Provisionar tenant e installation com credencial DPAPI exclusiva {weight:8} {sector:SETOR_SEGURANCA}
+  - [x] Criar SQLite PROD novo com migrations e proprietário local, sem copiar dados anteriores {weight:5} {sector:SETOR_BANCO_DADOS}
   - [x] Implementar e testar criação do banco limpo e leitura de configuração PROD não sensível persistente {weight:5} {sector:SETOR_BACKEND}
-  - [ ] Executar os cenários temporários online, financeiro, suporte, offline, Sync e ACK {weight:10} {sector:SETOR_QA_TESTES}
-  - [ ] Cancelar ou identificar de forma auditável somente os registros temporários {weight:4} {sector:SETOR_COORDENACAO}
-- [ ] Promover a infraestrutura preparada para PROD {sector:SETOR_COORDENACAO}
+  - [x] Executar os cenários temporários online, financeiro, suporte, offline, Sync e ACK {weight:10} {sector:SETOR_QA_TESTES}
+  - [x] Cancelar ou identificar de forma auditável somente os registros temporários {weight:4} {sector:SETOR_COORDENACAO}
+- [x] Promover a infraestrutura preparada para PROD {sector:SETOR_COORDENACAO}
   - [x] Validar migration PostgreSQL, RLS, grants, isolamento, idempotência e retenção localmente {weight:10} {sector:SETOR_BANCO_DADOS}
   - [x] Aplicar a migration aditiva no projeto Supabase NexPoint-ERP {weight:5} {sector:SETOR_BANCO_DADOS}
   - [x] Publicar `erp-sync`, `erp-admin-recovery` e `erp-chat` {weight:5} {sector:SETOR_BACKEND}
-  - [ ] Configurar providers da Nexa diretamente no secret manager {weight:3} {sector:SETOR_SEGURANCA}
-
-## Concluídas
+  - [x] Validar providers reais e as pontes Nexa ERP e Control Center no projeto PROD {weight:3} {sector:SETOR_SEGURANCA}
+- [x] Validar Admin Recovery real, backup, restore em cópia e Doctor PROD {weight:8} {sector:SETOR_QA_TESTES}
+- [x] Instalar build PROD externa ao Git com atalho e checksums verificados {weight:4} {sector:SETOR_BACKEND}
 
 - [x] Conectar e travar a configuração ao projeto Supabase NexPoint-ERP {sector:SETOR_COORDENACAO}
   - [x] Confirmar branch, remotes, autenticação CLI e identidade do projeto {weight:4} {sector:SETOR_COORDENACAO}
