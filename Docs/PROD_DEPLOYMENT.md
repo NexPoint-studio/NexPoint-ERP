@@ -86,7 +86,7 @@ nunca devem ser exportadas para o frontend.
 | `CONTROL_CENTER_STORAGE` | configuração | Seleciona a persistência remota. |
 | `CONTROL_CENTER_HOST` | configuração | Endereço de bind interno do container. |
 | `PORT` | configuração do provedor | Porta injetada pelo runtime web. |
-| `CONTROL_CENTER_SESSION_SECRET` | **secreta** | Assinatura dos cookies de sessão; mínimo exigido pelo perfil de produção. |
+| `CONTROL_CENTER_SESSION_SECRET` | **secreta** | Assinatura dos cookies de sessão; token aleatório de 256 bits ou mais em Base64/hex, ou token opaco forte de 48+ caracteres. `generateValue: true` do Render é compatível. |
 | `CONTROL_CENTER_SUPABASE_URL` | configuração sensível | Origem HTTPS do projeto do ambiente. |
 | `CONTROL_CENTER_SUPABASE_PROJECT_REF` | configuração sensível | Identidade explícita do projeto; deve corresponder à URL. |
 | `CONTROL_CENTER_SUPABASE_SERVICE_ROLE_KEY` | **secreta** | Acesso server-only ao Data API e às RPCs. |

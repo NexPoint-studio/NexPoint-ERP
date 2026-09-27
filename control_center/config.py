@@ -8,6 +8,7 @@ an explicit HTTPS origin and host allow-list.
 from __future__ import annotations
 
 import base64
+import binascii
 from dataclasses import dataclass, field
 import json
 import os
@@ -24,6 +25,50 @@ _HOST = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?::\d{1,5})?$"
 )
 _PROJECT_REF = re.compile(r"^[a-z0-9]{20}$")
+
+
+def _unpatterned_secret(value: bytes) -> bool:
+    """Reject obvious low-diversity and repeated tokens, not estimate entropy."""
+    return len(set(value)) >= 16 and not any(
+        value == (value[:size] * ((len(value) + size - 1) // size))[:len(value)]
+        for size in range(1, len(value) // 2 + 1)
+    )
+
+
+def _production_session_secret_valid(value: str) -> bool:
+    """Accept 32+ random bytes encoded as hex/Base64, or legacy opaque tokens.
+
+    Randomness cannot be proven from a string. Generation must use a CSPRNG
+    (Render generateValue does); these checks enforce size/encoding and reject
+    obvious weak patterns without mistaking encoded length for key strength.
+    """
+    if (
+        not value
+        or value.casefold().startswith(("substitua_", "changeme", "change-me"))
+        or any(not 33 <= ord(char) <= 126 for char in value)
+    ):
+        return False
+    if re.fullmatch(r"[0-9a-fA-F]+", value):
+        if len(value) % 2:
+            return False
+        decoded = bytes.fromhex(value)
+        return len(decoded) >= 32 and _unpatterned_secret(decoded)
+    if re.fullmatch(r"[A-Za-z0-9+/_-]+={0,2}", value):
+        # Both canonical standard and URL-safe Base64, with optional padding.
+        for altchars in (None, b"-_"):
+            try:
+                decoded = base64.b64decode(
+                    value + "=" * (-len(value) % 4), altchars=altchars, validate=True
+                )
+            except (binascii.Error, ValueError):
+                continue
+            canonical = base64.b64encode(decoded, altchars=altchars).decode("ascii")
+            if value in (canonical, canonical.rstrip("=")):
+                return len(decoded) >= 32 and _unpatterned_secret(decoded)
+        return False
+    # Retain compatibility with strong, printable opaque secrets of 48+ chars.
+    # '=' outside canonical Base64 usually indicates a malformed encoded token.
+    return "=" not in value and len(value) >= 48 and _unpatterned_secret(value.encode("ascii"))
 
 
 def _load_local_env() -> None:
@@ -222,10 +267,14 @@ def get_control_center_settings() -> ControlCenterSettings:
         raise RuntimeError("O Control Center local permite somente 127.0.0.1.")
 
     secret = os.getenv("CONTROL_CENTER_SESSION_SECRET", "").strip()
-    required_secret_length = 48 if production else 32
-    if len(secret) < required_secret_length or secret.startswith("SUBSTITUA_"):
+    if production and not _production_session_secret_valid(secret):
         raise RuntimeError(
-            f"Configure CONTROL_CENTER_SESSION_SECRET com pelo menos {required_secret_length} caracteres."
+            "Configure CONTROL_CENTER_SESSION_SECRET com um token aleatorio de pelo menos "
+            "256 bits (32 bytes em Base64/hex ou token opaco forte de 48+ caracteres)."
+        )
+    if not production and (len(secret) < 32 or secret.startswith("SUBSTITUA_")):
+        raise RuntimeError(
+            "Configure CONTROL_CENTER_SESSION_SECRET com pelo menos 32 caracteres."
         )
 
     username = os.getenv("CONTROL_CENTER_ADMIN_USERNAME", "").strip().casefold()
