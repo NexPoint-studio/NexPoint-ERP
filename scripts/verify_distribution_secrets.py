@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 
@@ -13,6 +14,10 @@ SENSITIVE_MARKERS = (
     b"CONTROL_CENTER_SESSION_SECRET=",
     b"ERP_SESSION_SECRET=",
     b"ERP_ADMIN_PASSWORD=",
+)
+SENSITIVE_ENV_KEY = re.compile(
+    r"(?:PASSWORD|PASSWD|PASSPHRASE|SECRET|TOKEN|API_?KEY|SERVICE_ROLE_?KEY|PRIVATE_?KEY)",
+    re.IGNORECASE,
 )
 
 
@@ -26,7 +31,9 @@ def local_secret_values(root: Path) -> tuple[bytes, ...]:
             line = raw.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
-            _key, value = line.split("=", 1)
+            key, value = line.split("=", 1)
+            if not SENSITIVE_ENV_KEY.search(key.strip()):
+                continue
             encoded = value.strip().encode("utf-8")
             if len(encoded) >= 12 and not encoded.startswith(b"SUBSTITUA_"):
                 values.append(encoded)
