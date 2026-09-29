@@ -18,7 +18,6 @@ import time
 from typing import Any
 import unicodedata
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -62,7 +61,7 @@ from control_center.domain import (
 from control_center.local_repository import LocalControlCenterRepository
 from control_center.qa import QAScenarioDenied, QAScenarioRunner
 from control_center.repository import ControlCenterRepository
-from control_center.request_security import LoginRateLimiter, login_rate_key
+from control_center.request_security import LoginRateLimiter, login_rate_key, normalized_origin
 from control_center.sanitization import (
     sanitize_mapping,
     sanitize_sync_payload,
@@ -207,25 +206,20 @@ templates.env.filters.update({"datetime_br": _datetime_br, "json_pretty": _json_
 
 
 def _same_origin(request: Request, expected_origin: str = "") -> bool:
-    reference = request.headers.get("origin") or request.headers.get("referer")
-    if not reference:
-        return True
-    try:
-        parsed = urlsplit(reference)
-    except ValueError:
+    origins = request.headers.getlist("origin")
+    referers = request.headers.getlist("referer")
+    if len(origins) > 1 or len(referers) > 1:
         return False
-    if parsed.username is not None or parsed.password is not None:
-        return False
-    if expected_origin:
-        expected = urlsplit(expected_origin)
-        return (
-            parsed.scheme.casefold() == expected.scheme.casefold()
-            and parsed.netloc.casefold() == expected.netloc.casefold()
-        )
-    return (
-        parsed.scheme.casefold() == request.url.scheme.casefold()
-        and parsed.netloc.casefold() == request.headers.get("host", "").casefold()
+    if not origins and not referers:
+        # Preserve local non-browser clients. Public deployments require proof
+        # of origin as well as a valid session-bound CSRF token.
+        return not expected_origin
+    reference = normalized_origin(
+        origins[0] if origins else referers[0], referer=not origins
     )
+    expected = normalized_origin(expected_origin or f"{request.url.scheme}://{request.headers.get('host', '')}")
+    # An explicit Origin (including null/empty/invalid) never falls back to Referer.
+    return reference is not None and expected is not None and reference == expected
 
 
 def _valid_choice(value: str | None, choices: frozenset[str]) -> str | None:
@@ -1085,6 +1079,17 @@ def create_control_center_app(
         qa_mode=effective_qa_mode,
     )
 
+    def login_security_error(request: Request):
+        return templates.TemplateResponse(
+            request, "login.html", {
+                "request": request,
+                "error": "Não foi possível validar a solicitação. Recarregue a página e tente novamente.",
+                "username": "",
+                "csrf_token": _csrf_token(request),
+                "control_environment": control_environment,
+            }, status_code=403,
+        )
+
     @app.middleware("http")
     async def authorize_platform_user(request: Request, call_next):
         request.state.platform_user = None
@@ -1144,10 +1149,17 @@ def create_control_center_app(
         if request.method in UNSAFE_METHODS and not _same_origin(
             request, public_origin
         ):
-            return PlainTextResponse("Solicitacao invalida.", status_code=403)
-        response = await call_next(request)
+            response = (
+                login_security_error(request)
+                if request.method == "POST" and request.url.path == "/login"
+                else PlainTextResponse("Solicitacao invalida.", status_code=403)
+            )
+        else:
+            response = await call_next(request)
         response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        # no-referrer makes browsers send Origin:null on HTML form POSTs.
+        # same-origin preserves origin validation without leaking Referer cross-site.
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault(
@@ -1211,7 +1223,12 @@ def create_control_center_app(
 
     @app.post("/login")
     def login(request: Request, username: str = Form("", max_length=180), password: str = Form("", max_length=1024), csrf: str = Form("", alias="_csrf", max_length=128)):
-        _require_csrf(request, csrf)
+        try:
+            _require_csrf(request, csrf)
+        except HTTPException as exc:
+            if exc.status_code != 403:
+                raise
+            return login_security_error(request)
         normalized_username = username.strip().casefold()
         client_host = request.client.host if request.client is not None else "unknown"
         rate_key = login_rate_key(client_host, normalized_username)

@@ -3,8 +3,50 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from ipaddress import IPv6Address
+import re
 from threading import Lock
 import time
+from urllib.parse import urlsplit
+
+
+def normalized_origin(value: str, *, referer: bool = False) -> tuple[str, str, int] | None:
+    """Parse an exact HTTP origin, never a host suffix or forwarded header.
+
+    Referer may carry a path/query. Origin must be a single serialized origin;
+    reject ambiguous input before urlsplit can discard whitespace/control bytes.
+    """
+
+    if not value or any(ord(char) <= 32 or ord(char) >= 127 for char in value):
+        return None
+    if "\\" in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        scheme, host = parsed.scheme.lower(), parsed.hostname
+        if (
+            scheme not in {"http", "https"}
+            or not host
+            or parsed.username is not None
+            or parsed.password is not None
+            or "#" in value
+            or (not referer and (parsed.path or "?" in value))
+            or parsed.netloc.endswith(":")
+        ):
+            return None
+        if ":" in host:
+            host = IPv6Address(host).compressed
+        elif not re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*",
+            host,
+        ):
+            return None
+        port = parsed.port
+        if port is not None and not 1 <= port <= 65535:
+            return None
+        return scheme, host, port if port is not None else (443 if scheme == "https" else 80)
+    except ValueError:
+        return None
 
 
 class LoginRateLimiter:
