@@ -1,23 +1,17 @@
 ## A Fazer
 
-- [ ] SECURITY GATE / RED TEAM — próximo ciclo, aguardando instrução específica {sector:SETOR_COORDENACAO}
-  - [ ] Preparar escopo, ambiente QA e evidências da auditoria {weight:3} {sector:SETOR_SEGURANCA}
-  - [ ] Executar descoberta automatizada em QA {weight:5} {sector:SETOR_SEGURANCA}
-  - [ ] Executar testes manuais e arquiteturais em QA {weight:5} {sector:SETOR_SEGURANCA}
-  - [ ] Consolidar descobertas e classificar evidências {weight:3} {sector:SETOR_SEGURANCA}
-  - [ ] Planejar e realizar correções em tarefa separada {weight:5} {sector:SETOR_COORDENACAO}
-  - [ ] Retestar em QA e validar regressões {weight:3} {sector:SETOR_QA_TESTES}
-  - [ ] Executar smoke de segurança não destrutivo em PROD, após os gates anteriores {weight:2} {sector:SETOR_QA_TESTES}
-
 ## Em andamento
 
 ## Concluídas
 
-- [x] Encerrar documentalmente o deploy PROD e estabelecer baseline pré-Security Gate {sector:SETOR_COORDENACAO}
-  - [x] Inspecionar estado Git, contratos e documentação sem alterar runtime {weight:2} {sector:SETOR_COORDENACAO}
-  - [x] Registrar arquitetura, fluxos, fronteiras, ambientes e classificações conceituais {weight:4} {sector:SETOR_COORDENACAO}
-  - [x] Preparar inventário, ferramentas, política de auditoria e template vazio de findings {weight:3} {sector:SETOR_SEGURANCA}
-  - [x] Revisar somente documentação e validar diff/secret scan para commit/push autorizado {weight:2} {sector:SETOR_QA_TESTES}
+- [x] Revisar 355 candidatos, secret scans e diff; preparar registro local exclusivo da auditoria, sem push {weight:3} {sector:SETOR_COORDENACAO}
 
-- [x] Confirmar login publicado do Control Center e página autenticada PROD — proprietário confirmou {weight:3} {sector:SETOR_COORDENACAO}
-- [x] Confirmar acesso HTTPS pelo celular e interface mobile utilizável — proprietário confirmou {weight:2} {sector:SETOR_COORDENACAO}
+- [x] SECURITY DISCOVERY — rodada QA/local documentada, sem remediação; limitações em Docs/Security/SECURITY_ASVS_MATRIX.md {sector:SETOR_COORDENACAO}
+  - [x] Preservar baseline b09c48e e preparar snapshot sem dados operacionais {weight:3} {sector:SETOR_COORDENACAO}
+  - [x] Executar SAST/SCA e revisão Docker/Render estática {weight:5} {sector:SETOR_SEGURANCA}
+  - [x] Examinar árvore/histórico Git sem verificar credenciais em provedores {weight:3} {sector:SETOR_SEGURANCA}
+  - [x] Validar RLS/grants/Sync/Recovery em banco descartável, inclusive consumo concorrente limitado {weight:6} {sector:SETOR_BANCO_DADOS}
+  - [x] Executar DAST/API local e reproduzir findings de sessão, sanitização e CSRF {weight:6} {sector:SETOR_SEGURANCA}
+  - [x] Validar desktop, DPAPI fictício, backup offline e Nexa sem rede; preservar divergência do teste de restore {weight:6} {sector:SETOR_QA_TESTES}
+  - [x] Consolidar 7 findings OPEN, triagem contextual, inventários e cobertura parcial ASVS/WSTG {weight:5} {sector:SETOR_SEGURANCA}
+  - [x] Encerrar servidores exclusivos QA e preservar evidências ignoradas; PROD intacto {weight:2} {sector:SETOR_COORDENACAO}
