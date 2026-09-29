@@ -109,8 +109,8 @@ def test_control_center_schema_v1_migrates_ticket_installation_without_data_loss
         assert "installation_id" in columns
         assert connection.execute(
             "SELECT value FROM control_center_meta WHERE key = 'schema_version'"
-        ).fetchone() == ("6",)
-        assert {"sync_receipts", "diagnostic_events"}.issubset({
+        ).fetchone() == ("7",)
+        assert {"sync_receipts", "diagnostic_events", "platform_sessions"}.issubset({
             row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         })
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)

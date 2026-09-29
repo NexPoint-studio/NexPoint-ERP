@@ -1,17 +1,19 @@
 ## A Fazer
 
-- [ ] Executar em futura tarefa as validações residuais de SECURITY_COVERAGE_GAPS.md, com escopo QA próprio; não iniciar remediação nesta rodada {weight:8} {sector:SETOR_SEGURANCA}
+- [ ] Corrigir SD-002: sanitização com custo limitado, regressões e reteste original {weight:6} {sector:SETOR_SEGURANCA}
+- [ ] Corrigir SD-007: CSRF malformado com rejeição controlada {weight:3} {sector:SETOR_SEGURANCA}
+- [ ] Tratar SD-003: prevenção de perfis no Git e ação humana sobre histórico {weight:4} {sector:SETOR_SEGURANCA}
+- [ ] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
+- [ ] Reavaliar somente SD-004/005 com evidência sanitizada; preservar SD-006 {weight:4} {sector:SETOR_SEGURANCA}
+- [ ] Executar regressões completas, retestes de ferramentas e builds aplicáveis {weight:8} {sector:SETOR_QA_TESTES}
+- [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
 
+
 ## Concluídas
 
-- [x] SECURITY COVERAGE REVIEW + FINAL TRIAGE, continuação de 277a5b2 sem remediação {sector:SETOR_COORDENACAO}
-  - [x] Preservar e reconferir os 31 artefatos anteriores por SHA-256 {weight:2} {sector:SETOR_COORDENACAO}
-  - [x] Consolidar matriz por fronteira e todos os gaps ASVS/WSTG selecionados {weight:3} {sector:SETOR_COORDENACAO}
-  - [x] Executar 149 checks locais de autenticação/sessão/autorização e registrar SD-008 {weight:6} {sector:SETOR_SEGURANCA}
-  - [x] Classificar secrets/advisories por ocorrência; SD-004/005 UNRESOLVED, SD-006 NOT_APPLICABLE no fluxo atual {weight:6} {sector:SETOR_SEGURANCA}
-  - [x] Validar 90 casos Data API/RPC/RLS em infraestrutura QA exclusiva e encerrada {weight:6} {sector:SETOR_BANCO_DADOS}
-  - [x] Revisar limites desktop/restore/observabilidade e executar 5 checks TLS loopback; pendências documentadas sem alegar validação {weight:6} {sector:SETOR_QA_TESTES}
-  - [x] Consolidar relatórios, inventário sanitizado e revisão de escopo sem alterar runtime {weight:5} {sector:SETOR_COORDENACAO}
-  - [x] Revisar candidatos Git com secret scanners; somente fixtures/hashes conhecidos nos alertas da árvore {weight:3} {sector:SETOR_SEGURANCA}
+- [x] Corrigir SD-001: revogação persistente por sessão, migration QA e regressões {weight:8} {sector:SETOR_SEGURANCA}
+
+- [x] Confirmar main limpa, diff --check e publicar marco PRE-SECURITY-REMEDIATION f91edf983b151f494c113cfabe8344252c626c73 no origin NexPoint-studio/NexPoint-ERP; SHA remoto conferido antes de alterar arquivos {weight:2} {sector:SETOR_COORDENACAO}
+- [x] Ler fontes de verdade e delimitar 5 CONFIRMED + 2 UNRESOLVED; sem coverage expansion, PROD ou deploy {weight:2} {sector:SETOR_COORDENACAO}

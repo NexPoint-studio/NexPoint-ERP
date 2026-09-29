@@ -372,6 +372,7 @@ class SupabaseControlCenterRepository:
             "np_incidents", "np_observability_events",
         ):
             self._select(table, select="id", limit=1)
+        self._select("np_platform_sessions", select="token_hash", limit=1)
         self._rpc("np_admin_get_reset_authorization", {"p_ticket_id": "readiness_probe"})
 
     @staticmethod
@@ -1025,6 +1026,28 @@ class SupabaseControlCenterRepository:
     def _platform_scopes(self, user_id: str | None = None) -> list[dict[str, Any]]:
         filters = (("user_id", f"eq.{_identifier(user_id, 'user_id')}"),) if user_id else ()
         return self._select("np_platform_user_tenants", filters=filters, limit=1000)
+
+    def create_platform_session(self, user_id: str, token_hash: str, *, expires_at: datetime) -> None:
+        instant = utc_now()
+        if (not re.fullmatch(r"[0-9a-f]{64}", token_hash)
+                or expires_at.tzinfo is None or not instant < expires_at <= instant + timedelta(hours=8)):
+            raise ControlCenterValidationError("Sessao interna invalida.")
+        self._delete("np_platform_sessions", (("expires_at", f"lte.{_iso(instant)}"),))
+        self._insert("np_platform_sessions", {
+            "token_hash": token_hash, "user_id": user_id,
+            "created_at": _iso(instant), "expires_at": _iso(expires_at),
+        })
+
+    def platform_session_active(self, user_id: str, token_hash: str) -> bool:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            return False
+        return bool(self._select("np_platform_sessions", select="token_hash", filters=(
+            ("user_id", f"eq.{user_id}"), ("token_hash", f"eq.{token_hash}"),
+            ("expires_at", f"gt.{_iso()}"),
+        ), limit=1))
+
+    def revoke_platform_session(self, user_id: str, token_hash: str) -> None:
+        self._delete("np_platform_sessions", (("user_id", f"eq.{user_id}"), ("token_hash", f"eq.{token_hash}")))
 
     def get_platform_user(self, user_id: str) -> PlatformUser | None:
         target = _identifier(user_id, "user_id")

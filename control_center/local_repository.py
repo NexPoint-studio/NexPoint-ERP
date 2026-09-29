@@ -74,7 +74,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROL_CENTER_DATABASE = (ROOT_DIR / "data" / "control_center.sqlite3").resolve()
 OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "erp.sqlite3").resolve()
 DEMO_OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "demo_2_anos.sqlite3").resolve()
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{2,127}$")
@@ -108,6 +108,7 @@ _INCIDENT_TRANSITIONS: dict[str, frozenset[str]] = {
 _CONTROL_CENTER_TABLES = frozenset({
     "control_center_meta",
     "platform_users",
+    "platform_sessions",
     "platform_user_tenant_authorizations",
     "tenants",
     "installations",
@@ -184,6 +185,15 @@ _SCHEMA = (
         is_demo INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0, 1))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS platform_sessions (
+        token_hash TEXT PRIMARY KEY CHECK (length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'),
+        user_id TEXT NOT NULL REFERENCES platform_users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL CHECK (expires_at > created_at)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_platform_sessions_expires ON platform_sessions(expires_at)",
     """
     CREATE TABLE IF NOT EXISTS tenants (
         id TEXT PRIMARY KEY,
@@ -3492,6 +3502,31 @@ class LocalControlCenterRepository:
                 ),
             )
             return normalized
+
+    def create_platform_session(self, user_id: str, token_hash: str, *, expires_at: datetime) -> None:
+        instant = utc_now()
+        if (not re.fullmatch(r"[0-9a-f]{64}", token_hash)
+                or expires_at.tzinfo is None or not instant < expires_at <= instant + timedelta(hours=8)):
+            raise ControlCenterValidationError("Sessao interna invalida.")
+        with self._write() as connection:
+            connection.execute("DELETE FROM platform_sessions WHERE expires_at <= ?", (_iso(instant),))
+            connection.execute(
+                "INSERT INTO platform_sessions(token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)",
+                (token_hash, _identifier(user_id, field="user_id"), _iso(instant), _iso(expires_at)),
+            )
+
+    def platform_session_active(self, user_id: str, token_hash: str) -> bool:
+        if not re.fullmatch(r"[0-9a-f]{64}", token_hash):
+            return False
+        with self._read() as connection:
+            return connection.execute(
+                "SELECT 1 FROM platform_sessions WHERE user_id=? AND token_hash=? AND expires_at>?",
+                (user_id, token_hash, _iso(utc_now())),
+            ).fetchone() is not None
+
+    def revoke_platform_session(self, user_id: str, token_hash: str) -> None:
+        with self._write() as connection:
+            connection.execute("DELETE FROM platform_sessions WHERE user_id=? AND token_hash=?", (user_id, token_hash))
 
     def get_platform_user(self, user_id: str) -> PlatformUser | None:
         user_id = _identifier(user_id, field="user_id")

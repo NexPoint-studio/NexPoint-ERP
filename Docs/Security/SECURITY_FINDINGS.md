@@ -1,5 +1,8 @@
 # Security Discovery — findings
 
+> Registro original da descoberta, preservado. Estados e evidências da etapa
+> posterior: [Security Remediation](SECURITY_REMEDIATION_REPORT.md).
+
 Baseline ERP `b09c48e2f5d6e7ecfb9d1aef91ef95753cf1f2c6`, 29/09/2026.
 Responsável: coordenação da auditoria autorizada. Somente QA/local, dados fictícios.
 Triagem final de 29/09/2026, continuação de `277a5b2`: sete registros OPEN e um

@@ -59,7 +59,8 @@ def test_supabase_repository_readiness_uses_only_server_side_opaque_key():
         transport=transport,
     )
 
-    assert len(transport.calls) == 9
+    assert len(transport.calls) == 10
+    assert any('/np_platform_sessions?' in call['url'] for call in transport.calls)
     assert all(call["url"].startswith(f"{PROJECT_URL}/rest/v1/") for call in transport.calls)
     assert all(call["headers"]["apikey"] == OPAQUE_SERVICE_KEY for call in transport.calls)
     assert all("Authorization" not in call["headers"] for call in transport.calls)
@@ -255,7 +256,8 @@ def production_web(production_environment, monkeypatch):
 def _signed_platform_cookie(settings):
     payload = base64.b64encode(json.dumps({
         "platform_user_id": "admin-probe",
-        "platform_credential_version": "test-version",
+        "platform_credential_version": "a" * 64,
+        "platform_session_token": secrets.token_urlsafe(32),
     }).encode())
     return TimestampSigner(settings.session_secret).sign(payload).decode()
 
@@ -320,10 +322,11 @@ def test_production_dependency_health_checks_tables_and_rpc_and_sanitizes_failur
         "service": "nexpoint-control-center", "environment": "production", "storage": "supabase",
     }
     if failure != "supabase":
-        assert len(calls) == 9
+        assert len(calls) == 10
         for table in (
             "np_platform_users", "np_tenants", "np_installations", "np_support_tickets",
             "np_health_snapshots", "np_risks", "np_incidents", "np_observability_events",
+            "np_platform_sessions",
         ):
             assert any(f"/rest/v1/{table}?" in url for url in calls)
         assert "/rpc/np_admin_get_reset_authorization" in calls[-1]

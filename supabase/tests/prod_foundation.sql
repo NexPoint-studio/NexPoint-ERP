@@ -19,7 +19,7 @@ declare
     authorization_projection jsonb;
     ticket_uuid uuid;
 begin
-    if (select count(*) from pg_tables where schemaname = 'public' and tablename like 'np_%') <> 21 then
+    if (select count(*) from pg_tables where schemaname = 'public' and tablename like 'np_%') <> 22 then
         raise exception 'unexpected ERP cloud table count';
     end if;
     if exists (
@@ -34,7 +34,7 @@ begin
         raise exception 'RLS is not enabled and forced on every ERP cloud table';
     end if;
     if (select count(*) from pg_policies where schemaname = 'public' and tablename like 'np_%') <> 21 then
-        raise exception 'every ERP cloud table must have an explicit policy';
+        raise exception 'expected 21 domain policies; session table deliberately has no client policy';
     end if;
     if exists (
         select 1 from pg_policies

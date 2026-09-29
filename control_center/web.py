@@ -1099,18 +1099,27 @@ def create_control_center_app(
             return await call_next(request)
         user_id = request.session.get("platform_user_id")
         credential_version = request.session.get("platform_credential_version")
+        session_token = request.session.get("platform_session_token")
         if (
             isinstance(user_id, str)
             and len(user_id) <= 80
             and isinstance(credential_version, str)
+            and re.fullmatch(r"[0-9a-f]{64}", credential_version)
+            and isinstance(session_token, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{43}", session_token)
         ):
             try:
                 user = await run_in_threadpool(repository.get_platform_user, user_id)
+                session_active = await run_in_threadpool(
+                    repository.platform_session_active, user_id,
+                    sha256(session_token.encode("ascii")).hexdigest(),
+                )
             except Exception:
                 return PlainTextResponse("Autenticacao temporariamente indisponivel.", status_code=503)
             expected_version = _credential_version(user) if user is not None else ""
             if (
                 user is not None
+                and session_active
                 and user.active
                 and user.role in PLATFORM_ROLES
                 and secrets.compare_digest(credential_version, expected_version)
@@ -1118,6 +1127,9 @@ def create_control_center_app(
                 request.state.platform_user = user
             else:
                 request.session.clear()
+        elif user_id is not None:
+            # Pre-migration cookies and malformed signed payloads require login.
+            request.session.clear()
         public = request.url.path in {"/login", "/health"} or request.url.path.startswith("/static/")
         if not public and request.state.platform_user is None:
             return RedirectResponse("/login", status_code=303)
@@ -1253,22 +1265,41 @@ def create_control_center_app(
             )
             response.headers["Retry-After"] = str(retry_after)
             return response
-        user = repository.authenticate_platform_user(normalized_username, password)
+        try:
+            user = repository.authenticate_platform_user(normalized_username, password)
+        except Exception:
+            return PlainTextResponse("Autenticacao temporariamente indisponivel.", status_code=503)
         if user is None or not user.active or user.role not in PLATFORM_ROLES:
             login_limiter.record_failure(rate_key)
             login_ip_limiter.record_failure(ip_rate_key)
             return templates.TemplateResponse(request, "login.html", {"request": request, "error": "Usuário interno ou senha inválidos.", "username": username, "csrf_token": _csrf_token(request), "control_environment": control_environment}, status_code=401)
+        session_token = secrets.token_urlsafe(32)
+        try:
+            repository.create_platform_session(
+                user.id, sha256(session_token.encode("ascii")).hexdigest(),
+                expires_at=datetime.now(timezone.utc) + timedelta(seconds=SESSION_MAX_AGE),
+            )
+        except Exception:
+            return PlainTextResponse("Autenticacao temporariamente indisponivel.", status_code=503)
         login_limiter.clear(rate_key)
         login_ip_limiter.clear(ip_rate_key)
         request.session.clear()
         request.session["platform_user_id"] = user.id
         request.session["platform_credential_version"] = _credential_version(user)
+        request.session["platform_session_token"] = session_token
         _csrf_token(request)
         return RedirectResponse("/", status_code=303)
 
     @app.post("/logout")
     def logout(request: Request, csrf: str = Form("", alias="_csrf", max_length=128)):
         _require_csrf(request, csrf)
+        try:
+            repository.revoke_platform_session(
+                request.state.platform_user.id,
+                sha256(request.session["platform_session_token"].encode("ascii")).hexdigest(),
+            )
+        except Exception:
+            return PlainTextResponse("Nao foi possivel encerrar a sessao. Tente novamente.", status_code=503)
         request.session.clear()
         return RedirectResponse("/login", status_code=303)
 
