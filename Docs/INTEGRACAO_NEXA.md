@@ -1,8 +1,14 @@
-# Integração local ERP ↔ Nexa
+# Integração ERP ↔ Nexa — LOCAL/DEV e PROD
 
 O ERP é FastAPI/Jinja2/SQLite local. A Nexa é uma Edge Function separada. O painel
 Nexa aparece nas telas autenticadas e envia mensagens ao backend do ERP, nunca
 diretamente do navegador à Nexa. O ERP continua operacional quando a Nexa cai.
+
+Os exemplos locais abaixo preservam o fluxo LOCAL/DEV. Em PROD, o ERP usa a
+credencial de instalação protegida por DPAPI para autenticar a ponte; o Control
+Center usa `CONTROL_CENTER_NEXA_BRIDGE_SECRET`. A função `erp-chat`, mantida no
+repositório Nexa, é publicada no Supabase ERP do ambiente. Consulte
+[PROD_DEPLOYMENT.md](PROD_DEPLOYMENT.md) e [PROD_BASELINE.md](PROD_BASELINE.md).
 
 ## Configuração local
 
@@ -107,7 +113,7 @@ instalação, versão, saúde, riscos, fingerprints e diagnóstico sanitizado. O
 navegador não fornece esse contexto, não escolhe outro tenant e não recebe acesso
 ao SQLite. A ponte não oferece SQL arbitrário nem ações operacionais ou
 financeiras. Consulte [CONTROL_CENTER.md](CONTROL_CENTER.md) para configuração,
-persistência e limites do painel local.
+persistência e limites do painel em cada ambiente.
 
 ## Doctor
 

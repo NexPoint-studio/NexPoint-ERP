@@ -111,20 +111,30 @@ O link **Esqueci a senha** do cadeado também permite abrir um chamado
 Proprietário ainda é obrigatória. Se o painel estiver indisponível, a solicitação
 fica na Outbox local aguardando sincronização.
 
-O **NexPoint ERP Control Center** é um aplicativo privado para a equipe NexPoint,
-com autenticação própria e banco SQLite separado do banco operacional. Configure
-os marcadores `CONTROL_CENTER_*` em `.env.local` e execute:
+O **NexPoint ERP Control Center** é um aplicativo de acesso restrito à equipe
+NexPoint, com autenticação própria. Em PROD está publicado por HTTPS no Render,
+com persistência Supabase separada do SQLite operacional do ERP. O login PROD e
+o acesso mobile foram confirmados pelo proprietário; consulte a
+[baseline de produção](Docs/PROD_BASELINE.md) e o
+[guia de deploy](Docs/PROD_DEPLOYMENT.md).
+
+O modo LOCAL/DEV preserva o painel com SQLite separado. Somente para esse modo,
+configure os marcadores `CONTROL_CENTER_*` em `.env.local` e execute:
 
 ```powershell
 .\.venv\Scripts\python.exe run_control_center.py
 ```
 
-Ele abre somente em `http://127.0.0.1:8770`. O usuário proprietário do ERP não
+O launcher local abre em `http://127.0.0.1:8770`. O usuário proprietário do ERP não
 recebe acesso ao painel interno. Defina `CONTROL_CENTER_SEED_DEMO=1` apenas para
 carregar as empresas Alfa, Beta e Gama, todas marcadas como dados fictícios. O
-V1 não usa cloud, não consulta SQL arbitrário e não permite operações financeiras
-ou operacionais nos ERPs acompanhados. Consulte o
+V1 local não usa cloud. Nenhum dos modos oferece SQL arbitrário ou operações
+financeiras nos ERPs acompanhados. Consulte o
 [guia do Control Center](Docs/CONTROL_CENTER.md).
+
+A implantação PROD foi formalmente encerrada. O próximo ciclo,
+[Security Gate / Red Team](Docs/SECURITY_GATE.md), está apenas planejado e
+aguarda instrução específica; esta baseline não representa auditoria de segurança.
 
 ## Observabilidade e QA
 

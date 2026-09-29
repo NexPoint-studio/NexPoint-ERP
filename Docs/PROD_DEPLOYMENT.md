@@ -1,5 +1,14 @@
 # Deploy de produção: ERP, Supabase e Control Center
 
+## Estado da implantação
+
+A implantação PROD foi encerrada formalmente em 29/09/2026 conforme confirmação
+do proprietário, incluindo login do Control Center, página autenticada e acesso
+mobile. Consulte [PROD_BASELINE.md](PROD_BASELINE.md) para identidades públicas,
+arquitetura e origem das evidências. Este documento continua sendo o runbook de
+implantação/manutenção; seus comandos não foram reexecutados no encerramento.
+O [Security Gate](SECURITY_GATE.md) é um próximo ciclo ainda não iniciado.
+
 ## Escopo e princípios
 
 Este guia cobre o plano de produção do ERP NexPoint. Ele não transforma o ERP

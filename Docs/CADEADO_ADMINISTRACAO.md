@@ -52,8 +52,11 @@ chamado ativo da categoria correta. A autorização:
 - não contém senha antiga nem nova.
 
 Um verificador aleatório interno é guardado apenas como hash e nunca é exibido.
-O ERP consulta o sidecar confiável usando seus vínculos locais; o cliente não
-digita token ou identificador técnico. Quando existe autorização válida, a tela
+Em LOCAL/DEV, o ERP consulta o sidecar confiável usando seus vínculos locais.
+Em PROD, `SupabaseAdminRecoveryRemote` consulta e consome a autorização pelo
+endpoint `erp-admin-recovery`, com a credencial de instalação e os vínculos
+remotos previstos no contrato. O cliente não digita token ou identificador
+técnico. Quando existe autorização válida, a tela
 muda automaticamente para **Recuperação autorizada** e mostra somente “Nova
 senha”, “Confirmar nova senha” e “Definir nova senha”.
 
@@ -62,6 +65,10 @@ Depois do consumo, o ERP grava um novo hash para o Admin Lock, incrementa sua
 versão e registra auditoria e observabilidade. A operação modifica somente a
 credencial do Admin Lock: login normal, usuário, papel, permissões, tenant e
 sessão normal permanecem iguais.
+
+Esse fluxo de Admin Lock é distinto da redefinição da senha de um administrador
+interno do Control Center. A arquitetura publicada está registrada em
+[PROD_BASELINE.md](PROD_BASELINE.md).
 
 ## Compatibilidade do schema
 

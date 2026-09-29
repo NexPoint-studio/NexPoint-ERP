@@ -1,33 +1,37 @@
-# NexPoint ERP Control Center V1
+# NexPoint ERP Control Center — PROD e modo local
 
 O Control Center é o painel privado da equipe NexPoint para acompanhar empresas,
 instalações locais, chamados, saúde, riscos, incidentes e versões do ERP. Ele é
-um aplicativo separado da interface usada pelo cliente e roda somente em
-`127.0.0.1:8770`.
+um aplicativo separado da interface usada pelo cliente.
 
-Esta versão usa persistência SQLite local. Ela não envia dados para Supabase ou
-outra cloud, não habilita billing e não altera registros operacionais ou
-financeiros dos ERPs acompanhados.
+Em PROD, roda no Render por HTTPS e usa `SupabaseControlCenterRepository`, sem
+SQLite operacional do cliente. O login e o acesso mobile foram confirmados pelo
+proprietário. O modo LOCAL/DEV mantém o V1 em `127.0.0.1:8770`, com persistência
+SQLite separada. Os exemplos de launcher/seed abaixo pertencem somente a esse
+modo local. Nenhum dos modos habilita billing ou altera registros financeiros
+dos ERPs acompanhados. Estado formal: [PROD_BASELINE.md](PROD_BASELINE.md);
+configuração PROD: [PROD_DEPLOYMENT.md](PROD_DEPLOYMENT.md).
 
 ## Isolamento e acesso
 
 O Control Center possui autenticação e cookie de sessão próprios. A conta
 inicial tem papel interno `platform_admin`; o proprietário e os demais usuários
 do ERP não são contas válidas no painel. As rotas administrativas exigem essa
-sessão interna, token CSRF por sessão e origem local. Ao trocar a senha interna,
+sessão interna, token CSRF por sessão e origem correspondente ao ambiente
+(origem pública canônica em PROD). Ao trocar a senha interna,
 sessões emitidas com o hash anterior deixam de ser aceitas.
 
-O banco padrão é `data/control_center.sqlite3`, separado de
+No perfil local, o banco padrão é `data/control_center.sqlite3`, separado de
 `data/erp.sqlite3` e `data/demo_2_anos.sqlite3`. Arquivos SQLite sob `data/` são
 ignorados pelo Git. A configuração recusa o banco operacional do ERP e caminhos
 fora de `data/`.
 
-O ERP operacional e o launcher do painel resolvem
+Nesse perfil, o ERP operacional e o launcher do painel resolvem
 `CONTROL_CENTER_DATABASE_PATH` pelo mesmo contrato. Assim, chamados e telemetria
 aparecem no painel configurado sem criar um segundo sidecar silencioso. Uma
 falha nesse armazenamento continua isolada e não impede a inicialização do ERP.
 
-## Configuração
+## Configuração LOCAL/DEV
 
 Copie `.env.example` para `.env.local` e substitua todos os marcadores usados
 pela instalação. Para o Control Center, configure:
@@ -55,7 +59,7 @@ Set-Location 'D:\NexStudio\sistema ERP'
 O launcher verifica a porta, inicia o servidor local e abre uma janela dedicada
 em `http://127.0.0.1:8770`.
 
-## Seed fictícia opcional
+## Seed fictícia opcional — somente ambiente local de demonstração
 
 `CONTROL_CENTER_SEED_DEMO=1` carrega, de forma idempotente, as empresas Alfa,
 Beta e Gama com instalações, chamados, snapshots de saúde, fingerprints, riscos,
@@ -91,8 +95,9 @@ cadastros do cliente ou qualquer outra ação operacional no ERP.
 ## Contrato de domínio e persistência
 
 O contrato `ControlCenterRepository` separa o domínio da implementação de
-armazenamento. O V1 usa `LocalControlCenterRepository`; uma implementação futura
-poderá usar Supabase sem mudar os fluxos que consomem o contrato.
+armazenamento. LOCAL/DEV usa `LocalControlCenterRepository`; PROD já implementa
+`SupabaseControlCenterRepository` no mesmo contrato. O processo web PROD não
+faz bootstrap de senha por variáveis locais; a conta é provisionada no Supabase.
 
 Os objetos centrais são `Tenant`, `ErpInstallation`, `HealthSnapshot`,
 `SupportTicket`, `RiskSummary`, `Incident` e `PlatformUser`. IDs são opacos e os
@@ -147,7 +152,8 @@ formulário exige CSRF e a frase `AUTORIZAR <protocolo>`. A autorização result
 - pertence ao chamado, tenant, instalação e solicitante exatos;
 - revoga uma autorização ativa anterior do mesmo chamado;
 - aceita um único consumo;
-- armazena somente o hash `scrypt` de um verificador aleatório interno;
+- armazena material verificador em hash: `scrypt` no repositório local e
+  `authorization_digest` SHA-256 no contrato Supabase PROD;
 - nunca mostra ou entrega esse verificador ao cliente.
 
 O Control Center não recebe a senha antiga nem a nova. Ele apenas autoriza o
@@ -157,9 +163,13 @@ papel, permissões, login e acesso técnico não são modificados. Autorização
 expirada, revogada, consumida ou pertencente a outro
 tenant/instalação/solicitante falha fechado.
 
-## Telemetria local
+## Telemetria por ambiente
 
-O adaptador ERP → Control Center publica snapshots limitados no banco separado.
+O adaptador ERP → Control Center publica snapshots limitados. Em LOCAL/DEV, o
+destino é o banco separado; em PROD, a Outbox envia o contrato por `erp-sync`
+ao Supabase, consultado pelo painel. O trecho abaixo sobre identidade opaca
+derivada localmente descreve o sidecar; PROD usa a identidade provisionada e a
+credencial de instalação protegida por DPAPI.
 Ele usa nome exibido da empresa, IDs opacos, versão, build, ambiente, saúde,
 latência, contagem de erros, tentativas, fingerprints e riscos produzidos pelo
 monitor de diagnóstico. Não consulta clientes, notas, pagamentos, Caixa ou
@@ -206,7 +216,7 @@ estiver configurada ou ficar indisponível, o painel mostra a falha sem impedir 
 consulta dos dados locais ou a gestão da fila. Detalhes da assinatura, Tools e
 limites de Web estão em [INTEGRACAO_NEXA.md](INTEGRACAO_NEXA.md).
 
-## Limites do V1
+## Histórico e limites do V1 local
 
 - armazenamento apenas local e compartilhado somente pelas aplicações desta
   instalação;
@@ -217,7 +227,9 @@ limites de Web estão em [INTEGRACAO_NEXA.md](INTEGRACAO_NEXA.md).
   de reset apenas emite uma prova temporária que o Proprietário consome no ERP;
 - nenhuma ação financeira, operacional ou de billing.
 
-A migração futura deverá implementar o mesmo `ControlCenterRepository`, manter o
-isolamento por tenant e transportar somente contratos sanitizados. Ela exige uma
-tarefa própria de identidade, RLS, auditoria e sincronização; não faz parte do V1
-local.
+Esses limites de armazenamento/bootstrap descrevem a fase V1 local preservada.
+A integração PROD com Supabase, identidade provisionada e sincronização já
+existe; não é mais trabalho futuro. Permanecem os limites de não executar ações
+financeiras ou acessar diretamente o SQLite operacional. Consulte a baseline
+para arquitetura e limitações PROD, sem inferir comportamento cloud deste
+histórico local.

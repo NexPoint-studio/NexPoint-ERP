@@ -18,19 +18,26 @@ SQLite local
 
 As telas não acessam o banco diretamente. As rotas cuidam de HTTP, sessão e
 permissões; os serviços concentram regras e limites transacionais; os
-repositórios isolam consultas e persistência. Adaptadores locais conectam a
-Outbox ao sidecar isolado do Control Center e a interface same-origin à ponte
-assinada da Nexa. Nenhum deles concede acesso direto ao SQLite operacional.
+repositórios isolam consultas e persistência. Em LOCAL/DEV, a Outbox se conecta
+ao sidecar isolado do Control Center; em PROD usa `SupabaseSyncRemote` e a Edge
+Function `erp-sync`. A interface same-origin acessa a ponte assinada da Nexa
+pelo backend. O painel e a Nexa não têm acesso direto ao SQLite operacional.
 
-## Execução local
+## Execução desktop e perfis
 
 - FastAPI e pywebview usam exclusivamente `127.0.0.1`;
-- o banco operacional fica em `data/erp.sqlite3` e não é versionado;
-- configuração sensível fica em `.env.local`, também não versionado;
+- em LOCAL/DEV, o banco padrão é `data/erp.sqlite3`; em PROD fica no diretório
+  persistente externo ao checkout; nenhum banco é versionado;
+- LOCAL/DEV usa `.env.local` ignorado; PROD protege a credencial de instalação
+  por DPAPI e separa configuração não secreta;
 - HTML, CSS, JavaScript, fontes e imagens são locais;
-- Outbox, Control Center e observabilidade persistem em armazenamento local
-  isolado; esta versão não depende de SDK, storage ou sincronização de nuvem;
+- Outbox e observabilidade conservam persistência local; o Control Center local
+  usa sidecar, enquanto PROD usa Supabase e HTTPS público no Render;
 - a ponte opcional da Nexa usa HMAC, payload sanitizado e política read-only.
+
+A operação comercial permanece offline-first. A arquitetura publicada e suas
+fronteiras estão em [PROD_BASELINE.md](PROD_BASELINE.md); o procedimento de
+implantação está em [PROD_DEPLOYMENT.md](PROD_DEPLOYMENT.md).
 
 ## Núcleo reutilizável
 

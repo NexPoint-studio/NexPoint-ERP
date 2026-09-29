@@ -2,8 +2,12 @@
 
 O SQLite do ERP permanece a fonte de verdade para clientes, serviços, Notas,
 pagamentos, saldos e Caixa. Essas operações não consultam a Nexa ou um serviço
-na internet. O Control Center local recebe somente eventos técnicos sanitizados
+na internet. O plano de controle recebe somente eventos técnicos sanitizados
 e chamados; não recebe o cadastro operacional completo nem controla o Caixa.
+
+LOCAL/DEV mantém o Control Center em sidecar SQLite; PROD envia os envelopes
+ao Supabase por `erp-sync`, e o painel Render consulta esse armazenamento.
+Consulte a [baseline PROD](PROD_BASELINE.md) para o estado publicado.
 
 ## Outbox e Control Center
 
@@ -13,7 +17,8 @@ payload versionado e estados `pending`, `sending`, `failed`, `synced` e
 envia lotes pelo contrato `SyncRemote` e aguarda o ACK com chave e versão
 correspondentes antes de marcar um item como sincronizado. Respostas ambíguas,
 timeout e indisponibilidade deixam o item recuperável. Reenvios ao Control
-Center local usam comprovantes persistentes para não reaplicar o mesmo evento.
+Center local ou ao backend Supabase usam comprovantes persistentes para não
+reaplicar o mesmo evento.
 
 Falhas recuperáveis usam espera progressiva com variação aleatória e eventual
 indicação `Retry-After`; tentativas esgotadas passam a `dead_letter` para

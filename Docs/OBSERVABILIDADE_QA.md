@@ -6,6 +6,12 @@ continua quando a store de logs, o Control Center ou a Nexa ficam indisponíveis
 Observabilidade complementa a auditoria do ERP; ela não substitui os registros
 de auditoria nem participa da transação financeira.
 
+Os exemplos de sidecar e cenários deste documento preservam a implementação
+LOCAL/QA. Em PROD, a Outbox envia telemetria para `erp-sync`/Supabase, e o
+Control Center publicado no Render consulta o repositório remoto. Isso não
+altera a persistência local nem autoriza cenários QA em produção. O encerramento
+operacional está em [PROD_BASELINE.md](PROD_BASELINE.md).
+
 ## Arquitetura
 
 ```text
@@ -19,12 +25,13 @@ requisição HTTP
             -> evento pending
                  -> Outbox sanitizada em data/<banco>.sqlite3
                  -> SyncWorker + ACK idempotente
-                 -> data/control_center.sqlite3 / diagnostic_events
+                 -> LOCAL/DEV: data/control_center.sqlite3 / diagnostic_events
+                 -> PROD: erp-sync -> Supabase -> Control Center Render
 
 Control Center
   -> Log Explorer, timeline, fingerprints e export JSON sanitizado
   -> investigação Nexa com snapshots read-only e escopo de tenant
-  -> tenant TEST, QATestRun, cenários controlados e reset restrito
+  -> somente QA: tenant TEST, QATestRun, cenários controlados e reset restrito
 
 ERP Doctor
   -> banco operacional em consultas de preflight
@@ -202,12 +209,14 @@ informações de rota ou fila, podem ser descartados pelo receptor do Control
 Center. A timeline remota não deve ser tratada como cópia byte a byte do evento
 local.
 
-Nesta etapa o destino é o Control Center local. Não há transporte para Supabase
-ou cloud.
+Na etapa LOCAL original o destino era exclusivamente o Control Center local.
+Esse transporte permanece para LOCAL/DEV; PROD já usa `SupabaseSyncRemote` e
+`erp-sync`, conforme [PROD_DEPLOYMENT.md](PROD_DEPLOYMENT.md).
 
 ## Control Center
 
-O painel abre em `http://127.0.0.1:8770`, tem conta, segredo de sessão e cookie
+No perfil LOCAL, o painel abre em `http://127.0.0.1:8770`. Em ambos os modos tem
+conta, segredo de sessão e cookie
 próprios, exige sessão interna e protege formulários com CSRF. O proprietário do
 ERP não é automaticamente usuário do Control Center. `platform_admin` pode
 consultar todos os tenants. `nexpoint_control_admin` começa sem acesso e só vê
@@ -437,8 +446,9 @@ isolamento, inclua:
 
 ## Segurança
 
-- O ERP e o Control Center aceitam somente `127.0.0.1`; sessões, cookies e
-  credenciais são independentes.
+- No perfil LOCAL, ERP e Control Center aceitam somente `127.0.0.1`. Em PROD,
+  o ERP continua em loopback e o painel usa HTTPS público no Render; sessões,
+  cookies e credenciais são independentes.
 - Metadados usam allowlist. Payload HTTP, formulário, SQL, stack bruto, nomes de
   clientes e valores financeiros não são campos aceitos.
 - A sanitização remove canary, chaves privadas, JWT, Authorization, tokens,
@@ -468,11 +478,12 @@ isolamento, inclua:
 
 ## Limites atuais
 
-- Toda persistência e sincronização são locais. Não há Supabase, cloud ou
-  agregação entre computadores.
-- O Control Center V1 não tem retenção automática global de logs ou recibos de
+- No V1 LOCAL/QA original, toda persistência e sincronização eram locais. PROD
+  já usa Supabase e painel Render; a operação comercial permanece no SQLite.
+- O Control Center V1 local não tem retenção automática global de logs ou recibos de
   sync recebidos; snapshots de saúde vindos pela Outbox também não usam o corte
-  do caminho direto.
+  do caminho direto. O contrato de retenção Supabase é descrito no runbook PROD;
+  a existência da RPC não comprova seu agendamento em produção.
 - A limpeza do sidecar é best-effort; falha de manutenção é reportada pelo
   Doctor e tentada novamente no ciclo periódico ou no encerramento.
 - Eventos `pending` podem ultrapassar os limites configurados para preservar

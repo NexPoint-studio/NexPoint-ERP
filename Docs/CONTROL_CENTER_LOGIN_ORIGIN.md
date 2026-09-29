@@ -42,8 +42,11 @@ ERP ou build desktop foi alterado. Não há diagnóstico de credenciais em logs.
 
 ## Aceite em produção
 
-Após o proprietário publicar o novo commit no Render, recarregar `/login` para
-receber a nova política e entrar com a credencial atual. Confirmar sessão no painel
-e `/health` saudável. Esse aceite permanece pendente até o deploy; testes locais
-não comprovam que o novo código já está LIVE. Não é necessário alterar secrets,
-`CONTROL_CENTER_PUBLIC_ORIGIN`, `CONTROL_CENTER_ALLOWED_HOSTS` ou `/health`.
+**Concluído por confirmação do proprietário em 29/09/2026:** Control Center
+publicado, login PROD funcional, página autenticada aberta e acesso mobile
+utilizável. O encerramento consta em [PROD_BASELINE.md](PROD_BASELINE.md).
+
+A pendência de aceite que existia ao publicar a correção deixou de existir.
+Os testes e a preservação descritos acima pertencem à tarefa original; a
+redefinição controlada da credencial ocorreu depois, em operação separada, sem
+novo deploy. Este registro documental não altera origem, CSRF, secrets ou health.
