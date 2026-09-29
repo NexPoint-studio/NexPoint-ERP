@@ -29,6 +29,12 @@ Os scripts assumem essa estrutura e os pacotes documentados em
 | database_sync/recovery_cases.py | Container nomeado e sem rede, fixture upstream; casos negativos/concorrência. Exige banco vazio inicialmente. `--resume-qa-fixture` somente retoma a fixture auditada, não é opção para banco real. |
 | export_inventory.py | Projeção allowlist dos metadados de scanners para CSV; nenhum Match/Secret/snippet/cookie copiado. |
 | review_candidates.py | Scanner de release nos candidatos Git, sem invocar leitura de `.env`; prepara cópia para Gitleaks/TruffleHog finais. |
+| final_auth/discover.py | 149 checks + timing delimitado em ASGI/SQLite fictício, diretório novo por execução. Resultado esperado inclui falha conhecida SD-001; não é certificado de segurança. |
+| final_database/data_api.py | PostgREST 16.2 + Postgres 17 em rede Docker interna, containers exclusivos rotulados e encerrados. 90 casos HTTP/RPC/RLS. Preservar data-api.json antes de repetir: o harness original usa esse nome fixo. |
+| final_tls.py | Cinco verificações com TLS real loopback do Sync. Certificado QA gerado no venv tools-sast, sem instalar CA no sistema; diretório único. |
+| final_triage.py | Confere 31 hashes anteriores; classifica cada ocorrência em CSVs FINAL_ separados; candidato histórico somente em memória, saída allowlist sem valores. |
+| final_coverage.py | Gera matriz de fronteiras e gaps a partir da revisão documentada, incluindo linhas parciais/não testadas ASVS/WSTG. Não executa scanner. |
+| final_review.py | Export único dos candidatos Git, regras de release + Gitleaks redigido e TruffleHog sem verificação; nunca salva objetos brutos TruffleHog. |
 
 Os scripts SQL não devem ser apontados ao Supabase remoto. O laboratório desta
 rodada usou `nexpoint-security-db`, Postgres 17.11, rede none e sem portas publicadas.
@@ -49,3 +55,9 @@ Não executar regressões apontando `--basetemp` para pasta existente importante
 pytest pode limpar a pasta. Os defaults são exclusivos sob artifacts/security.
 Não publicar logs/raw outputs. Preserve falhas anteriores e registre a razão de
 reexecução; uma nova execução não apaga findings.
+
+**Retenção:** os JSONL antigos TruffleHog conservam SecretParts e não podem ser
+tratados como sanitizados. Não imprimir/republicar esses arquivos; usar apenas a
+projeção de final_triage. Nenhum raw, banco, certificado/chave QA ou container export
+entra no Git. A nova tarefa não autoriza reexecutar testes ativos/custosos antigos;
+a revisão final utiliza os resultados preservados e testes defensivos delimitados.

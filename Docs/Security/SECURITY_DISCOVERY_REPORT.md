@@ -1,5 +1,108 @@
 # Security Discovery — NexPoint ERP
 
+## Encerramento da triagem final e coverage review
+
+29/09/2026, continuação de `277a5b293dbc83797997a9df08759d34c78a8888`.
+Fonte funcional auditada permanece a mesma. Os 31 artefatos do manifesto anterior
+mantêm os mesmos hashes; inventários antigos não foram substituídos. Os resultados
+atuais abaixo prevalecem sobre as contagens da rodada histórica preservada adiante.
+
+| Classe final dos registros SD | Quantidade |
+| --- | ---: |
+| CONFIRMED | 5 |
+| LIKELY | 0 |
+| FALSE_POSITIVE | 0 |
+| UNRESOLVED | 2 |
+| NOT_APPLICABLE | 1 |
+| Total | 8 |
+
+Severidades de todos os oito registros: **CRITICAL 0, HIGH 0, MEDIUM 4, LOW 2, INFO 2**.
+Sete continuam OPEN; SD-006 foi encerrado como NOT_APPLICABLE ao build examinado,
+sem alterar sua dependência. Os quatro confirmados anteriores permanecem confirmados.
+Novo **SD-008/LOW**: diferença de custo do login no adaptador SQLite, comprovada em
+fixture local e código; não atribuir esse resultado ao adaptador Supabase usado em PROD.
+
+SD-004 está UNRESOLVED: candidato UUID presente no blob histórico, ausente dos arquivos
+rastreados atuais, sem prova de credencial real/ativa. SD-005 está UNRESOLVED: presença
+de dependências não prova uso do caminho vulnerável. **Nenhuma CVE teve aplicabilidade
+explorável no ERP confirmada nesta rodada**. A revisão de fontes e módulos excluiu
+cinco ocorrências no cenário observado; outras 254 permanecem UNRESOLVED. SD-006 é
+NOT_APPLICABLE porque o fluxo oficial gera PyInstaller/ZIP, não sdist publicado.
+
+Classificações e justificativas: [findings](SECURITY_FINDINGS.md) e
+[dependências/secrets](SECURITY_DEPENDENCY_TRIAGE.md). Falsos positivos de scanner
+são contados separadamente: SAST 140 FALSE_POSITIVE, 1 CONFIRMED e 5 UNRESOLVED;
+Gitleaks 14 fixtures FALSE_POSITIVE e 857 localizações históricas UNRESOLVED;
+TruffleHog 2 fixtures FALSE_POSITIVE e 1 candidato UNRESOLVED. Repetições entre
+commits e ferramentas não são credenciais ou vulnerabilidades distintas.
+
+### Verificações adicionais executadas
+
+| Execução | Resultado e limite | Evidência sob artifacts/security/final |
+| --- | --- | --- |
+| Autenticação/sessão/roles/grants/objetos/mass assignment | 149/149 verificações de comportamento esperado + 1 registro de tempos; inclui SD-001 reproduzido, portanto não significa 149 controles seguros | auth/run-45441f7d36/results.json |
+| Data API/RPC/RLS real | 90/90 casos em Postgres 17.11 + PostgREST 16.2, rede Docker interna, sem portas publicadas; anon/auth/service_role, extras, nonce e idempotência | database/data-api.json |
+| Cliente Sync com TLS real loopback | 5/5: certificado não confiável e hostname errado negados, trust QA explícito aceito, redirect recusado/destino não chamado | tls/run-e65b7955a3/results.json |
+| Presença/alcançabilidade de módulos da imagem | Container read-only sem rede; fallback msgpack, ausência de _cmsgpack/setuptools de topo, versões dpkg | image-reachability.json |
+| Triagem allowlist e preservação | 31/31 artefatos anteriores inalterados; saídas por ocorrência, sem valores | supply/summary.json; supply/secret-triage.json |
+
+A primeira execução auth preservada tinha 147/149 expectativas satisfeitas. As duas
+divergências eram **404 corretos para incidente selecionado fora do grant**, não bugs
+do produto; corrigido somente o oracle do script e repetido com sucesso. Warning de
+depreciação httpx/Starlette não impediu os testes, nem motivou atualização de runtime.
+A observação temporal usou sete pares fixos de contas fictícias conhecidas, sem
+busca de senha/contas externas. Os casos de limite são regressões determinísticas.
+
+PostgREST acrescenta cobertura de protocolo real à evidência SQL prévia. Acesso global
+de service_role no fixture é intencional: isolamento depende da aplicação/RPC, não
+de uma promessa de RLS para esse papel privilegiado. Nenhum secret real foi utilizado.
+O TLS loopback não certifica ingress Render, WebView2, Recovery ou Nexa. Containers
+exclusivos foram parados; o listener TLS foi encerrado pelo harness.
+
+### Cobertura e limites finais
+
+[Matriz por fronteira](FINAL_COVERAGE_MATRIX.md): 39 categorias PARTIALLY_TESTED,
+8 superfícies NOT_TESTED, 10 casos delimitados TESTED e 4 grupos NOT_APPLICABLE.
+São unidades com sobreposição, não um percentual de conformidade. Todos os limites
+estão no [registro de gaps](SECURITY_COVERAGE_GAPS.md), incluindo todas as linhas
+parciais/não executadas da matriz [ASVS/WSTG](SECURITY_ASVS_MATRIX.md).
+
+Lacunas principais: stack Supabase integrada; ACL/DPAPI entre usuários Windows;
+restore entre instalações com identidade/cofre completos; pacote WebView2; ingress
+TLS/proxy; memória/clipboard; provider/LLM real; capacidade/failover. O teste antigo
+de restore em uso continua falhando e registrado (138/139); a causa do handle não
+foi determinada. A análise estática da retenção mostra preservação deliberada de
+pending além do orçamento: não houve teste de exaustão nem nova vulnerabilidade
+de disponibilidade declarada sem validar alcance/impacto.
+
+Ferramentas acumuladas: pytest/TestClient, PostgreSQL/pgTAP, PostgREST, Deno,
+CodeQL, Semgrep, Bandit, pip-audit, Trivy, Gitleaks, TruffleHog, ZAP, Nuclei,
+Schemathesis, Hypothesis e TCPView. Limitações específicas e alternativas constam
+na [matriz de ferramentas](SECURITY_TOOL_MATRIX.md). Não foram repetidas varreduras
+agressivas ou cargas. Procmon gráfico, tshark/mitmproxy/Burp não cobrem os gaps por
+mera disponibilidade; o provider real e PROD permaneceram fora dos alvos.
+
+**Nota de retenção:** JSONL TruffleHog antigo conserva SecretParts; não é seguro para
+publicação mesmo com Raw redigido. A inspeção auxiliar relatou exposição inadvertida
+de candidato em sua saída anterior. Nenhum valor é reproduzido nos documentos; os
+originais ignorados foram preservados e a nova projeção usa campos permitidos.
+Esse limite de higiene de evidência não foi ocultado nem convertido em secret ativo.
+
+Entrega final: quatro relatórios atualizados, gaps, matriz por fronteira, triagem
+detalhada, três CSVs de classificação final, manifesto final e scripts defensivos.
+Somente documentação/TODO/scripts de auditoria entram no commit local. Nenhum
+arquivo do produto, migration, lock, Dockerfile ou configuração de deploy foi alterado.
+Secret scan dos candidatos finais: release sem ocorrências, Gitleaks 10 alertas
+conhecidos (7 fixtures/exemplos e 3 objetos Git conferidos), TruffleHog 1 URI de fixture.
+Nenhum novo secret identificado nos candidatos; isso não encerra SD-004 histórico.
+Nenhum push, deploy, rotação de secret ou acesso invasivo a PROD. **Discovery encerrada;
+remediação não iniciada.** SHA do commit é informado na entrega, sem autorreferência.
+
+## Rodada anterior — evidência e contagens históricas preservadas
+
+As seções abaixo descrevem a rodada registrada em 277a5b2. Os estados finais e as
+novas coberturas estão acima; números antigos não devem ser usados como resultado atual.
+
 **Rodada local concluída com limitações explícitas; não é aprovação de segurança de PROD.**
 Data: 29/09/2026. Nenhuma vulnerabilidade corrigida, dependência do produto atualizada,
 secret rotacionado, dado real alterado ou deploy executado.

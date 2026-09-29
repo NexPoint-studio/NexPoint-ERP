@@ -1,0 +1,11 @@
+artifact,sha256,bytes,retention
+artifacts/security/final/auth/run-6f1aab6ba0/results.json,85c37acf6b2f05093785a36a17a83836e5fb3a2cc377b15490343c927847e7d5,29549,local ignored; publish only allowlisted summary
+artifacts/security/final/auth/run-45441f7d36/results.json,e34431e442845af4f18c7cacee35fa1bf4931ce8612ca4eea0beaf6f37af903e,29401,local ignored; publish only allowlisted summary
+artifacts/security/final/database/data-api.json,ee9093fea5602f773c835ca2944988149eedc60a68c53504be7119fba474bee6,13598,local ignored; publish only allowlisted summary
+artifacts/security/final/tls/run-e65b7955a3/results.json,9a64544a033e89693a9d1831c27b399be5d9ac715f2826d51c95a7ce2b21c6a8,631,local ignored; publish only allowlisted summary
+artifacts/security/final/image-reachability.json,dbad255b2a2f1f2cb4dd4a021765b153660e577b3eedfe005d094fb4bd25c633,899,local ignored; publish only allowlisted summary
+artifacts/security/final/supply/summary.json,43d30785b08fa2bc391fc09c7175efbc841a4aa865ab2b0f1225622d3aed7977,408,local ignored; publish only allowlisted summary
+artifacts/security/final/supply/secret-triage.json,d613fa292c7b98baaac3a06172b97030c795827bf656e0650e064d6d638f9ec2,1397,local ignored; publish only allowlisted summary
+artifacts/security/final/delivery-validation.json,c19807d52a1f90a9d63c65e6a758905ba77d3e8305d1dc9ffad353b65d762b54,1039,local ignored; publish only allowlisted summary
+artifacts/security/final/review/run-8072db43f2/results.json,0041e2ccac7119682fe3ca78458b67f64d125ed9e84226cab1f479255676a378,4243,local ignored; publish only allowlisted summary
+artifacts/security/final/review/run-209603758b/results.json,be098466ead3a6fe1610130aa943778a11c28629fb55d5d5fcaf58f47ed5cd61,4243,local ignored; publish only allowlisted summary

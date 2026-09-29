@@ -1,5 +1,38 @@
 # Ferramentas e execução — Security Discovery
 
+## Complemento da triagem final
+
+Mesmas versões e evidências anteriores preservadas; nenhuma dependência do ERP
+atualizada. Esta rodada acrescenta:
+
+| Ferramenta | Execução adicional / limite |
+| --- | --- |
+| Python do ERP + TestClient | final_auth: 149/149 checks esperados e 1 observação de timing. Dois oracles anteriores corrigidos para 404 legítimo; nenhum código de produto alterado |
+| PostgreSQL 17.11 + PostgREST v16.2 oficial Supabase | 90/90 casos HTTP/RPC, rede Docker internal, sem portas host. Não representa Auth/gateway/Edge completos nem PROD |
+| ssl/urllib do runtime | final_tls: 5/5 checks com handshake real loopback e certificado QA temporário; apenas cliente Sync, sem CA instalada no sistema |
+| cryptography no venv tools-sast existente | Somente geração de certificado/chave QA local ignorada para os testes TLS; não gera nem lê credencial operacional |
+| Docker | Inspeção read-only sem rede/capabilities de imports/dpkg na imagem já auditada; não nova build ou deploy |
+| Git + Python final_triage | 31 hashes preservados; blob candidato e ausência no tracked atual; classificação por ocorrência sem imprimir valores |
+| Fontes upstream/Debian | Leitura de advisories e patch msgpack, não uso de PoCs. Falha ao consultar CVE-2025-7458 registrada; sem inferir status |
+
+Os CSVs finais acrescentam classificação a cada ocorrência dos inventários anteriores.
+SAST não foi reexecutado sobre produto inalterado. Secrets dos candidatos finais foram
+revistos antes do commit; nenhum cofre/.env real foi lido. Originais TruffleHog retêm
+SecretParts: não publicar ou imprimir objetos brutos, mesmo se Raw estiver redigido.
+Usar a projeção allowlist `final/supply/secret-triage.json`.
+
+Revisão final de candidatos: regras de release sem ocorrências; Gitleaks com os
+mesmos 7 exemplos/fixtures e 3 hashes conferidos por `git cat-file`; TruffleHog com
+a mesma URI de fixture. Nenhum alerta novo pendente na árvore candidata. História
+permanece com SD-003/004; scan limpo de novos arquivos não elimina esses findings.
+
+Scripts: final_auth/discover.py, final_database/data_api.py, final_tls.py,
+final_triage.py e final_coverage.py sob scripts/security. O último gera documentação,
+não executa testes. As limitações e técnicas não executadas constam integralmente em
+[SECURITY_COVERAGE_GAPS.md](SECURITY_COVERAGE_GAPS.md).
+
+## Ferramentas da rodada anterior (registro preservado)
+
 29/09/2026. Ferramentas em `artifacts/security/`, fora das dependências do ERP.
 Nenhuma alteração de lock/runtime do produto. Downloads em GitHub oficial,
 PyPI e imagens oficiais; hashes dos scanners de secrets confrontados com release.

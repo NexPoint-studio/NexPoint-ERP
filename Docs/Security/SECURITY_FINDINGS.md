@@ -2,7 +2,8 @@
 
 Baseline ERP `b09c48e2f5d6e7ecfb9d1aef91ef95753cf1f2c6`, 29/09/2026.
 Responsável: coordenação da auditoria autorizada. Somente QA/local, dados fictícios.
-Todos os registros SD permanecem **OPEN**. Nenhuma remediação aplicada.
+Triagem final de 29/09/2026, continuação de `277a5b2`: sete registros OPEN e um
+encerrado como NOT_APPLICABLE ao fluxo examinado. Nenhuma remediação aplicada.
 Severidades abaixo são técnicas, sem pontuação CVSS; não são a severidade bruta do scanner.
 
 | ID | Componente | Evidência | Severidade | Descrição |
@@ -10,13 +11,15 @@ Severidades abaixo são técnicas, sem pontuação CVSS; não são a severidade 
 | SD-001 | Control Center | CONFIRMED | MEDIUM | Cookie copiado continua válido após logout |
 | SD-002 | Control Center | CONFIRMED | MEDIUM | Sanitização processa expressão regular custosa antes de limitar tamanho |
 | SD-003 | Git / Supply Chain | CONFIRMED | MEDIUM | Perfil de navegador permanece no histórico alcançável |
-| SD-004 | Git / Supply Chain | NEEDS_VALIDATION | INFO | Candidatos a credencial em artefatos históricos de navegador |
-| SD-005 | Docker / Supply Chain | NEEDS_VALIDATION | MEDIUM | Advisories associados aos pacotes da imagem local |
-| SD-006 | Build Windows | NEEDS_VALIDATION | INFO | Advisory de setuptools com condição de exploração específica de filesystem |
+| SD-004 | Git / Supply Chain | UNRESOLVED | INFO | Candidato histórico presente; natureza e atividade não confirmadas |
+| SD-005 | Docker / Supply Chain | UNRESOLVED | MEDIUM | Inventário presente; alcançabilidade restante não confirmada |
+| SD-006 | Build Windows | NOT_APPLICABLE | INFO | Caminho de sdist do advisory não integra o build oficial examinado |
 | SD-007 | Control Center | CONFIRMED | LOW | CSRF não ASCII provoca erro 500 sem executar operação |
+| SD-008 | Control Center / SQLite | CONFIRMED | LOW | Caminhos de login existente/inexistente têm custo distinguível localmente |
 
-Total: **7 registros**, 4 CONFIRMED, 0 LIKELY, 3 NEEDS_VALIDATION.
-CRITICAL 0, HIGH 0, MEDIUM 4, LOW 1, INFO 2. Não se afirma ausência de riscos
+Total: **8 registros**, 5 CONFIRMED, 0 LIKELY, 0 FALSE_POSITIVE, 2 UNRESOLVED,
+1 NOT_APPLICABLE. CRITICAL 0, HIGH 0, MEDIUM 4, LOW 2, INFO 2, incluindo o registro
+encerrado SD-006. Entre os sete OPEN: MEDIUM 4, LOW 2, INFO 1. Não se afirma ausência de riscos
 graves nas superfícies não verificadas. Os 259 registros de dependência do anexo
 são candidatos deduplicados por pacote/versão/advisory/artefato, agrupados em SD-005/006.
 
@@ -99,6 +102,12 @@ são candidatos deduplicados por pacote/versão/advisory/artefato, agrupados em 
   possível. Nenhum provedor foi chamado para validar. Confiança baixa, INFO, **OPEN**.
 - Mapeamento condicionado à confirmação: CWE-798, ASVS V13.3. Sem CVE.
   Não constitui evidência de vazamento de qualquer secret PROD atual.
+- **Triagem final:** UNRESOLVED. Presença no blob original confirmada; formato UUID
+  de 36 caracteres e nenhuma ocorrência exata nos arquivos rastreados atuais.
+  Esses fatos não distinguem token legado de identificador de sincronização.
+  Não se verificou validade, escopo nem propriedade contra um provedor. Ver
+  [triagem detalhada](SECURITY_DEPENDENCY_TRIAGE.md), inclusive limite de sanitização
+  dos artefatos locais antigos. Rotação só se credencial confirmada em tarefa própria.
 
 ## SD-005 — inventário de advisories da imagem
 
@@ -125,6 +134,10 @@ são candidatos deduplicados por pacote/versão/advisory/artefato, agrupados em 
   confiança alta no inventário, baixa na explorabilidade no ERP, **OPEN**.
 - CWE/CVE: usar o identificador específico de cada linha; não atribuir um CWE único
   ao conjunto. ASVS V15.2, WSTG CONF. Sem exploração de CVEs nesta rodada.
+- **Triagem final:** UNRESOLVED. Quatro ocorrências da imagem foram descartadas no
+  cenário observado (zlib/minizip, msgpack C ausente, dois advisories setuptools fora
+  do serving); as outras 254 permanecem UNRESOLVED. São 258 ocorrências da imagem,
+  não 258 findings. [Razões e fontes](SECURITY_DEPENDENCY_TRIAGE.md).
 
 ## SD-006 — advisory no lock de build
 
@@ -139,6 +152,10 @@ são candidatos deduplicados por pacote/versão/advisory/artefato, agrupados em 
   ao fluxo anterior. INFO, confiança baixa na aplicabilidade ao projeto, **OPEN**.
 - Fonte: [advisory oficial](https://github.com/advisories/GHSA-h35f-9h28-mq5c).
   ASVS V15.2; nenhuma publicação de sdist foi executada.
+- **Triagem final:** NOT_APPLICABLE, encerrado no escopo atual, sem correção.
+  `scripts/build_windows_prod.ps1` executa PyInstaller + ZIP, não publicação de sdist.
+  A versão continua no lock. Reabrir se mudar o processo de distribuição; não se
+  afirma que o pacote esteja corrigido ou seguro em todos os usos.
 
 ## SD-007 — validação CSRF não ASCII
 
@@ -156,13 +173,36 @@ são candidatos deduplicados por pacote/versão/advisory/artefato, agrupados em 
   CSRF nem prova de queda do processo. LOW, confiança alta, estado **OPEN**.
 - Mapeamento: CWE-248, ASVS V2.2/V16.5, WSTG ERRH-01. Sem CVE do produto.
 
+## SD-008 — diferença de custo no login do adaptador SQLite
+
+- Componente/categoria: Control Center local, informação por tempo de resposta;
+  CWE-208, ASVS V6.3, WSTG IDNT/ATHN. CONFIRMED, LOW, confiança alta no caminho local.
+- Fonte: `control_center/local_repository.py:3549` retorna antes de `verify_password`
+  para usuário ausente/inativo; usuário ativo com senha errada passa pelo scrypt.
+- Pré-condição: acesso ao login configurado com repositório SQLite e amostras
+  comparáveis. Não permite login nem revela senha; limitador continua atuando.
+- Evidência: sete pares alternados com contas fictícias conhecidas, senha inválida
+  gerada, sem dicionário de usuários/senhas, ASGI em processo. Medianas na primeira
+  execução: 66,544 ms contra 6,053 ms; repetição final: 75,293 ms contra 7,483 ms.
+- Impacto potencial: distinguir existência/atividade de nomes nesse adaptador.
+  Não extrapolar para enumeração remota ou distinguir ausente de inativo.
+  `supabase_repository.py:1046` usa hash fictício quando usuário não existe; PROD usa
+  esse outro adaptador. Rede/ruído e backend Supabase não foram medidos.
+- Origem: revisão de código + `scripts/security/final_auth/discover.py`;
+  `artifacts/security/final/auth/run-45441f7d36/results.json`, somente números/códigos.
+  Ambiente QA SQLite, HTTPS simulado. Sem CVE. Estado OPEN; nenhuma remediação.
+
 ## Falsos positivos e alertas contextuais
 
-Os grupos abaixo não entram no total dos sete findings OPEN. As ocorrências e
+Os grupos abaixo não entram no total dos registros SD. As ocorrências e
 linhas SAST estão preservadas em [SAST_ALERTS.csv](SAST_ALERTS.csv). São 10 grupos
 Bandit, 3 grupos CodeQL, 1 grupo de fixtures de secrets, 2 ZAP, 2 Nuclei, 1 Trivy
 e 1 Schemathesis, mais 1 Semgrep Nexa e 1 de hashes Git: **22 grupos de triagem contextual/FALSE_POSITIVE**; unidades
 agrupadas, não contagem artificial de vulnerabilidades.
+Classificação final por ocorrência SAST: FINAL_SAST_TRIAGE.csv (140 FALSE_POSITIVE,
+1 CONFIRMED e 5 UNRESOLVED). Alertas históricos de secrets não foram descartados em
+bloco: FINAL_SECRET_TRIAGE.csv. O total 22 é histórico/contextual, não 22 findings
+formalmente fechados nem contagem homogênea de alertas.
 
 | Grupo | Decisão e justificativa |
 | --- | --- |
@@ -195,5 +235,6 @@ agrupadas, não contagem artificial de vulnerabilidades.
   Isso não é prova de aceitação de credencial de outra instalação. A rotina de restore
   não compara tenant/installation; validação end-to-end de restauração cruzada com DPAPI
   e sessão da instalação está **not tested**, não declarada segura.
-- SQL/RLS local, contratos simulados e testes de fixtures não certificam PostgREST,
-  configuração cloud efetiva, provider real, WebView2 ou implantação PROD.
+- A rodada final acrescentou PostgREST real em rede Docker interna (90 casos),
+  mas não certifica gateway/Auth/Edge integrados, configuração cloud efetiva,
+  provider real, WebView2 ou implantação PROD.
