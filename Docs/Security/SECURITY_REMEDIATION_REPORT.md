@@ -44,3 +44,64 @@ Transição: CONFIRMED → REMEDIATED_PENDING_RETEST → REMEDIATED_VERIFIED.
 SD-002, SD-003, SD-007 e SD-008 ainda em processamento; SD-004 e SD-005 serão
 reavaliados apenas no escopo já descoberto. SD-006 continua NOT_APPLICABLE.
 Suíte completa, scans, builds, consolidação e push das correções ainda pendentes.
+
+## SD-002 — limites antes da sanitização
+
+**REMEDIATED_VERIFIED** em QA/local, após REMEDIATED_PENDING_RETEST.
+
+- Causa: regex procurava o fechamento de blocos PRIVATE KEY para cada abertura
+  antes de truncar a entrada; coleções também eram copiadas integralmente e o
+  limite por nível permitia multiplicar trabalho com estruturas aninhadas.
+- Correção em `control_center/sanitization.py`: entrada acima de 8.000 caracteres
+  é ocultada antes de regex/normalização, sem cortar uma credencial ao meio.
+  Abertura de chave privada, mesmo incompleta, oculta o texto inteiro. Percurso
+  com islice, limites de profundidade/coleção preservados, orçamento compartilhado
+  de 512 nós e 64.000 caracteres. Chaves sensíveis são verificadas antes do corte
+  de exibição. `contains_secret_material` falha fechado para texto excessivo.
+- Regressão: `tests/test_security_sanitizer_bounds.py`; baseline f91edf9,
+  `run-95051084e4`: nove falhas e um caso normal aprovado. Versão corrigida,
+  `run-261899c9f0`: 10/10. IDs curtos foram adicionados aos parâmetros porque
+  nomes gerados pelo pytest excediam o limite de variável de ambiente no Windows
+  no primeiro ensaio; isso foi falha do harness, não do produto.
+- Cenário original repetido: nove pares tipo/tamanho do script bounded_sanitizer,
+  sem rede. Texto PRIVATE KEY de 221.185 caracteres termina sem timeout; evidência
+  `artifacts/security/remediation/sanitizer-timing.json`. Medições são observação,
+  não SLO: o teste usa um limite amplo de dez segundos e asserções de trabalho
+  limitado, sem exigir milissegundo exato.
+- Fronteira compartilhada com suporte, logs, Nexa e observabilidade; build Windows
+  de validação será necessário, além do Docker, sem publicação.
+- Regressão do componente: `run-5b4c05f85b`, 111/111, incluindo os dez casos
+  novos e observabilidade, diagnósticos, estabilização de segurança e suporte.
+
+## Revalidação restrita de SD-004 e SD-005
+
+SD-004 permanece **UNRESOLVED / INFO**. Fingerprint
+`2f8f8034d985ceb23562971640b7a7ada4827e6becc4e22b660fc65723a60601`
+reconfirmado em uma ocorrência do blob histórico; zero nos rastreados atuais.
+Formato UUID junto a metadados de sincronização favorece hipótese de identificador,
+mas não prova a semântica nem exclui token legado. Ambiente, proprietário,
+consumidores, atividade e rotação continuam desconhecidos. Nenhum valor foi usado
+contra provedor. Rotação depende de proveniência e consumidores identificados;
+não está justificada nesta etapa.
+
+SD-005 permanece **UNRESOLVED / MEDIUM provisório**. Mesma imagem original
+`sha256:dedc527873c46ef28ebb391ca9e53a029b23dd51c7bb87fb30cc965fcc480ac4`,
+inspecionada sem rede, read-only, sem portas/volumes. SQLite 3.40.1 está instalado.
+Dois refinamentos no recorte de serving examinado:
+
+- CVE-2025-29088: NOT_APPLICABLE; API C LOOKASIDE sem consumidor no produto,
+  constante não exposta no binding observado. Reabrir ao adicionar FFI/extensão.
+- CVE-2025-70873: NOT_APPLICABLE; extensão SQL zipfile ausente no módulo carregado
+  e produto não carrega extensões. Não equivale à biblioteca Python zipfile.
+
+Pré-condições documentadas pelo [SQLite upstream](https://www.sqlite.org/cves.html).
+FTS5 está compilado; os demais advisories que exigem SQL arbitrário/índice malformado
+continuam inconclusivos. Os cinco N/A anteriores, incluindo SD-006, permanecem.
+Recorte atualizado do inventário original: **7 N/A e 252 UNRESOLVED** (259 pares);
+na imagem original, 6 N/A e 252 UNRESOLVED. Não são 259 vulnerabilidades ERP
+confirmadas. CSVs e evidências anteriores foram preservados: 41 hashes conferidos.
+Sem mudança em dependências ou locks. Digest/pacotes da imagem de validação ainda
+serão comparados; esta decisão não certifica imagem nova nem PROD.
+
+Nota técnica completa, sem valores de secrets:
+`artifacts/security/remediation/unresolved-review.md` (local, ignorada).
