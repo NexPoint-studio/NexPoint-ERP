@@ -105,3 +105,22 @@ serão comparados; esta decisão não certifica imagem nova nem PROD.
 
 Nota técnica completa, sem valores de secrets:
 `artifacts/security/remediation/unresolved-review.md` (local, ignorada).
+
+## SD-007 — CSRF não ASCII
+
+**REMEDIATED_VERIFIED** em QA/local, após REMEDIATED_PENDING_RETEST.
+
+- Causa: compare_digest sobre str aceita apenas ASCII e levantava TypeError
+  diante de Unicode. O erro impedia a operação, mas escapava como HTTP 500.
+- Correção mínima em `_require_csrf`, `control_center/web.py`: validar tipo,
+  comprimento 32–128 e ASCII antes de comparar. Preservado compare_digest para
+  tokens admissíveis, CSRF obrigatório, Origin/Referer e sessão.
+- `tests/test_security_csrf_inputs.py`: null/missing, vazio, ASCII incorreto,
+  Unicode, combinantes, emoji, surrogate, texto excessivo, codificações inválidas,
+  token válido e comprovação de uso da comparação segura.
+- Antes: `run-605ea4278a` sobre 45ce4b0, 9 falhas em 17 casos (TypeError esperado
+  no código antigo). Depois: `run-1cd8468cf6`, **66/66**, incluindo regressões de
+  Origin e hardening. Nenhuma asserção anterior removida.
+- Script original unicode_csrf repetido sobre export corrigido: três respostas
+  403, nenhuma traceback, nenhuma nota não autorizada gravada. Evidência
+  `artifacts/security/remediation/csrf-original/result.json`.

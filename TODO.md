@@ -1,6 +1,5 @@
 ## A Fazer
 
-- [ ] Corrigir SD-007: CSRF malformado com rejeição controlada {weight:3} {sector:SETOR_SEGURANCA}
 - [ ] Tratar SD-003: prevenção de perfis no Git e ação humana sobre histórico {weight:4} {sector:SETOR_SEGURANCA}
 - [ ] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
 - [ ] Reavaliar somente SD-004/005 com evidência sanitizada; preservar SD-006 {weight:4} {sector:SETOR_SEGURANCA}
@@ -11,7 +10,10 @@
 
 
 
+
 ## Concluídas
+
+- [x] Corrigir SD-007: CSRF malformado com rejeição controlada {weight:3} {sector:SETOR_SEGURANCA}
 
 - [x] Corrigir SD-002: sanitização com custo limitado, regressões e reteste original {weight:6} {sector:SETOR_SEGURANCA}
 

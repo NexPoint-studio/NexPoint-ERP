@@ -354,6 +354,10 @@ def _require_csrf(request: Request, submitted: str = "") -> None:
     if (
         not isinstance(expected, str)
         or not isinstance(candidate, str)
+        or not 32 <= len(expected) <= 128
+        or not 32 <= len(candidate) <= 128
+        or not expected.isascii()
+        or not candidate.isascii()
         or not secrets.compare_digest(candidate, expected)
     ):
         raise HTTPException(status_code=403, detail="Solicitação local inválida.")
