@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "scripts/security/remediation_tests.py"
 ARTIFACTS = ROOT / "artifacts/security/remediation"
 COUNTERS = ("tests", "failures", "errors", "skipped")
+SERIAL_FILES = {"tests/test_observability_performance.py"}
 
 
 def write_json(path: Path, value: object) -> None:
@@ -78,6 +79,11 @@ def build_shards(sources: dict[str, object], shard_count: int) -> tuple[list[str
         shards[index % len(shards)].append(name)
     for shard in shards:
         shard.sort()
+    serial = [name for name in selected if name in SERIAL_FILES]
+    shards = [[name for name in shard if name not in SERIAL_FILES] for shard in shards]
+    shards = [shard for shard in shards if shard]
+    if serial:
+        shards.append(serial)
     flattened = [name for shard in shards for name in shard]
     if sorted(flattened) != selected or len(flattened) != len(set(flattened)):
         raise RuntimeError("Shard union is incomplete or contains duplicates")
@@ -168,6 +174,8 @@ def main() -> int:
         "selected_files": selected, "shards": shards,
         "union_exact": True, "duplicates": [], "source_file_count": len(sources),
         "balance": "Descending test definition count, then bytes; round robin by whole file",
+        "serial_files": sorted(SERIAL_FILES),
+        "serial_reason": "Absolute filesystem performance thresholds require no concurrent QA shards; assertions and thresholds are unchanged",
         "isolation": "One remediation_tests.py export/appdata/basetemp per shard; loopback only",
         "fixed_port_review": {
             "file": "tests/test_stabilization_security.py", "port": 8765,
@@ -180,8 +188,16 @@ def main() -> int:
     if args.plan_only:
         return 0
     results = []
-    with ThreadPoolExecutor(max_workers=len(shards)) as pool:
-        futures = {pool.submit(run_shard, index, files, out, sources): index for index, files in enumerate(shards)}
+    concurrent = []
+    for index, files in enumerate(shards):
+        if set(files) <= SERIAL_FILES:
+            result = run_shard(index, files, out, sources)
+            results.append(result)
+            print(json.dumps({"shard": result["shard"], "verified": result["verified"], "counts": result.get("counts")}), flush=True)
+        else:
+            concurrent.append((index, files))
+    with ThreadPoolExecutor(max_workers=args.shards) as pool:
+        futures = {pool.submit(run_shard, index, files, out, sources): index for index, files in concurrent}
         for future in as_completed(futures):
             try:
                 result = future.result()

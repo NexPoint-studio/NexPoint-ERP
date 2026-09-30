@@ -288,7 +288,12 @@ def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions
 
     # Restore is a startup operation: finish lifespan (including the worker and
     # its connections) before replacing SQLite, then replay the old cookie.
+    # Lifespan uses a bounded cooperative shutdown; emulate a fully terminated
+    # process before the offline operation, including on a busy QA host.
+    if app.state.sync_worker is not None:
+        app.state.sync_worker.stop(timeout=30.0)
     assert app.state.sync_worker is None or not app.state.sync_worker.running
+    app.state.engine.dispose()
     result = apply_pending_restore(
         database_path=_database_path(app),
         backup_root=backup_root,

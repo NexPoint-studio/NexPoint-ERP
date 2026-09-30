@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,8 +39,16 @@ for name in files:
         target = source / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
+# Keep synthetic databases on the OS temporary volume, like normal pytest
+# tmp_path and the installed application's local appdata. The repository can
+# live on a much slower data disk; artifacts stay there for auditability.
+qa = Path(tempfile.mkdtemp(prefix='nexpoint-remediation-qa-'))
+(out/'qa-environment.json').write_text(json.dumps({
+    'qa_data_path': str(qa), 'source_path': str(source),
+    'isolation': 'Unique synthetic appdata and pytest temp; no real installation data',
+}, indent=2), encoding='utf-8')
 env = {k:v for k,v in os.environ.items() if k.upper() in {'SYSTEMROOT','WINDIR','PATH','TEMP','TMP','COMSPEC','PATHEXT'}}
-env.update(LOCALAPPDATA=str(out/'appdata'), APPDATA=str(out/'appdata'), PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHONIOENCODING='utf-8')
+env.update(LOCALAPPDATA=str(qa/'appdata'), APPDATA=str(qa/'appdata'), PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHONIOENCODING='utf-8')
 runner = '''
 import socket,ipaddress,sys,pytest
 for method in ('connect','connect_ex'):
@@ -52,7 +61,7 @@ for method in ('connect','connect_ex'):
 raise SystemExit(pytest.main(sys.argv[1:]))
 '''
 command = [sys.executable, '-c', runner, *(args.tests or ['tests']), '-q', '--tb=short',
-           '--basetemp', str(out/'temp'), '--junitxml', str(out/'results.xml')]
+           '--basetemp', str(qa/'temp'), '--junitxml', str(out/'results.xml')]
 print(json.dumps({'run':out.name,'baseline':args.baseline or 'working-tree','tests':args.tests or ['all']}), flush=True)
 result = subprocess.run(command, cwd=source, env=env, capture_output=True, text=True, encoding='utf-8')
 (out/'pytest.log').write_text(result.stdout+'\n'+result.stderr,encoding='utf-8')

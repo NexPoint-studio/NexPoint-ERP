@@ -75,8 +75,12 @@ class ScanRun:
         }
         for name in ("temp", "home", "config", "cache", "appdata"):
             (self.out / name).mkdir()
+        # OCaml's Windows socketpair uses TMP for a local socket path. Keep it
+        # short enough for the platform limit while retaining a unique QA scope.
+        scratch = ROOT / "artifacts" / "scanner-tmp" / self.out.name
+        scratch.mkdir(parents=True)
         self.env.update(
-            TEMP=str(self.out / "temp"), TMP=str(self.out / "temp"),
+            TEMP=str(scratch), TMP=str(scratch),
             USERPROFILE=str(self.out / "home"),
             APPDATA=str(self.out / "appdata"), LOCALAPPDATA=str(self.out / "appdata"),
             XDG_CONFIG_HOME=str(self.out / "config"), XDG_CACHE_HOME=str(self.out / "cache"),

@@ -197,8 +197,40 @@ comprovada. Binding entre instalações e demais gaps originais não foram ampli
 ## Gates finais em execução
 
 `scripts/security/remediation_full_suite.py` executa todos os arquivos de teste
-em quatro processos, por arquivo inteiro, cada um com export, appdata e bancos
+em até quatro processos, por arquivo inteiro, cada um com export, appdata e bancos
 fictícios próprios. Manifesta união exata e compara hashes antes/depois; não
 instala plugins ou elimina casos. Não testa ordenação entre arquivos de shards
 diferentes. `remediation_scanners.py` mantém somente metadados permitidos dos
 scanners, desativa telemetria e verificação de credenciais e preserva evidências.
+
+### Primeira suíte e revisão do ambiente de QA
+
+- `run-bde778ccaa`: 1.006 casos, 1.004 aprovados e duas falhas; zero erros/skips.
+  Todos os arquivos foram incluídos uma vez e os hashes permaneceram idênticos.
+  O benchmark de observabilidade excedeu 20 ms/ação e o worker do teste de
+  restore ainda estava encerrando depois do timeout padrão de cinco segundos.
+- Restore: o teste agora aguarda explicitamente até 30 segundos pelo worker,
+  exige que esteja parado e descarta o pool antes da substituição offline.
+  Nenhuma asserção de rollback, estado ou sessão foi removida; produto inalterado.
+- Desempenho: no HD D:, o reteste isolado corrigido mediu 107,908 ms/ação;
+  o baseline f91edf9 também falhou, com 104,594 ms/ação (`run-a4a2d28ed9`).
+  Isso não é uma regressão demonstrada das correções de segurança.
+- O runner havia movido os bancos temporários do local padrão do pytest para
+  o disco do repositório. Ele agora cria uma pasta exclusiva no temporário do
+  Windows (SSD C: nesta máquina), incluindo appdata sintético. Exports, relatórios
+  e registro do caminho de QA continuam em artifacts. Nenhum banco real é usado.
+  O benchmark executa antes dos demais shards, sem builds/scanners concorrentes.
+- A comparação exploratória no SSD também registrou uma falha inicial do
+  baseline (102,004 ms/ação), preservada em `performance-environment.json`;
+  portanto o volume por si só não garante desempenho em qualquer carga do host.
+  O corrigido passou com 10,512 ms/ação. Pelo runner final, o baseline passou
+  (`run-a8afa87120`, 1/1), e restore + benchmark passaram (`run-48cc294cec`, 13/13).
+  Limite de 20 ms, 200 operações, transações reais e verificações de integridade
+  permanecem intactos. A primeira falha não foi apagada nem contada como sucesso.
+- Semgrep: caminho temporário curto e exclusivo evita o limite de socketpair
+  do OCaml no Windows; nenhuma regra foi removida para contornar a falha do runner.
+
+A revisão de fechamento identificou uma segunda implementação da causa SD-002
+em `app/observability/sanitization.py`, dentro do escopo explícito de observabilidade.
+O complemento está em execução; o estado verificado anterior cobre o Control Center,
+e a conclusão global de SD-002 depende do reteste dessa variante.
