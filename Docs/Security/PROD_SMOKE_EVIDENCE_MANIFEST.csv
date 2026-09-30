@@ -1,0 +1,12 @@
+artifact,sha256,bytes,retention
+scripts/security/prod_security_smoke.py,04ad6c3151cd96d37d256593156178fe21a25a4a65637e6f7ae746c0b538f967,17271,official harness
+artifacts/security/prod-smoke/run-b6c5f72c62/result.json,7362bbc7f7860cd57c60408477c42671b7b3ae6f929697441d07e40c3fd1cf38,11711,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/run-9148df61b7/result.json,1bca4de21cb32365c7f1c5774d8fcdc8792b39283ad666859fbf28f2e6b5079a,1853,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/metadata-454c21e3c7/result.json,93b22851164f48a319f63934fc09ca200f9d252b7aec695cb4cb4f0c02592b1b,1303,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/metadata-454c21e3c7/schema.json,099e982373ba416a3759a39090ce903ee07e72e70ae547cc3e7a770bf63d6440,815,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/sync-9adf352477/result.json,54fe8a55897767f375f8222c113ad4e0c2f2a072c69ee00c0e1ab21369399694,807,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/schema_readonly.sql,348a0f64ebe50b04b455dd87e279c7d6afe6c150d2ab5be89058a0fc9473a26f,1726,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/readiness_evidence.py,86bf1098bbd112ff31c4bf18a96291a5c8412a4e89497ac5646adca9745fa68b,2401,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/sync_idempotent_smoke.py,5b9e8a27a26144e3072435feb98ccfc852edcc755ad16185fc97a1777e979a36,4567,local ignored; sanitized result or harness only
+artifacts/security/prod-smoke/harness-bandit.json,6b19b703a7d165cc4e1780707a22a271c358a6c5fd4ab9ce678facdfb8b2c176,3507,local ignored; sanitized result or harness only
+artifacts/security/final/review/run-1876c13412/results.json,9e2cccbd1b5b5f2c7e3c9a8b20d0287cc4ddfa35c0c00d1ce115b7b64c196c1f,5025,local ignored; sanitized result or harness only

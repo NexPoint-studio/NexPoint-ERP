@@ -1,6 +1,6 @@
 # Coverage review do reteste
 
-Revisão das 39 categorias e oito superfícies originais concluída dentro do escopo viável. RC, suíte e preparação Supabase concluídas; Render aguarda etapa manual. Nenhuma linha parcial equivale a aprovação universal. Evidências e limites: [relatório](SECURITY_RETEST_REPORT.md).
+Revisão das 39 categorias e oito superfícies originais concluída dentro do escopo viável. RC, suíte e preparação Supabase concluídas. Após Live confirmado, o [smoke PROD](FINAL_PROD_SECURITY_SMOKE.md) acrescentou as verificações delimitadas abaixo. Nenhuma linha parcial equivale a aprovação universal. Evidências e limites: [relatório](SECURITY_RETEST_REPORT.md).
 
 | Categoria/superfície | Estado atual | Evidência | Limite residual |
 | --- | --- | --- | --- |
@@ -42,12 +42,12 @@ Revisão das 39 categorias e oito superfícies originais concluída dentro do es
 | CONCURRENCY | PARTIALLY_TESTED | Full suite 1,018/1,018 | Interleavings e locks financeiros/sessão completos não verificados |
 | ERROR_HANDLING | PARTIALLY_TESTED | Full suite 1,018/1,018 | Nem todos os erros de I/O/cloud/cancelamento possuem fixture |
 | CONFIGURATION | PARTIALLY_TESTED | integrated TLS/production middleware | Same production security contracts with synthetic QA values; no effective PROD secrets/settings collected |
-| DEPLOYMENT | PARTIALLY_TESTED | integrated TLS/production middleware | RC and additive Supabase preparation complete with backup/data preservation; no Render deploy or PROD smoke |
+| DEPLOYMENT | PARTIALLY_TESTED | integrated QA; PROD smoke 74 checks, real ACK retry 10 checks | Owner confirmed Live da653f9; HTTPS/readiness/login/logout/replay/schema verified; no independent Render image attestation, load or real model call |
 | WINDOWS_CROSS_USER | NOT_TESTED | Current retest scope | No safe second account/VM; process is not elevated and Windows Sandbox is absent. No host accounts created |
 | RESTORE_CROSS_INSTALLATION | PARTIALLY_TESTED | Current retest scope | Completed two synthetic DB/vault restores; identity maintained, four foreign envelopes denied before transport. User/admin-authorized data transfer is accepted by design; cross-user ACL not certified |
 | WEBVIEW_RUNTIME | PARTIALLY_TESTED | Current retest scope | Real WebView2 8/8 and four desktop UI cycles; file navigation via privileged QA API is allowed. Frozen RC executed offline; custom OS schemes and memory/clipboard remain limited |
 | SUPABASE_FULL_STACK | PARTIALLY_TESTED | Current retest scope | Actual GoTrue + Deno + PostgREST + PostgreSQL through QA TLS router; managed gateway/storage/realtime not represented |
-| INGRESS_TLS | PARTIALLY_TESTED | Current retest scope | Real local TLS proxy, HSTS/headers/cookies/host/origin/logout/readiness; production ingress not inspected |
+| INGRESS_TLS | PARTIALLY_TESTED | QA TLS; authorized PROD smoke | Real Render TLS 1.3/verified certificate, HTTP redirect, headers/cookies/host/origin/logout/readiness; no exhaustive protocol/cipher/downgrade scan |
 | PROCESS_MEMORY | NOT_TESTED | Current retest scope | No dedicated isolated Windows VM/secondary principal. No memory or clipboard of user processes captured |
 | NEXA_LIVE_MODEL | NOT_TESTED | Current retest scope | No authorized provider QA fixture; local bridge contracts and TLS exercised, no real provider/model request |
 | REAL_FAILOVER_CAPACITY | NOT_TESTED | Current retest scope | Sustained load/DoS outside authorization; bounded failure tests are not capacity certification |

@@ -1,8 +1,10 @@
 # Security Release Gate
 
 **QA: PASS_WITH_KNOWN_LIMITATIONS.** Reteste e preparação técnica da RC
-1.0.1rc1 concluídos em 30/09/2026. Render permanece reservado ao deploy manual
-do proprietário; smoke PROD somente após confirmação de Live.
+1.0.1rc1 concluídos em 30/09/2026. O proprietário confirmou o deploy manual Live
+de `da653f9be3101f67cc50de2df2497295bfd774b2`; o
+[smoke PROD e aceite técnico](FINAL_PROD_SECURITY_SMOKE.md) passaram com as
+limitações conhecidas, sem novo deploy pelo agente.
 
 Baseline: `9e6bcf18fed4a7b5350016fc8d80eab59ec0cf42`.
 Reteste e limites: [SECURITY_RETEST_REPORT.md](SECURITY_RETEST_REPORT.md).
@@ -46,8 +48,9 @@ inconclusivos não serão convertidas em testes aprovados nem apagadas.
 
 Dados PROD preservados; migration aditiva de sessões aplicada e verificada.
 Edge Functions não mudaram; não há motivo para redeploy por rotina. Blueprint
-mantém autoDeploy false e Environment preservado. Sem deploy/smoke Render.
+mantém autoDeploy false e Environment preservado. O smoke posterior autorizado
+passou em 74/74 verificações do painel e 10/10 do retry/ACK real.
 
 Este gate não é certificação integral ASVS/WSTG, aceitação irrestrita de risco
-nem validação de runtime PROD. Limitações admitidas pelo escopo continuam
+nem certificação integral do runtime PROD. Limitações admitidas pelo escopo continuam
 visíveis e não foram convertidas em controles aprovados.

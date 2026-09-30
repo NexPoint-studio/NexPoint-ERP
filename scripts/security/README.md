@@ -94,3 +94,18 @@ com hash em `Docs/Security/RETEST_EVIDENCE_MANIFEST.csv`: appdata/DPAPI/SQLite
 fictícios, proxy deny-only, dois ciclos e 28 checks. Esse roteiro não deve ser
 reutilizado apontando dados reais nem sem o bloqueio de rede descrito no relatório.
 Builds/backups/outputs e scripts transitórios de execução permanecem fora do Git.
+
+## Smoke PROD após Live confirmado
+
+`prod_security_smoke.py` é separado dos harnesses QA: executa somente no alvo
+oficial e SHA da release, com `--execute-authorized-prod-smoke` e
+`--confirmed-live-sha`. Usá-lo apenas após autorização explícita do proprietário.
+Não aceita endpoints arbitrários, não faz deploy, não provoca falha de dependência
+nem altera senha/roles. Abre duas sessões legítimas, testa CSRF/logout/replay,
+consulta páginas e preservação via Supabase; encerra somente suas sessões.
+
+Credenciais existentes são lidas localmente (DPAPI e arquivo de acesso indicado
+pelo proprietário) e mantidas em memória. Nenhum body/cookie/token é persistido
+no relatório. A evidência em `artifacts/security/prod-smoke/` é ignorada pelo Git.
+Login tem efeitos normais de last_login e limpeza de sessões expiradas. Consultar
+`Docs/Security/FINAL_PROD_SECURITY_SMOKE.md` antes de qualquer reexecução.

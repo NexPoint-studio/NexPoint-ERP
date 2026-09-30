@@ -84,3 +84,15 @@ startup/health/login/logout/CSRF/replay aprovados. Readiness, headers/cookies,
 TLS e repositório Supabase foram verificados na stack integrada de QA.
 Locks/runtime Docker idênticos à remediação; nenhuma atualização indiscriminada.
 Suíte 1.018/1.018; scanners e limites no relatório de reteste.
+
+## Aceite após deploy do Control Center
+
+Em 30/09/2026, o proprietário confirmou o SHA
+`da653f9be3101f67cc50de2df2497295bfd774b2` como Live no Render. O
+[Final PROD Security Smoke](Security/FINAL_PROD_SECURITY_SMOKE.md) verificou
+74/74 checks do painel, migration/RLS, preservação de dados e 10/10 checks de
+retry idempotente de heartbeat real. Sessões criadas no smoke encerradas.
+
+Aceite técnico: PASS_WITH_KNOWN_LIMITATIONS. Não implica fechar findings
+inconclusivos, validar provider/modelo Nexa real ou publicar/instalar o Desktop RC.
+Nenhum novo deploy, alteração de Environment ou rollback foi necessário.

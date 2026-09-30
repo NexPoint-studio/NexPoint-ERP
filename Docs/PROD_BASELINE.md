@@ -251,3 +251,16 @@ Render não recebeu deploy nem smoke nesta etapa. O SHA funcional documentado
 reclassificado como SHA atualmente LIVE. Environment e secrets mantêm contratos.
 Artefatos RC e backup estão registrados na release; não substituir esta baseline
 por uma afirmação de que o novo código já está ativo em PROD.
+
+## Aceite pós-Live de 30/09/2026
+
+Posteriormente, o proprietário confirmou o deploy manual Live do SHA
+`da653f9be3101f67cc50de2df2497295bfd774b2`. Essa é a nova referência operacional
+declarada do Control Center; não foi obtido digest do Render por API.
+
+O [smoke final autorizado](Security/FINAL_PROD_SECURITY_SMOKE.md) passou com
+74/74 verificações no painel e 10/10 no retry/ACK de heartbeat já existente.
+Readiness/migration/RLS, login/logout/replay e preservação de credenciais,
+identidades e dados foram conferidos. Aceite técnico com limitações conhecidas.
+O histórico anterior permanece preservado. Não houve novo deploy/rotação/reset,
+mudança financeira, instalação Desktop ou teste destrutivo em PROD.
