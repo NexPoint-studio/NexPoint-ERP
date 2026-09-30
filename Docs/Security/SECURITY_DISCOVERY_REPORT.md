@@ -1,8 +1,9 @@
 # Security Discovery — NexPoint ERP
 
-> Atualiza??o de 30/09/2026: o [reteste em andamento](SECURITY_RETEST_REPORT.md) e a
-> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) complementam esta fotografia
-> hist?rica. As evid?ncias anteriores s?o preservadas; n?o representam o gate da release.
+> Atualização de 30/09/2026: o [reteste concluído](SECURITY_RETEST_REPORT.md), a
+> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) e o
+> [gate QA](SECURITY_RELEASE_GATE.md) complementam esta fotografia histórica.
+> As evidências anteriores são preservadas; seus estados não são o gate atual.
 
 ## Encerramento da triagem final e coverage review
 

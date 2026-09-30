@@ -1,10 +1,13 @@
 # Security Release Gate
 
-**QA: PASS_WITH_KNOWN_LIMITATIONS.** Preparação de release em andamento;
-não liberar deploy Render antes dos artefatos e da preparação Supabase abaixo.
+**QA: PASS_WITH_KNOWN_LIMITATIONS.** Reteste e preparação técnica da RC
+1.0.1rc1 concluídos em 30/09/2026. Render permanece reservado ao deploy manual
+do proprietário; smoke PROD somente após confirmação de Live.
 
 Baseline: `9e6bcf18fed4a7b5350016fc8d80eab59ec0cf42`.
 Reteste e limites: [SECURITY_RETEST_REPORT.md](SECURITY_RETEST_REPORT.md).
+Artefatos/rollback: [release](../RELEASE_1.0.1rc1.md).
+Preservação: [hashes de evidências](RETEST_EVIDENCE_MANIFEST.csv).
 
 Já verificados: 145 testes focados; 121 verificações de integração real QA;
 15 transportes/certificados; oito checks WebView2 e quatro ciclos desktop;
@@ -23,17 +26,28 @@ DPAPI entre usuários, provider real e capacidade continuam explicitamente
 limitados conforme relatório. Este resultado permite somente a preparação
 aditiva autorizada do Supabase e builds RC, não certifica controles não testados.
 
-Pendências para entrega final:
+Preparação técnica concluída:
 
-- builds Windows/Docker RC, evidência de runtime e scans dos artefatos;
-- migração de sessões PROD: backup/configuração, schema diff, projeto confirmado
-  e aplicação aditiva somente depois do gate QA;
-- documentação de release/rollback, commit/push e working tree limpo.
+- Windows RC: 28 checks do executável imutável, dois ciclos com appdata/cofre/SQLite
+  fictícios e proxy que bloqueia tráfego externo. Reconexão/ACK verificados na
+  integração QA separada; sem tráfego cloud do executável.
+- Docker RC: usuário 10001, read-only, sem rede/portas/mounts; health/login/logout/
+  CSRF/replay aprovados. Readiness e Supabase na stack integrada acima.
+- Guard de distribuição: 915 arquivos Windows e 245 Docker; scans Gitleaks e
+  TruffleHog sem novos secrets. Trivy RC mantém 271 pares: 16 N/A, 255 UNRESOLVED.
+- Supabase: nove backups cifrados DPAPI com roundtrip/ACL; migration aditiva
+  aplicada. As 21 tabelas/dados/funções/policies preexistentes permanecem iguais.
+- Release/rollback documentados; conferência de Git/secret scan antes de publicar.
 
 FAIL se houver Critical confirmado, High confirmado sem mitigação, regressão
 de finding remediado, quebra de tenant/RLS, secret real exposto, sessão revogada
 reutilizável ou integridade comprometida. Limitações de cobertura/advisories
 inconclusivos não serão convertidas em testes aprovados nem apagadas.
 
-Dados PROD preservados; migration aditiva de sess?es aplicada e verificada. Edge Functions não mudaram; não há motivo para redeploy
-por rotina. Render permanece exclusivamente para a etapa manual posterior.
+Dados PROD preservados; migration aditiva de sessões aplicada e verificada.
+Edge Functions não mudaram; não há motivo para redeploy por rotina. Blueprint
+mantém autoDeploy false e Environment preservado. Sem deploy/smoke Render.
+
+Este gate não é certificação integral ASVS/WSTG, aceitação irrestrita de risco
+nem validação de runtime PROD. Limitações admitidas pelo escopo continuam
+visíveis e não foram convertidas em controles aprovados.

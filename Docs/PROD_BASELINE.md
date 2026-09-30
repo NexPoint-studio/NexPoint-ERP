@@ -232,3 +232,22 @@ e [sessão persistente](SESSAO_PERSISTENTE.md).
   matriz futura, pentest, descoberta de vulnerabilidades ou correções de segurança.
 - Commit/push documental encerra esta tarefa; nenhum deploy ou ciclo de Security
   Discovery é iniciado automaticamente.
+
+## Atualização pré-release de 30/09/2026
+
+O registro acima permanece como fotografia original. O ciclo posterior foi
+autorizado separadamente e está consolidado no
+[Security Retest](Security/SECURITY_RETEST_REPORT.md) e na
+[RC 1.0.1rc1](RELEASE_1.0.1rc1.md).
+
+Após gate QA e backup cifrado, Supabase `scfncgaiovztrbgrcvkt` recebeu somente
+`20260929010000_platform_sessions.sql`. A nova tabela tem RLS/FORCE RLS e
+permissões de servidor; as 21 tabelas/dados/funções/policies anteriores foram
+comparadas e preservadas. Estado de migrations: `20260920010000` e
+`20260929010000`. Nenhuma Edge Function mudou ou foi redeployada.
+
+Render não recebeu deploy nem smoke nesta etapa. O SHA funcional documentado
+`37f18e531488590b369a9ab30b9c7be321ec33b7` é a referência de rollback; não foi
+reclassificado como SHA atualmente LIVE. Environment e secrets mantêm contratos.
+Artefatos RC e backup estão registrados na release; não substituir esta baseline
+por uma afirmação de que o novo código já está ativo em PROD.

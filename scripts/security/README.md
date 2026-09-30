@@ -70,21 +70,27 @@ entra no Git. A nova tarefa não autoriza reexecutar testes ativos/custosos anti
 a revisão final utiliza os resultados preservados e testes defensivos delimitados.
 
 
-## Reteste e expans?o autorizados em 30/09/2026
+## Reteste e expansão autorizados em 30/09/2026
 
-Os novos runners preservam a rodada anterior e escrevem diret?rios ?nicos em
-`artifacts/security/retest/`, salvo a proje??o sanitizada oficial de depend?ncias.
-N?o executar scripts hist?ricos que sobrescrevam evid?ncias por rotina.
+Os novos runners preservam a rodada anterior e escrevem diretórios únicos em
+`artifacts/security/retest/`, salvo a projeção sanitizada oficial de dependências.
+Não executar scripts históricos que sobrescrevam evidências por rotina.
 
 | Runner | Escopo |
 | --- | --- |
-| retest_runtime.py desktop | Export novo, appdata fict?cio, quatro ciclos GUI existentes; sockets Python somente loopback |
-| retest_webview.py | WebView2 real com perfil e p?ginas locais; sem mem?ria/clipboard e com abertura do navegador interceptada |
-| retest_restore.py | Dois bancos/cofres DPAPI fict?cios; rede proibida; rastreia identidade e envelopes rejeitados antes do transporte |
-| retest_database.py + retest_database_extended.py | Rede Docker interna exclusiva; 22 tabelas, Auth, Edge, gateway QA TLS, PostgREST e clientes reais; containers pr?prios encerrados no finally |
+| retest_runtime.py desktop | Export novo, appdata fictício, quatro ciclos GUI existentes; sockets Python somente loopback |
+| retest_webview.py | WebView2 real com perfil e páginas locais; sem memória/clipboard e com abertura do navegador interceptada |
+| retest_restore.py | Dois bancos/cofres DPAPI fictícios; rede proibida; rastreia identidade e envelopes rejeitados antes do transporte |
+| retest_database.py + retest_database_extended.py | Rede Docker interna exclusiva; 22 tabelas, Auth, Edge, gateway QA TLS, PostgREST e clientes reais; containers próprios encerrados no finally |
 | retest_tls.py | Quinze checks TLS em clientes atuais; CA apenas no processo; sem trust global |
-| retest_codeql.py | Export validado de candidatos, ferramentas/queries locais, novo banco CodeQL e evid?ncia preservada |
-| retest_supply.py | Reconcilia metadados Trivy e hist?rico somente em mem?ria; nunca imprime o candidato nem o usa em provedor |
+| retest_codeql.py | Export validado de candidatos, ferramentas/queries locais, novo banco CodeQL e evidência preservada |
+| retest_supply.py | Reconcilia metadados Trivy e histórico somente em memória; nunca imprime o candidato nem o usa em provedor |
 
-Os runners n?o recebem configura??o ou dados PROD. C?digo de harness n?o altera
+Os runners não recebem configuração ou dados PROD. Código de harness não altera
 contratos do produto. Resultado da etapa: `Docs/Security/SECURITY_RETEST_REPORT.md`.
+
+O executável congelado RC recebeu roteiro específico em artefato local ignorado,
+com hash em `Docs/Security/RETEST_EVIDENCE_MANIFEST.csv`: appdata/DPAPI/SQLite
+fictícios, proxy deny-only, dois ciclos e 28 checks. Esse roteiro não deve ser
+reutilizado apontando dados reais nem sem o bloqueio de rede descrito no relatório.
+Builds/backups/outputs e scripts transitórios de execução permanecem fora do Git.
