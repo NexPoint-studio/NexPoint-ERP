@@ -68,3 +68,23 @@ tratados como sanitizados. Não imprimir/republicar esses arquivos; usar apenas 
 projeção de final_triage. Nenhum raw, banco, certificado/chave QA ou container export
 entra no Git. A nova tarefa não autoriza reexecutar testes ativos/custosos antigos;
 a revisão final utiliza os resultados preservados e testes defensivos delimitados.
+
+
+## Reteste e expans?o autorizados em 30/09/2026
+
+Os novos runners preservam a rodada anterior e escrevem diret?rios ?nicos em
+`artifacts/security/retest/`, salvo a proje??o sanitizada oficial de depend?ncias.
+N?o executar scripts hist?ricos que sobrescrevam evid?ncias por rotina.
+
+| Runner | Escopo |
+| --- | --- |
+| retest_runtime.py desktop | Export novo, appdata fict?cio, quatro ciclos GUI existentes; sockets Python somente loopback |
+| retest_webview.py | WebView2 real com perfil e p?ginas locais; sem mem?ria/clipboard e com abertura do navegador interceptada |
+| retest_restore.py | Dois bancos/cofres DPAPI fict?cios; rede proibida; rastreia identidade e envelopes rejeitados antes do transporte |
+| retest_database.py + retest_database_extended.py | Rede Docker interna exclusiva; 22 tabelas, Auth, Edge, gateway QA TLS, PostgREST e clientes reais; containers pr?prios encerrados no finally |
+| retest_tls.py | Quinze checks TLS em clientes atuais; CA apenas no processo; sem trust global |
+| retest_codeql.py | Export validado de candidatos, ferramentas/queries locais, novo banco CodeQL e evid?ncia preservada |
+| retest_supply.py | Reconcilia metadados Trivy e hist?rico somente em mem?ria; nunca imprime o candidato nem o usa em provedor |
+
+Os runners n?o recebem configura??o ou dados PROD. C?digo de harness n?o altera
+contratos do produto. Resultado da etapa: `Docs/Security/SECURITY_RETEST_REPORT.md`.

@@ -1,23 +1,20 @@
 ## A Fazer
 
+- [ ] Consolidar Security Gate, RC, changelog e rollback com riscos residuais explícitos {weight:5} {sector:SETOR_COORDENACAO}
+- [ ] Após gate QA, executar somente preparação Supabase PROD necessária, com backup e schema diff; Edge apenas se houver mudança {weight:6} {sector:SETOR_BANCO_DADOS}
+- [ ] Validar builds RC Windows/Docker, secret scan final, commits/push e entregar SHA para deploy manual Render {weight:8} {sector:SETOR_COORDENACAO}
+
 ## Em andamento
+
+- [ ] Executar Security Retest + Coverage Expansion em QA/local {sector:SETOR_COORDENACAO}
+  - [x] Ler fontes oficiais e registrar baseline remoto e matriz das 39 categorias + 8 superfícies {weight:3} {sector:SETOR_COORDENACAO}
+  - [x] Retestar SD-001/002/003/007/008 e regressões auth/session/CSRF/integrações {weight:5} {sector:SETOR_SEGURANCA}
+  - [x] Reavaliar SD-004/005/006 e scanners sem expor secrets ou ampliar campanha ofensiva {weight:5} {sector:SETOR_SEGURANCA}
+  - [x] Ampliar Supabase QA integrado, RLS/RPC/Edge, migrations e rollback compatível {weight:7} {sector:SETOR_BANCO_DADOS}
+  - [x] Ampliar WebView2/DPAPI/filesystem/restore entre instalações com fixtures descartáveis {weight:7} {sector:SETOR_QA_TESTES}
+  - [x] Ampliar browser/origin/proxy/TLS/rede e documentar limitações de todas as categorias {weight:6} {sector:SETOR_SEGURANCA}
+  - [ ] Executar suíte completa e preservar evidências sanitizadas e hashes {weight:4} {sector:SETOR_QA_TESTES}
 
 ## Concluídas
 
-- [x] Consolidar evidências/status, secret scan, commits e push; remoto e4ae25e confirmado e árvore limpa, sem deploy {weight:4} {sector:SETOR_COORDENACAO}
-- [x] Validar suíte completa final 1.018/1.018, scanners e builds Windows/Docker do código 209d5ea {weight:8} {sector:SETOR_QA_TESTES}
-- [x] Reavaliar SD-004/005: permanecem UNRESOLVED com limites documentados; SD-006 preservado {weight:4} {sector:SETOR_SEGURANCA}
-- [x] Ajustar fronteira offline do teste de restore sem mudar produto ou retirar asserções; restore + benchmark 13/13, incluídos na suíte final {weight:2} {sector:SETOR_QA_TESTES}
-
-- [x] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
-
-- [x] Tratar SD-003: prevenção futura validada; histórico residual exige ação humana separada {weight:4} {sector:SETOR_SEGURANCA}
-
-- [x] Corrigir SD-007: CSRF malformado com rejeição controlada {weight:3} {sector:SETOR_SEGURANCA}
-
-- [x] Corrigir SD-002: sanitização Control Center e observabilidade local com custo limitado, regressões e reteste original {weight:6} {sector:SETOR_SEGURANCA}
-
-- [x] Corrigir SD-001: revogação persistente por sessão, migration QA e regressões {weight:8} {sector:SETOR_SEGURANCA}
-
-- [x] Confirmar main limpa, diff --check e publicar marco PRE-SECURITY-REMEDIATION f91edf983b151f494c113cfabe8344252c626c73 no origin NexPoint-studio/NexPoint-ERP; SHA remoto conferido antes de alterar arquivos {weight:2} {sector:SETOR_COORDENACAO}
-- [x] Ler fontes de verdade e delimitar 5 CONFIRMED + 2 UNRESOLVED; sem coverage expansion, PROD ou deploy {weight:2} {sector:SETOR_COORDENACAO}
+- [x] Confirmar main, origin NexPoint-studio/NexPoint-ERP, árvore limpa e remoto 9e6bcf18fed4a7b5350016fc8d80eab59ec0cf42; diff --check aprovado {weight:1} {sector:SETOR_COORDENACAO}

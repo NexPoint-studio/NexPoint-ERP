@@ -1,5 +1,9 @@
 # Ferramentas e execução — Security Discovery
 
+> Atualiza??o de 30/09/2026: o [reteste em andamento](SECURITY_RETEST_REPORT.md) e a
+> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) complementam esta fotografia
+> hist?rica. As evid?ncias anteriores s?o preservadas; n?o representam o gate da release.
+
 ## Complemento da triagem final
 
 Mesmas versões e evidências anteriores preservadas; nenhuma dependência do ERP

@@ -1,5 +1,9 @@
 # Lacunas de cobertura — validação futura
 
+> Atualiza??o de 30/09/2026: o [reteste em andamento](SECURITY_RETEST_REPORT.md) e a
+> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) complementam esta fotografia
+> hist?rica. As evid?ncias anteriores s?o preservadas; n?o representam o gate da release.
+
 Registro final de 29/09/2026. Todas as categorias PARTIALLY_TESTED e superfícies
 NOT_TESTED da matriz estão abaixo. Pendência de cobertura não é vulnerabilidade
 confirmada nem autorização para remediação/PROD. Priorizar binding de restore,

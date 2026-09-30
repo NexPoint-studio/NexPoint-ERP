@@ -1,5 +1,9 @@
 # Security Discovery — NexPoint ERP
 
+> Atualiza??o de 30/09/2026: o [reteste em andamento](SECURITY_RETEST_REPORT.md) e a
+> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) complementam esta fotografia
+> hist?rica. As evid?ncias anteriores s?o preservadas; n?o representam o gate da release.
+
 ## Encerramento da triagem final e coverage review
 
 29/09/2026, continuação de `277a5b293dbc83797997a9df08759d34c78a8888`.

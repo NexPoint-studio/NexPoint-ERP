@@ -1,5 +1,9 @@
 # Cobertura ASVS / WSTG
 
+> Atualiza??o de 30/09/2026: o [reteste em andamento](SECURITY_RETEST_REPORT.md) e a
+> [matriz de cobertura atual](RETEST_COVERAGE_MATRIX.md) complementam esta fotografia
+> hist?rica. As evid?ncias anteriores s?o preservadas; n?o representam o gate da release.
+
 Referências: [OWASP ASVS 5.0.0](https://owasp.org/projects/asvs) e
 [WSTG 4.2](https://wstg.owasp.org/v4.2/). IDs ASVS conferidos no JSON oficial
 da versão 5.0.0, preservado em `artifacts/security/asvs5.json`.
