@@ -7,6 +7,7 @@ form values, SQL, credentials, or customer data.
 from __future__ import annotations
 
 from datetime import date, datetime
+from itertools import islice
 import math
 import re
 from typing import Any, Iterable, Mapping
@@ -17,6 +18,10 @@ from sanitization_contract import SECRET_CANARY
 REDACTED = "[conteudo protegido]"
 MAX_TEXT_LENGTH = 512
 MAX_COLLECTION_ITEMS = 50
+MAX_INPUT_TEXT_LENGTH = 8_000
+MAX_DEPTH = 6
+MAX_PAYLOAD_NODES = 512
+MAX_PAYLOAD_TEXT = 64_000
 
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 _SENSITIVE_KEY = re.compile(
@@ -28,9 +33,9 @@ _SENSITIVE_KEY = re.compile(
     r"service[_-]?role|hmac|google[_-]?secret|mercado[_-]?pago)",
     re.IGNORECASE,
 )
-_PRIVATE_KEY_BLOCK = re.compile(
-    r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
-    re.IGNORECASE | re.DOTALL,
+_PRIVATE_KEY_START = re.compile(
+    r"-----BEGIN [^-]*PRIVATE KEY-----",
+    re.IGNORECASE,
 )
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(password|password[_-]?hash|passwd|passphrase|senha|secret|segredo|"
@@ -90,29 +95,54 @@ OBSERVABILITY_METADATA_FIELDS = frozenset({
 
 
 def contains_secret_canary(value: object) -> bool:
-    """Return True without ever echoing the canary into persisted output."""
+    """Detect the canary; fail closed when inspection exceeds safe bounds."""
+
+    return _contains_secret_canary(value, 0, [MAX_PAYLOAD_NODES, MAX_PAYLOAD_TEXT])
+
+
+def _contains_secret_canary(value: object, depth: int, budget: list[int]) -> bool:
+    if depth >= MAX_DEPTH or budget[0] <= 0:
+        return True
+    budget[0] -= 1
+    if isinstance(value, str):
+        if len(value) > min(MAX_INPUT_TEXT_LENGTH, budget[1]):
+            return True
+        budget[1] -= len(value)
+        return SECRET_CANARY in value
 
     if isinstance(value, Mapping):
+        if len(value) > MAX_COLLECTION_ITEMS:
+            return True
         return any(
-            contains_secret_canary(key) or contains_secret_canary(item)
-            for key, item in value.items()
+            _contains_secret_canary(key, depth + 1, budget)
+            or _contains_secret_canary(item, depth + 1, budget)
+            for key, item in islice(value.items(), MAX_COLLECTION_ITEMS)
         )
     if isinstance(value, (list, tuple, set, frozenset)):
-        return any(contains_secret_canary(item) for item in value)
-    return SECRET_CANARY in str(value or "")
+        if len(value) > MAX_COLLECTION_ITEMS:
+            return True
+        return any(
+            _contains_secret_canary(item, depth + 1, budget)
+            for item in islice(value, MAX_COLLECTION_ITEMS)
+        )
+    # Other values are emitted only as primitives, dates or their type name.
+    return False
 
 
 def is_sensitive_key(value: object) -> bool:
-    return bool(_SENSITIVE_KEY.search(str(value or "")))
+    rendered = str(value or "")
+    return len(rendered) > MAX_INPUT_TEXT_LENGTH or bool(_SENSITIVE_KEY.search(rendered))
 
 
 def contains_secret_material(value: object) -> bool:
     """Detect high-confidence credentials without returning their contents."""
 
     rendered = str(value or "")
+    if len(rendered) > MAX_INPUT_TEXT_LENGTH:
+        return True
     return bool(
         SECRET_CANARY in rendered
-        or _PRIVATE_KEY_BLOCK.search(rendered)
+        or _PRIVATE_KEY_START.search(rendered)
         or _AUTHORIZATION.search(rendered)
         or _JWT.search(rendered)
         or _GOOGLE_CREDENTIAL.search(rendered)
@@ -122,10 +152,14 @@ def contains_secret_material(value: object) -> bool:
 
 
 def sanitize_text(value: object, *, maximum: int = MAX_TEXT_LENGTH) -> str:
+    limit = min(MAX_TEXT_LENGTH, max(0, int(maximum)))
     rendered = str(value or "")
-    if SECRET_CANARY in rendered:
-        return REDACTED
-    rendered = _PRIVATE_KEY_BLOCK.sub(REDACTED, rendered)
+    # Reject before regex/normalization; truncating raw input can expose a
+    # credential after removing the syntax that would have identified it.
+    if len(rendered) > MAX_INPUT_TEXT_LENGTH:
+        return REDACTED[:limit]
+    if SECRET_CANARY in rendered or _PRIVATE_KEY_START.search(rendered):
+        return REDACTED[:limit]
     rendered = _AUTHORIZATION.sub(f"authorization={REDACTED}", rendered)
     rendered = _JWT.sub(REDACTED, rendered)
     rendered = _GOOGLE_CREDENTIAL.sub(REDACTED, rendered)
@@ -147,11 +181,14 @@ def sanitize_text(value: object, *, maximum: int = MAX_TEXT_LENGTH) -> str:
     )
     rendered = _CONTROL_CHARACTERS.sub(" ", rendered)
     rendered = " ".join(rendered.split()).strip()
-    return rendered[: max(0, int(maximum))]
+    return rendered[:limit]
 
 
 def sanitize_identifier(value: object, *, maximum: int = 128) -> str | None:
-    candidate = str(value or "").strip()
+    raw = str(value or "")
+    if len(raw) > MAX_INPUT_TEXT_LENGTH:
+        return None
+    candidate = raw.strip()
     if (
         not candidate
         or len(candidate) > maximum
@@ -163,14 +200,22 @@ def sanitize_identifier(value: object, *, maximum: int = 128) -> str | None:
 
 
 def sanitize_token(value: object, fallback: str = "unknown") -> str:
-    raw = str(value or "").strip()
+    raw = str(value or "")
+    if len(raw) > MAX_INPUT_TEXT_LENGTH:
+        return fallback
+    raw = raw.strip()
+    if not 1 <= len(raw) <= 64:
+        return fallback
     if contains_secret_material(raw):
         return fallback
     candidate = raw.casefold()
     return candidate if _TOKEN.fullmatch(candidate) else fallback
 
 
-def _safe_value(value: Any) -> str | int | bool | float | None | list[object]:
+def _safe_value(value: Any, depth: int, budget: list[int]) -> str | int | bool | float | None | list[object]:
+    if depth >= MAX_DEPTH or budget[0] <= 0:
+        return REDACTED
+    budget[0] -= 1
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -180,9 +225,18 @@ def _safe_value(value: Any) -> str | int | bool | float | None | list[object]:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     if isinstance(value, str):
+        if len(value) > budget[1]:
+            return REDACTED
+        budget[1] -= len(value)
         return sanitize_text(value)
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [_safe_value(item) for item in list(value)[:MAX_COLLECTION_ITEMS]]
+        result: list[object] = []
+        for item in islice(value, MAX_COLLECTION_ITEMS):
+            if budget[0] <= 0:
+                result.append(REDACTED)
+                break
+            result.append(_safe_value(item, depth + 1, budget))
+        return result
     return sanitize_text(type(value).__name__)
 
 
@@ -195,17 +249,21 @@ def sanitize_metadata(
 
     if not isinstance(raw, Mapping):
         return ()
-    allowed = frozenset(str(key) for key in allowed_keys)
+    # Look up the small trusted allowlist instead of sorting every caller key.
+    allowed = frozenset(
+        key for key in islice(allowed_keys, MAX_COLLECTION_ITEMS)
+        if isinstance(key, str) and len(key) <= 128
+    )
+    budget = [MAX_PAYLOAD_NODES, MAX_PAYLOAD_TEXT]
     values: list[tuple[str, str | int | bool | float | None | list[object]]] = []
-    for raw_key in sorted(raw, key=lambda item: str(item)):
-        key = str(raw_key)
-        if key not in allowed or is_sensitive_key(key):
+    for key in sorted(allowed):
+        if key not in raw or is_sensitive_key(key):
             continue
-        value = raw[raw_key]
-        if contains_secret_canary(value):
+        value = raw[key]
+        if _contains_secret_canary(value, 0, budget):
             values.append((key, REDACTED))
             continue
-        safe = _safe_value(value)
+        safe = _safe_value(value, 0, budget)
         if key == "http_status" and not (
             type(safe) is int and 100 <= safe <= 599
         ):

@@ -72,6 +72,23 @@ Suíte completa, scans, builds, consolidação e push das correções ainda pend
   de validação será necessário, além do Docker, sem publicação.
 - Regressão do componente: `run-5b4c05f85b`, 111/111, incluindo os dez casos
   novos e observabilidade, diagnósticos, estabilização de segurança e suporte.
+- Complemento da mesma causa em `app/observability/sanitization.py`: a cópia
+  local ainda executava o padrão com fechamento antes do corte. O middleware
+  registra `request.url.path` como metadata.route antes do roteamento, inclusive
+  em POST para `/static/`; logo o caminho de entrada integra o escopo SD-002.
+  Não houve chamada contra PROD nem abertura de nova campanha de discovery.
+- A cópia local agora também rejeita mais de 8.000 caracteres antes de matching,
+  oculta aberturas incompletas e limita canary/coleções a profundidade 6, 512 nós
+  e 64.000 caracteres por percurso compartilhado. Mantém saída padrão de 512
+  caracteres, allowlist de metadados, canary fail-closed e informações normais.
+  Lookup pelas chaves permitidas evita ordenar todas as chaves não confiáveis.
+- `tests/test_security_observability_sanitizer_bounds.py`: baseline f91edf9,
+  `run-2fc9ac3c57`, 11 falhas/1 normal aprovado; corrigido `run-5178665475`, 12/12.
+  Regressões de observabilidade, diagnósticos, Nexa e ambos os sanitizadores:
+  `run-e63e2081bf`, **57/57**, zero erros/skips. O padrão original de 221.185
+  caracteres termina com resultado protegido nos dois entrypoints e timeout
+  máximo de dez segundos por processo. Evidência: `observability-sanitizer-scope.json`.
+  Os builds finais serão repetidos para incluir este complemento.
 
 ## Revalidação restrita de SD-004 e SD-005
 
@@ -230,7 +247,5 @@ scanners, desativa telemetria e verificação de credenciais e preserva evidênc
 - Semgrep: caminho temporário curto e exclusivo evita o limite de socketpair
   do OCaml no Windows; nenhuma regra foi removida para contornar a falha do runner.
 
-A revisão de fechamento identificou uma segunda implementação da causa SD-002
-em `app/observability/sanitization.py`, dentro do escopo explícito de observabilidade.
-O complemento está em execução; o estado verificado anterior cobre o Control Center,
-e a conclusão global de SD-002 depende do reteste dessa variante.
+A segunda implementação da causa SD-002 foi corrigida e retestada como descrito
+acima. A próxima execução completa inclui os 12 novos casos, sem remover testes.
