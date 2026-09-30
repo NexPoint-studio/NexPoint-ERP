@@ -11,6 +11,11 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 BLOCKED_SUFFIXES = {".db", ".sqlite", ".sqlite3", ".log", ".pem", ".key", ".session"}
 BLOCKED_PARTS = {"backups", "logs", "local-secrets", "secrets", "__pycache__", ".tmp_fase2"}
+BROWSER_PARTS = {
+    "default", "user data", "ebwebview", "browser-profile", "browser-profiles",
+    "smartscreen", "local storage", "session storage", "sync data", "sessions",
+}
+BROWSER_FILES = {"cookies", "cookies-journal", "history", "history-journal", "local state"}
 SECRET_PATTERNS = {
     "jwt": re.compile(rb"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
     "github_token": re.compile(rb"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b"),
@@ -70,6 +75,12 @@ def blocked_path(relative: str) -> str | None:
     lowered_parts = {part.casefold() for part in normalized.parts}
     name = normalized.name.casefold()
     suffix = normalized.suffix.casefold()
+    if (lowered_parts & BROWSER_PARTS
+            or any(re.fullmatch(r"profile \d+", part) or part.endswith(".webview2")
+                   for part in lowered_parts)
+            or name in BROWSER_FILES
+            or name.startswith(("login data", "web data"))):
+        return "browser profile artifact"
     if name.startswith(".env") and name != ".env.example":
         return "dotenv"
     if suffix in BLOCKED_SUFFIXES:

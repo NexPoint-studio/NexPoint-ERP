@@ -35,3 +35,24 @@ playwright-report/
 backups/
 .tmp_*/
 *.egg-info/
+
+# Browser/WebView profiles are local user data, never source or release inputs.
+Default/
+Profile */
+User Data/
+EBWebView/
+*.WebView2/
+browser-profile/
+browser-profiles/
+SmartScreen/
+Local Storage/
+Session Storage/
+Sync Data/
+Sessions/
+Cookies
+Cookies-journal
+Login Data*
+Web Data*
+History
+History-journal
+Local State

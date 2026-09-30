@@ -124,3 +124,35 @@ Nota técnica completa, sem valores de secrets:
 - Script original unicode_csrf repetido sobre export corrigido: três respostas
   403, nenhuma traceback, nenhuma nota não autorizada gravada. Evidência
   `artifacts/security/remediation/csrf-original/result.json`.
+
+## SD-003 — perfil de navegador no histórico
+
+**CONFIRMED; prevenção futura REMEDIATED_VERIFIED; residual histórico OPEN —
+AÇÃO HUMANA NECESSÁRIA.** Não equivale a remoção do histórico.
+
+- Introduzido em `16020ca5b0d061509545fb5a06a51f3347cafdbd`, removido da árvore
+  em `a960e7b6e98ce925cff3c3ef8e9ff0ad2ca7d056`. Inventário: 1.093 caminhos em
+  `carcaça/Default/` e SmartScreen. Zero desses caminhos rastreados atualmente.
+- Não é somente cache: contagens SQL em blobs desserializados em memória,
+  sem exibir valores nem decifrar conteúdo: History com 35 URLs/3 visitas;
+  Login Data com 126 registros, 37 com campo de senha cifrada não vazio;
+  Network/Cookies com 60 registros cifrados; Web Data com 2 autofill e zero
+  cartões; Login Data For Account vazio. Há arquivos de Sessions e LevelDB de
+  Local Storage/Sync Data. Conteúdo/atividade dos tokens e sessões não determinado.
+- Arquivos com histórico, cookies e credenciais cifradas não pertencem ao código;
+  o histórico alcançável exige tratamento separado. Não se presumiu que criptografia
+  torne segura sua divulgação. Não houve descriptografia nem uso de credenciais.
+- Prevenção: `.gitignore` exclui perfis Chromium/WebView e seus nomes de dados;
+  `scripts/secret_scan.py` rejeita também inclusão forçada no índice Git. Todos os
+  1.093 caminhos históricos seriam bloqueados pelo guard atual.
+- Regressão: `tests/test_security_browser_artifacts.py`; baseline
+  `run-799acd1498`, 19 falhas esperadas/23; corrigido `run-4137ff3e23`, **28/28**
+  com configuração de instalação. Teste Git usa entrada NUL para não confundir
+  CRLF de pipe do Windows com parte do nome. Scanner de release: zero ocorrências.
+- Ação humana: decidir remoção dos caminhos históricos citados, coordenar clones,
+  forks, refs e backups; obter a proveniência dos registros e avaliar credenciais
+  potencialmente ativas antes da limpeza. Reescrita exige autorização própria;
+  nenhuma execução de filter-repo/BFG/force-push foi feita. SD-004 mantém a
+  incerteza específica de candidato histórico, sem rotação cega.
+- Evidências locais: `browser-profile-inventory.json`, `browser-profile-counts.json`
+  e `browser-prevention-retest.json` em `artifacts/security/remediation/`.
