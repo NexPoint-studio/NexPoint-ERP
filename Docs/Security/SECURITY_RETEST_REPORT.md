@@ -174,3 +174,9 @@ Entrega autorizada: commits finais/push main, sem deploy Render. `autoDeploy: fa
 e Environment permanecem inalterados. O SHA exato da entrega é informado ao
 proprietário após conferência do remoto e working tree limpo. O próximo teste
 de aplicação PROD depende da confirmação humana de que esse SHA está Live.
+
+Publicação técnica confirmada em main: `d7feee1` (reteste/RC), `df7cdc5`
+(normalização do harness) e `4fd5b92` (resultados/PROD/artefatos). O encerramento
+documental subsequente atualiza TODO/gate, sem mudança no runtime da build.
+Não houve push de ZIP, dados, backups ou outputs brutos. O push técnico foi
+conferido por `ls-remote` e a árvore estava limpa antes deste fechamento.

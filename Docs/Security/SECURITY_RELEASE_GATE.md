@@ -23,8 +23,8 @@ Sem novos alertas runtime. 101/101 hashes anteriores preservados.
 
 Nenhum critério FAIL foi confirmado. SD-003 histórico, SD-004/005 inconclusivos,
 DPAPI entre usuários, provider real e capacidade continuam explicitamente
-limitados conforme relatório. Este resultado permite somente a preparação
-aditiva autorizada do Supabase e builds RC, não certifica controles não testados.
+limitados conforme relatório. Este resultado permitiu a preparação aditiva
+autorizada do Supabase e builds RC; não certifica controles não testados.
 
 Preparação técnica concluída:
 
@@ -37,7 +37,7 @@ Preparação técnica concluída:
   TruffleHog sem novos secrets. Trivy RC mantém 271 pares: 16 N/A, 255 UNRESOLVED.
 - Supabase: nove backups cifrados DPAPI com roundtrip/ACL; migration aditiva
   aplicada. As 21 tabelas/dados/funções/policies preexistentes permanecem iguais.
-- Release/rollback documentados; conferência de Git/secret scan antes de publicar.
+- Release/rollback documentados; Git/secret scan conferidos e push main verificado.
 
 FAIL se houver Critical confirmado, High confirmado sem mitigação, regressão
 de finding remediado, quebra de tenant/RLS, secret real exposto, sessão revogada

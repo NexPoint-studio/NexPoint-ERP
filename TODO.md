@@ -2,10 +2,9 @@
 
 ## Em andamento
 
-- [ ] Encerrar entrega Git da RC: revisão final, secret scan, commits/push e conferir working tree/remote {weight:2} {sector:SETOR_COORDENACAO}
-
 ## Concluídas
 
+- [x] Encerrar entrega Git da RC: revisão final, secret scan, commits/push e conferir working tree/remote; Render reservado ao proprietário e smoke PROD após Live {weight:2} {sector:SETOR_COORDENACAO}
 - [x] Executar Security Retest + Coverage Expansion em QA/local {sector:SETOR_COORDENACAO}
   - [x] Conferir baseline remoto 9e6bcf18, main, origin e fontes oficiais; revisar 39 categorias + 8 superfícies {weight:3} {sector:SETOR_COORDENACAO}
   - [x] Retestar SD-001/002/003/007/008 e preservar os resíduos SD-003/004/005 e N/A SD-006 {weight:5} {sector:SETOR_SEGURANCA}
