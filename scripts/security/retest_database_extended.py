@@ -247,4 +247,3 @@ print(json.dumps(rows))
 '''
     result=docker('exec','-i',client,'python','-c',client_code,stdin=json.dumps({'service_key':service_key,'installation_key':installation_key}))
     for row in json.loads(result): record('integrated:'+row['case'],0,{},row['passed'])
-
