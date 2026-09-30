@@ -1,15 +1,14 @@
 ## A Fazer
 
-- [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
-
 ## Em andamento
 
-- [ ] Executar regressões completas, retestes de ferramentas e builds aplicáveis {weight:8} {sector:SETOR_QA_TESTES}
+- [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
 
 ## Concluídas
 
+- [x] Validar suíte completa final 1.018/1.018, scanners e builds Windows/Docker do código 209d5ea {weight:8} {sector:SETOR_QA_TESTES}
 - [x] Reavaliar SD-004/005: permanecem UNRESOLVED com limites documentados; SD-006 preservado {weight:4} {sector:SETOR_SEGURANCA}
-- [x] Ajustar fronteira offline do teste de restore sem mudar produto ou retirar asserções; 12/12 {weight:2} {sector:SETOR_QA_TESTES}
+- [x] Ajustar fronteira offline do teste de restore sem mudar produto ou retirar asserções; restore + benchmark 13/13, incluídos na suíte final {weight:2} {sector:SETOR_QA_TESTES}
 
 - [x] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
 
@@ -17,7 +16,7 @@
 
 - [x] Corrigir SD-007: CSRF malformado com rejeição controlada {weight:3} {sector:SETOR_SEGURANCA}
 
-- [x] Corrigir SD-002: sanitização com custo limitado, regressões e reteste original {weight:6} {sector:SETOR_SEGURANCA}
+- [x] Corrigir SD-002: sanitização Control Center e observabilidade local com custo limitado, regressões e reteste original {weight:6} {sector:SETOR_SEGURANCA}
 
 - [x] Corrigir SD-001: revogação persistente por sessão, migration QA e regressões {weight:8} {sector:SETOR_SEGURANCA}
 

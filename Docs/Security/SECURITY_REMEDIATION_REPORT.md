@@ -9,7 +9,7 @@ nesta etapa.
 
 ## SD-001 — revogação de sessão
 
-**REMEDIATED_VERIFIED** em QA/local; gates globais ainda pendentes.
+**REMEDIATED_VERIFIED** em QA/local; gates globais registrados ao final.
 Transição: CONFIRMED → REMEDIATED_PENDING_RETEST → REMEDIATED_VERIFIED.
 
 - Causa: cookie assinado autossuficiente; logout apagava apenas a cópia do cliente.
@@ -39,11 +39,11 @@ Transição: CONFIRMED → REMEDIATED_PENDING_RETEST → REMEDIATED_VERIFIED.
 - Implantação futura: aplicar a migration antes do código. Ela NÃO foi aplicada
   em PROD. ERP desktop/remembered sessions/Admin Lock não foram modificados.
 
-## Pendências da etapa
+## Limites da etapa
 
 Correções específicas validadas em QA/local; SD-003 mantém residual histórico
 para ação humana. SD-004/005 reavaliados, ainda UNRESOLVED. SD-006 continua NOT_APPLICABLE.
-Suíte completa, scans, builds, consolidação e push das correções ainda pendentes.
+Resultados da suíte completa, scans, builds e registro Git constam ao final.
 
 ## SD-002 — limites antes da sanitização
 
@@ -68,8 +68,8 @@ Suíte completa, scans, builds, consolidação e push das correções ainda pend
   `artifacts/security/remediation/sanitizer-timing.json`. Medições são observação,
   não SLO: o teste usa um limite amplo de dez segundos e asserções de trabalho
   limitado, sem exigir milissegundo exato.
-- Fronteira compartilhada com suporte, logs, Nexa e observabilidade; build Windows
-  de validação será necessário, além do Docker, sem publicação.
+- Fronteira compartilhada com suporte, logs, Nexa e observabilidade; builds Windows
+  e Docker de validação concluídos conforme registro final, sem publicação.
 - Regressão do componente: `run-5b4c05f85b`, 111/111, incluindo os dez casos
   novos e observabilidade, diagnósticos, estabilização de segurança e suporte.
 - Complemento da mesma causa em `app/observability/sanitization.py`: a cópia
@@ -88,7 +88,7 @@ Suíte completa, scans, builds, consolidação e push das correções ainda pend
   `run-e63e2081bf`, **57/57**, zero erros/skips. O padrão original de 221.185
   caracteres termina com resultado protegido nos dois entrypoints e timeout
   máximo de dez segundos por processo. Evidência: `observability-sanitizer-scope.json`.
-  Os builds finais serão repetidos para incluir este complemento.
+  Os builds finais incluem este complemento no commit 209d5ea.
 
 ## Revalidação restrita de SD-004 e SD-005
 
@@ -117,8 +117,8 @@ continuam inconclusivos. Os cinco N/A anteriores, incluindo SD-006, permanecem.
 Recorte atualizado do inventário original: **7 N/A e 252 UNRESOLVED** (259 pares);
 na imagem original, 6 N/A e 252 UNRESOLVED. Não são 259 vulnerabilidades ERP
 confirmadas. CSVs e evidências anteriores foram preservados: 41 hashes conferidos.
-Sem mudança em dependências ou locks. Digest/pacotes da imagem de validação ainda
-serão comparados; esta decisão não certifica imagem nova nem PROD.
+Sem mudança em dependências ou locks. Digests/pacotes das imagens de validação
+foram comparados conforme gate final; esta decisão não certifica PROD.
 
 Nota técnica completa, sem valores de secrets:
 `artifacts/security/remediation/unresolved-review.md` (local, ignorada).
@@ -211,7 +211,7 @@ de sessão permanecem. Módulo inteiro: **12/12**, `run-1a9b86862c`.
 Classificação: ajuste de lifecycle do harness, não vulnerabilidade de produto
 comprovada. Binding entre instalações e demais gaps originais não foram ampliados.
 
-## Gates finais em execução
+## Método dos gates finais
 
 `scripts/security/remediation_full_suite.py` executa todos os arquivos de teste
 em até quatro processos, por arquivo inteiro, cada um com export, appdata e bancos
@@ -248,4 +248,90 @@ scanners, desativa telemetria e verificação de credenciais e preserva evidênc
   do OCaml no Windows; nenhuma regra foi removida para contornar a falha do runner.
 
 A segunda implementação da causa SD-002 foi corrigida e retestada como descrito
-acima. A próxima execução completa inclui os 12 novos casos, sem remover testes.
+acima. A execução completa final inclui os 12 novos casos, sem remover testes.
+
+## Resultado consolidado
+
+Código validado: `209d5eaa41fda05d828da6ee956ec325dc9948af`.
+Suíte completa `run-cff2805c24`: **1.018/1.018**, zero falhas, erros ou skips,
+70 arquivos, união exata dos shards e hashes de origem/export conferidos antes
+e depois. Duração total: 463,222 segundos. O benchmark executou sozinho antes
+dos quatro shards; nenhuma asserção ou limite de desempenho foi relaxado.
+Abrange auth/session, Control Center, adapters Supabase, sync, Admin Recovery,
+Nexa, desktop, backup/restore e demais suítes existentes. Trata-se de QA/local.
+
+| ID | Severidade original | Estado após esta etapa | Residual |
+| --- | --- | --- | --- |
+| SD-001 | MEDIUM | REMEDIATED_VERIFIED em QA/local | Migration preparada e validada; não aplicada em PROD |
+| SD-002 | MEDIUM | REMEDIATED_VERIFIED, Control Center e observabilidade local | Trabalho limitado nos cenários testados; sem garantia universal de desempenho |
+| SD-003 | MEDIUM | Prevenção futura REMEDIATED_VERIFIED; histórico CONFIRMED/OPEN | Ação humana para proveniência, histórico, clones/forks e credenciais eventualmente ativas |
+| SD-004 | INFO | UNRESOLVED | Candidato histórico não usado contra provedores; sem prova de credencial ativa e sem rotação cega |
+| SD-005 | MEDIUM provisório | UNRESOLVED | 252 pares inconclusivos no recorte original; nenhuma exploração do ERP confirmada |
+| SD-006 | N/A | NOT_APPLICABLE preservado | Advisory de sdist fora do fluxo oficial |
+| SD-007 | LOW | REMEDIATED_VERIFIED em QA/local | Sem deploy |
+| SD-008 | LOW | REMEDIATED_VERIFIED no SQLite local | Não extrapolado para enumeração no Supabase PROD |
+
+### Ferramentas e artefatos
+
+| Gate | Resultado e limite |
+| --- | --- |
+| CodeQL 2.27.1 / Python queries 1.8.11 | Reteste completo do export com 229 arquivos Python. Criação/análise exit 0, 32 alertas, todos mapeados ao reteste anterior. Em relação ao discovery: 30 correspondem, dois alertas PRIVATE KEY removidos e dois adicionais em impressão de metadados sanitizados dos scripts de discovery. Quatro candidatos regex remanescentes têm entrada limitada e regressões comportamentais aprovadas. Não se alega scanner sem alertas |
+| Semgrep 1.178.0 | 176 arquivos, 225 regras do pack p/security-audit preservado; três alertas, zero erros. NAVIGATION literal em href e dois parsers XML restritos ao JUnit gerado pelo próprio pytest. Mesma triagem contextual. SHA-256 do pack: b109a039df712f30c6d3e25e1e8358053fd0f1c91b92d0e8d2871cd141fe602f. O pack do discovery não foi preservado, portanto não se afirma igualdade com aquele pack |
+| Bandit 1.9.4 | 186 alertas, zero erros de parser/nosec; mesmos pares regra/arquivo do reteste anterior. Todos os 113 antigos mapeados; 73 adicionais nos harnesses de auditoria, contextualizados. Runtime mantém 39, sem novo alerta |
+| pip-audit 2.10.1 | Runtime: 28 dependências, zero advisories/skips. Build: sete entradas e duas ocorrências brutas do mesmo CVE-2026-59890, SD-006 não aplicável ao fluxo PyInstaller/ZIP. Locks não mudaram; nenhum upgrade |
+| Trivy 0.74.0 | Imagens intermediária 69e4467 e final 209d5ea: mesmos 258 pares pacote/versão/advisory da imagem original, zero adições/remoções. Reteste final offline exit 0, base local preservada de 29/09/2026 13:11 UTC. Dockerfile/locks, Python, SQLite e distribuições Python idênticos. Mantida classificação SD-005; sem alegação de atualização independente de advisories |
+| Gitleaks 8.30.1 | Código: 12 alertas contextualizados — sete fixtures/exemplos, três SHA Git conferidos e dois delimitadores TEST_ONLY sem material de chave. Nenhum secret novo. Windows e aplicação extraída do Docker: zero alertas |
+| TruffleHog 3.97.9 | Código: uma URI de fixture negativa previamente triada, sem alteração; verificação de provedores desativada. Windows e aplicação Docker: zero alertas |
+| Scanner oficial | 381 candidatos na revisão de código e 382 no fechamento documental, zero ocorrências. Gitleaks/TruffleHog finais mantêm os mesmos 12/1 alertas triados, sem adições. Distribuição Windows: 915 arquivos; aplicação Docker: 245 arquivos. Comparação com valores locais feita em memória sem imprimi-los |
+| Windows | Build oficial PyInstaller 6.16.0, pip check aprovado, checkout isolado e limpo no início. ZIP final SHA-256: 0e4d3e4d1ea2e388f81ad67412472dec1399a92ac3f572d5d6b5479e2c42cbbb. Avisos de hooks opcionais não impediram build. Sem publicação ou certificação GUI/hardware |
+| Docker | Build aprovado: sha256:25fe38472f3b6818b998fbd729362c8c42630a59cab3626bfb9f709144666c93. Smoke read-only, UID 10001, network none, tmpfs, sem mounts/portas: health 200, login 303, acesso 200, CSRF Unicode 403, logout 303, replay revogado 303. Container encerrado/removido |
+| Configuração | render.yaml validado, plan free, autoDeploy false e secrets sem plaintext; Dockerfile, render.yaml e locks preservados |
+| Preservação | 41/41 hashes dos manifestos originais reconferidos, zero alterações; dados reais não usados em testes |
+
+Evidências finais locais: `scanners/run-da1ee422b8`, `scanners/run-2423f88d31`, `final-static/`,
+`full-suite/run-cff2805c24` e `builds/final-209d5eaa41fd-7f1a6c`, todos sob
+`artifacts/security/remediation/`, ignorados pelo Git. O manifesto
+`REMEDIATION_EVIDENCE_MANIFEST.csv` registra hashes e retenção sem publicar outputs
+brutos, credenciais, bancos, binários ou caches.
+
+Falhas de runner preservadas: Docker inicialmente parado, search_path do pgTAP,
+destino CodeQL inexistente, TMP longo no socketpair Semgrep e comparação inicial
+de Git archive LF com checkout Windows CRLF. Para CodeQL final, o export foi
+comprovado byte a byte igual ao checkout limpo; somente CRLF/LF foi normalizado
+na comparação com Git archive, sem modificar o código analisado. O build gerou
+um ModuleAnalysisCache do PowerShell fora do empacotamento em seu checkout isolado;
+nenhum rastreado mudou, e o cache não está no ZIP, no contexto Docker ou no Git
+principal. A resolução desse REVIEW_REQUIRED está registrada separadamente.
+
+A variante de observabilidade integra SD-002 e foi corrigida nesta etapa.
+Nenhuma vulnerabilidade independente nova foi confirmada. Alertas adicionais
+foram classificados pelo caminho real dos dados, sem supressão de regras.
+
+## Rastreabilidade Git e encerramento
+
+| Commit | Conteúdo |
+| --- | --- |
+| 45ce4b0 | SD-001: revogação persistente, migration QA e regressões |
+| 1179154 | SD-002 Control Center e revalidação restrita SD-004/005 |
+| 9b2eab2 | SD-007: rejeição controlada de CSRF malformado |
+| f8d59b9 | SD-003: prevenção futura de perfis em Git/release |
+| 95daf34 | SD-008: trabalho criptográfico equivalente no SQLite |
+| 69e4467 | Harnesses e lifecycle offline de restore |
+| a2a6520 | Isolamento do ambiente, benchmark serial e encerramento do worker QA |
+| 209d5ea | SD-002 observabilidade local, 12 regressões adicionais |
+
+O marco `f91edf983b151f494c113cfabe8344252c626c73` foi publicado e confirmado
+antes de qualquer remediação; reconfirmado no remoto durante o fechamento.
+O commit documental final registra estes resultados; o push autorizado será
+executado somente após secret scan final e git diff --check, com conferência
+do SHA remoto e working tree limpo na entrega.
+
+Não houve rewrite/force-push, rotação de secrets, alteração de dados, RLS,
+platform_admin, tenant ou installation em PROD, deploy Edge Functions ou Render.
+A migration de sessões **deve preceder o futuro deploy** e continua aplicada
+somente em QA. Esta entrega não autoriza ativação em PROD, não fecha o residual
+histórico SD-003 e não transforma SD-004/005 em falsos positivos.
+
+Encerrar após o push: SECURITY RETEST + COVERAGE EXPANSION e deploy dependem de
+instrução própria. As oito superfícies NOT_TESTED e 39 categorias parciais
+originais permanecem fora desta etapa.
