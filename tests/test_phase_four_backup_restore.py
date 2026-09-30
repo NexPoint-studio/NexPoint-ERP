@@ -7,6 +7,7 @@ import json
 import sqlite3
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models import AuditEvent, Permission, Role, Setting
@@ -257,32 +258,37 @@ def test_restore_can_be_scheduled_and_cancelled_without_touching_database(app, t
     assert (backup_root / "restore" / "history" / f"{plan.operation_id}.json").is_file()
 
 
-def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions(client, app, tmp_path):
+def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions(app, tmp_path):
     backup_root = tmp_path / "backups"
     _grant_phase_four_permissions(app)
-    assert login(client, "admin@local").status_code == 303
-    with app.state.session_factory() as session:
-        previous_generation = session.get(Setting, "security.session_generation").value
-        session.get(Setting, "company.name").value = "Estado do backup"
-        session.commit()
-    record = _service(app, backup_root).create_backup(
-        actor_id=1,
-        password=TEST_CREDENTIALS["admin@local"],
-    )
-    with app.state.session_factory() as session:
-        session.get(Setting, "company.name").value = "Estado posterior"
-        session.commit()
-    source = backup_root / "erp" / record.filename
-    with source.open("rb") as stream:
-        plan = _service(app, backup_root).schedule_restore(
+    with TestClient(app) as client:
+        assert login(client, "admin@local").status_code == 303
+        previous_cookies = dict(client.cookies)
+        assert previous_cookies
+        with app.state.session_factory() as session:
+            previous_generation = session.get(Setting, "security.session_generation").value
+            session.get(Setting, "company.name").value = "Estado do backup"
+            session.commit()
+        record = _service(app, backup_root).create_backup(
             actor_id=1,
             password=TEST_CREDENTIALS["admin@local"],
-            confirmation="RESTAURAR",
-            upload_stream=stream,
-            original_filename=record.filename,
         )
+        with app.state.session_factory() as session:
+            session.get(Setting, "company.name").value = "Estado posterior"
+            session.commit()
+        source = backup_root / "erp" / record.filename
+        with source.open("rb") as stream:
+            plan = _service(app, backup_root).schedule_restore(
+                actor_id=1,
+                password=TEST_CREDENTIALS["admin@local"],
+                confirmation="RESTAURAR",
+                upload_stream=stream,
+                original_filename=record.filename,
+            )
 
-    app.state.engine.dispose()
+    # Restore is a startup operation: finish lifespan (including the worker and
+    # its connections) before replacing SQLite, then replay the old cookie.
+    assert app.state.sync_worker is None or not app.state.sync_worker.running
     result = apply_pending_restore(
         database_path=_database_path(app),
         backup_root=backup_root,
@@ -298,9 +304,11 @@ def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions
             select(AuditEvent).where(AuditEvent.action == "system.restore_completed")
         )
         assert completed is not None
-    expired = client.get("/admin/sistema", follow_redirects=False)
-    assert expired.status_code == 303
-    assert expired.headers["location"] == "/login"
+    with TestClient(app) as restarted_client:
+        restarted_client.cookies.update(previous_cookies)
+        expired = restarted_client.get("/admin/sistema", follow_redirects=False)
+        assert expired.status_code == 303
+        assert expired.headers["location"] == "/login"
     assert not (backup_root / "restore" / "pending.json").exists()
     history = json.loads(
         (backup_root / "restore" / "history" / f"{plan.operation_id}.json").read_text(

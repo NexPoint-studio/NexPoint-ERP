@@ -177,3 +177,28 @@ AÇÃO HUMANA NECESSÁRIA.** Não equivale a remoção do histórico.
   Evidência `artifacts/security/remediation/timing-original/result.json`.
 - Conclusão restrita ao SQLite local; não é promessa de tempo constante de rede,
   ausência de enumeração em todos os canais ou verificação de PROD.
+
+## Restore — classificação e ciclo de vida do teste
+
+A falha histórica (138/139) não era finding confirmado. O trace preservado
+registrou PermissionError/WinError 5 na troca do arquivo; não identificou o
+proprietário do handle. A reprodução isolada atual passou (`run-d8fdc8736e`).
+O teste chamado offline mantinha TestClient/lifespan/worker ativos e apenas
+descartava o pool SQLAlchemy. Esse procedimento não estabelecia a fronteira
+offline documentada e permitia reabertura concorrente do SQLite.
+
+Alterado somente `tests/test_phase_four_backup_restore.py`: encerrar TestClient,
+comprovar worker parado, restaurar e usar novo TestClient com o cookie anterior
+em memória. Todas as verificações de estado, auditoria, rollback e invalidação
+de sessão permanecem. Módulo inteiro: **12/12**, `run-1a9b86862c`.
+Classificação: ajuste de lifecycle do harness, não vulnerabilidade de produto
+comprovada. Binding entre instalações e demais gaps originais não foram ampliados.
+
+## Gates finais em execução
+
+`scripts/security/remediation_full_suite.py` executa todos os arquivos de teste
+em quatro processos, por arquivo inteiro, cada um com export, appdata e bancos
+fictícios próprios. Manifesta união exata e compara hashes antes/depois; não
+instala plugins ou elimina casos. Não testa ordenação entre arquivos de shards
+diferentes. `remediation_scanners.py` mantém somente metadados permitidos dos
+scanners, desativa telemetria e verificação de credenciais e preserva evidências.

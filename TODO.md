@@ -1,10 +1,10 @@
 ## A Fazer
 
-- [ ] Reavaliar somente SD-004/005 com evidência sanitizada; preservar SD-006 {weight:4} {sector:SETOR_SEGURANCA}
-- [ ] Executar regressões completas, retestes de ferramentas e builds aplicáveis {weight:8} {sector:SETOR_QA_TESTES}
 - [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
+
+- [ ] Executar regressões completas, retestes de ferramentas e builds aplicáveis {weight:8} {sector:SETOR_QA_TESTES}
 
 
 
@@ -12,6 +12,9 @@
 
 
 ## Concluídas
+
+- [x] Reavaliar SD-004/005: permanecem UNRESOLVED com limites documentados; SD-006 preservado {weight:4} {sector:SETOR_SEGURANCA}
+- [x] Ajustar fronteira offline do teste de restore sem mudar produto ou retirar asserções; 12/12 {weight:2} {sector:SETOR_QA_TESTES}
 
 - [x] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
 

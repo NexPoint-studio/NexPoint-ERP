@@ -1,5 +1,12 @@
 # Scripts de Security Discovery
 
+Retestes posteriores, separados do snapshot original: `remediation_tests.py`
+exporta código isolado e bloqueia rede externa; `remediation_full_suite.py`
+distribui todos os arquivos entre até quatro exports, verificando hashes e JUnit;
+`remediation_scanners.py` executa ferramentas selecionadas com projeção sanitizada.
+Usam `artifacts/security/remediation/`, sem sobrescrever discovery. Resultados:
+[Security Remediation](../../Docs/Security/SECURITY_REMEDIATION_REPORT.md).
+
 Somente auditoria autorizada em cópias descartáveis. Não importar `.env`, cofres,
 SQLite real ou credenciais de produção. Não executar o scanner contra URL externa.
 Nenhum script aqui corrige o runtime. Resultados e ferramentas ficam em
