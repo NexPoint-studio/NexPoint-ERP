@@ -2,10 +2,9 @@
 
 ## Em andamento
 
-- [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
-
 ## Concluídas
 
+- [x] Consolidar evidências/status, secret scan, commits e push; remoto e4ae25e confirmado e árvore limpa, sem deploy {weight:4} {sector:SETOR_COORDENACAO}
 - [x] Validar suíte completa final 1.018/1.018, scanners e builds Windows/Docker do código 209d5ea {weight:8} {sector:SETOR_QA_TESTES}
 - [x] Reavaliar SD-004/005: permanecem UNRESOLVED com limites documentados; SD-006 preservado {weight:4} {sector:SETOR_SEGURANCA}
 - [x] Ajustar fronteira offline do teste de restore sem mudar produto ou retirar asserções; restore + benchmark 13/13, incluídos na suíte final {weight:2} {sector:SETOR_QA_TESTES}

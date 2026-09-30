@@ -322,9 +322,10 @@ foram classificados pelo caminho real dos dados, sem supressão de regras.
 
 O marco `f91edf983b151f494c113cfabe8344252c626c73` foi publicado e confirmado
 antes de qualquer remediação; reconfirmado no remoto durante o fechamento.
-O commit documental final registra estes resultados; o push autorizado será
-executado somente após secret scan final e git diff --check, com conferência
-do SHA remoto e working tree limpo na entrega.
+As correções e a consolidação documental foram publicadas até `e4ae25e`, após
+secret scan final e git diff --check aprovados. O SHA remoto foi conferido igual
+ao HEAD local e o working tree estava limpo. Esta atualização registra o push
+já realizado; o SHA da última atualização documental será informado na entrega.
 
 Não houve rewrite/force-push, rotação de secrets, alteração de dados, RLS,
 platform_admin, tenant ou installation em PROD, deploy Edge Functions ou Render.
@@ -332,6 +333,6 @@ A migration de sessões **deve preceder o futuro deploy** e continua aplicada
 somente em QA. Esta entrega não autoriza ativação em PROD, não fecha o residual
 histórico SD-003 e não transforma SD-004/005 em falsos positivos.
 
-Encerrar após o push: SECURITY RETEST + COVERAGE EXPANSION e deploy dependem de
+Etapa encerrada: SECURITY RETEST + COVERAGE EXPANSION e deploy dependem de
 instrução própria. As oito superfícies NOT_TESTED e 39 categorias parciais
 originais permanecem fora desta etapa.
