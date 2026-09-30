@@ -1,6 +1,5 @@
 ## A Fazer
 
-- [ ] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
 - [ ] Reavaliar somente SD-004/005 com evidência sanitizada; preservar SD-006 {weight:4} {sector:SETOR_SEGURANCA}
 - [ ] Executar regressões completas, retestes de ferramentas e builds aplicáveis {weight:8} {sector:SETOR_QA_TESTES}
 - [ ] Consolidar evidências/status, secret scan, commits e push sem deploy {weight:4} {sector:SETOR_COORDENACAO}
@@ -11,7 +10,10 @@
 
 
 
+
 ## Concluídas
+
+- [x] Corrigir SD-008: trabalho criptográfico equivalente no login SQLite {weight:3} {sector:SETOR_BACKEND}
 
 - [x] Tratar SD-003: prevenção futura validada; histórico residual exige ação humana separada {weight:4} {sector:SETOR_SEGURANCA}
 

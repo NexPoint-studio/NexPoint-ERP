@@ -41,8 +41,8 @@ Transição: CONFIRMED → REMEDIATED_PENDING_RETEST → REMEDIATED_VERIFIED.
 
 ## Pendências da etapa
 
-SD-002, SD-003, SD-007 e SD-008 ainda em processamento; SD-004 e SD-005 serão
-reavaliados apenas no escopo já descoberto. SD-006 continua NOT_APPLICABLE.
+Correções específicas validadas em QA/local; SD-003 mantém residual histórico
+para ação humana. SD-004/005 reavaliados, ainda UNRESOLVED. SD-006 continua NOT_APPLICABLE.
 Suíte completa, scans, builds, consolidação e push das correções ainda pendentes.
 
 ## SD-002 — limites antes da sanitização
@@ -156,3 +156,24 @@ AÇÃO HUMANA NECESSÁRIA.** Não equivale a remoção do histórico.
   incerteza específica de candidato histórico, sem rotação cega.
 - Evidências locais: `browser-profile-inventory.json`, `browser-profile-counts.json`
   e `browser-prevention-retest.json` em `artifacts/security/remediation/`.
+
+## SD-008 — caminho rápido no login SQLite
+
+**REMEDIATED_VERIFIED** em QA/local, após REMEDIATED_PENDING_RETEST.
+
+- Causa: repositório SQLite retornava antes de verificar senha quando o usuário
+  não existia/estava inativo. Usuário existente com senha errada executava scrypt.
+- Correção em `control_center/local_repository.py`: dummy hash aleatório criado
+  uma vez com o mecanismo vigente; uma verificação scrypt em cada tentativa
+  sintaticamente admissível, antes de negar usuário inexistente/inativo. Nenhum
+  sleep, mudança no hash, política de senha ou alteração do adapter Supabase.
+- `tests/test_security_sqlite_login_timing.py`: conta chamadas e parâmetros
+  criptográficos, valida sucesso/negação e 12 pares alternados após aquecimento.
+  Banda estatística relativa ampla 0,2–5; não depende de milissegundo exato.
+- Antes: `run-90bd0d4c30`, ambos os testes falham no baseline. Depois:
+  `run-305a0d294a`, **64/64**, incluindo contratos de sessão/adapter e produção
+  simulada. Reteste original de sete pares HTTP: todas as respostas 401,
+  medianas 65,804 ms (existente/senha errada) e 65,778 ms (inexistente).
+  Evidência `artifacts/security/remediation/timing-original/result.json`.
+- Conclusão restrita ao SQLite local; não é promessa de tempo constante de rede,
+  ausência de enumeração em todos os canais ou verificação de PROD.

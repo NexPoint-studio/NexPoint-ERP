@@ -75,6 +75,7 @@ DEFAULT_CONTROL_CENTER_DATABASE = (ROOT_DIR / "data" / "control_center.sqlite3")
 OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "erp.sqlite3").resolve()
 DEMO_OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "demo_2_anos.sqlite3").resolve()
 SCHEMA_VERSION = "7"
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{2,127}$")
@@ -3581,9 +3582,9 @@ class LocalControlCenterRepository:
                 "SELECT * FROM platform_users WHERE username = ? COLLATE NOCASE",
                 (candidate,),
             ).fetchone()
-            if row is None or not row["active"] or not verify_password(
-                supplied_password, row["password_hash"]
-            ):
+            encoded = row["password_hash"] if row is not None else _DUMMY_PASSWORD_HASH
+            valid = verify_password(supplied_password, encoded)
+            if row is None or not row["active"] or not valid:
                 return None
             instant = utc_now()
             connection.execute(
