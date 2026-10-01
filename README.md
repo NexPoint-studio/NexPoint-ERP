@@ -179,6 +179,7 @@ e é ignorado pelo Git. Consulte o guia de
 credenciais fictícias.
 
 Consulte a [arquitetura](Docs/ARQUITETURA.md), a
+[instalação Windows com ativação automática](Docs/AUTOMATIC_ACTIVATION.md), a
 [evolução offline e financeira](Docs/EVOLUCAO_OFFLINE_FINANCEIRA.md), o
 [cadeado da Administração](Docs/CADEADO_ADMINISTRACAO.md), a
 [sessão persistente do login](Docs/SESSAO_PERSISTENTE.md), a

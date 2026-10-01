@@ -85,7 +85,16 @@ def run_desktop() -> None:
     settings = get_settings()
     host = "127.0.0.1"
     ensure_port_available(host, settings.port)
-    application = create_app()
+    from app.services.installation_activation import (
+        InstallationActivation, installed_profile, needs_activation,
+    )
+    if needs_activation(settings):
+        from app.activation import ActivationGateway
+        application = ActivationGateway(
+            InstallationActivation(settings, installed_profile()), create_app,
+        )
+    else:
+        application = create_app()
     server, thread = start_local_server(application, host, settings.port)
     try:
         webview.create_window(
@@ -106,9 +115,15 @@ if __name__ == "__main__":
         run_desktop()
     except RuntimeError as error:
         import sys
+        from app.core.installation_identity import InstallationCredentialError
+        message = (
+            "Não foi possível abrir a configuração deste computador. "
+            "Não apague arquivos nem reinstale; contate a NexPoint."
+            if isinstance(error, InstallationCredentialError) else str(error)
+        )
         if sys.platform == "win32":
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, str(error), "ERP — inicialização", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, message, "NexPoint ERP", 0x10)
         else:
-            print(str(error), file=sys.stderr)
+            print(message, file=sys.stderr)
         raise SystemExit(1) from None

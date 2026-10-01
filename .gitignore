@@ -23,6 +23,7 @@ local-secrets/
 secrets/
 logs/
 artifacts/
+Entrega/
 build/
 dist/
 .pytest_cache/

@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Python = ".\.venv\Scripts\python.exe",
+    [string]$ActivationProfilePath,
     [switch]$SkipTests
 )
 
@@ -79,6 +80,13 @@ $bundle = Join-Path $distRoot "NexPointERP"
 $executable = Join-Path $bundle "NexPointERP.exe"
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Executavel esperado nao foi gerado."
+}
+
+if ($ActivationProfilePath) {
+    $profilePath = (Resolve-Path -LiteralPath $ActivationProfilePath).Path
+    & $pythonPath -c "import sys; from pathlib import Path; from app.services.installation_activation import ActivationProfile; ActivationProfile.load(Path(sys.argv[1]))" $profilePath
+    if ($LASTEXITCODE -ne 0) { throw "O perfil publico de ativacao foi rejeitado." }
+    Copy-Item -LiteralPath $profilePath -Destination (Join-Path $bundle 'activation-profile.json')
 }
 
 $forbiddenNames = @(

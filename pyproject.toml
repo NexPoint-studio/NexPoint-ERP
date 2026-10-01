@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "erp-template-local"
-version = "1.0.1rc1"
+version = "1.1.0"
 description = "Carcaça reutilizável de ERP local com FastAPI e pywebview"
 requires-python = ">=3.13"
 dependencies = [
