@@ -61,8 +61,11 @@ corrigida; o ensaio completo seguinte aprovou também a remoção do atalho e Ap
 
 A ativação no notebook ainda não foi executada. Só no destino podem ser aceitos
 DPAPI própria, primeiro/segundo start, heartbeat, health e ACK da instalação real.
-O catálogo comercial depende de serviços, unidades e preços reais fornecidos
-pelo responsável. Nenhum catálogo fictício foi enviado à produção.
+O responsável confirmou que cadastrará manualmente serviços, unidades e preços
+reais em Administração > Serviços após instalar no notebook e antes da primeira
+Nota. Essa preparação exige acesso administrativo; a conta operacional mantém
+suas permissões atuais. Não é necessário enviar o catálogo para preparar o pacote.
+Nenhum catálogo fictício foi enviado à produção.
 
 Os artefatos privados ficam em `Entrega/` e as evidências em `artifacts/`, ambos
 ignorados pelo Git. O pacote não contém bancos, credenciais, dotenv, logs, scripts

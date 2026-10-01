@@ -1,6 +1,6 @@
 ## A Fazer
 
-- [ ] Receber serviços, unidades e preços reais da lavanderia; catálogo não pode ser inventado e precisa estar preparado antes da primeira Nota real {weight:2} {sector:SETOR_COORDENACAO}
+- [ ] Responsável cadastrará manualmente serviços, unidades e preços reais em Administração > Serviços após instalar no notebook, antes da primeira Nota; não é necessário enviar o catálogo para preparar o pacote {weight:2} {sector:SETOR_COORDENACAO}
 - [ ] Executar aceite no notebook após entrega: primeiro login, DPAPI própria, segundo start, heartbeat e ACK sob nil-lav-pc-01; testes neste PC não comprovam essa etapa {weight:3} {sector:SETOR_QA_TESTES}
 
 ## Em andamento
