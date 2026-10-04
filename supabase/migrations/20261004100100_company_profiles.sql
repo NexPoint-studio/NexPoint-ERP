@@ -75,14 +75,14 @@ create trigger np_capture_company_profile after insert on public.np_sync_envelop
 
 -- Extend the existing authenticated ingestion without replacing its nonce/RLS/ACK rules.
 -- Fail closed if the expected contract has changed upstream.
+-- Match only the stable event-list token: pg_get_functiondef uses LF even when
+-- the migration file is checked out with CRLF on Windows.
 do $migration$
-declare definition text; original text := $needle$'risk', 'incident', 'diagnostic_event'
-           )$needle$;
+declare definition text; original text := $needle$'risk', 'incident', 'diagnostic_event'$needle$;
 begin
  select pg_get_functiondef('public.erp_ingest_sync_batch(text,text,text,timestamptz,jsonb)'::regprocedure) into definition;
  if position(original in definition)=0 then raise exception 'unexpected ingestion contract'; end if;
- definition := replace(definition,original,$replacement$'risk', 'incident', 'diagnostic_event', 'company_profile'
-           )$replacement$);
+ definition := replace(definition,original,$replacement$'risk', 'incident', 'diagnostic_event', 'company_profile'$replacement$);
  execute definition;
 end $migration$;
 
