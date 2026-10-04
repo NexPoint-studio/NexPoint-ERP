@@ -345,7 +345,7 @@ def context(request: Request, screen: str = ""):
     monitor = getattr(request.app.state, "diagnostic_monitor", None)
     if monitor is not None:
         try:
-            all_visible = request.state.current_user.can("admin.audit.view")
+            all_visible = "admin.audit.view" in safe_context["permissions"]
             new_alerts = [
                 ({"fingerprint": finding.fingerprint, "level": finding.severity}
                  if all_visible else {"level": finding.severity})

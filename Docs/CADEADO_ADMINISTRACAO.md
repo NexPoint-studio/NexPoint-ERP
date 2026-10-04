@@ -1,42 +1,53 @@
 # Cadeado da Administração
 
-O Admin Lock é uma segunda barreira local para a área **Administração**. Ele não
-substitui o login normal, papéis ou permissões. Mesmo com uma sessão normal
-lembrada, o usuário precisa informar a senha administrativa adicional enquanto o
-ciclo temporário de desbloqueio não estiver válido.
+O Admin Lock é uma barreira **opcional** para a área **Administração**. Todo
+acesso à instalação ativada permite abrir essa área. Sem senha configurada,
+a área abre diretamente e Segurança mostra
+**DESATIVADA**. Com senha, o servidor exige o desbloqueio temporário também nas
+rotas administrativas e nos serviços chamados por elas. Operações de Caixa,
+Clientes, Notas e Financeiro permanecem disponíveis.
 
 ## Configuração, desbloqueio e troca
 
-Somente um Proprietário ativo com `admin.overview.view` pode configurar o
-cadeado. A senha tem de 8 a 256 caracteres e o tempo de desbloqueio pode variar
+O cadeado pode ser configurado em Administração →
+Segurança. A senha tem de 8 a 256
+caracteres e o tempo de desbloqueio pode variar
 de 1 a 480 minutos. O SQLite guarda somente o hash `scrypt` com salt; a senha em
 texto não entra em cookie, sessão, template, log, auditoria ou chamado.
 
-O servidor registra na sessão apenas a versão do cadeado, o instante de
-expiração e uma geração do processo. Timeout, logout, reinício do ERP ou mudança
-da credencial invalidam o desbloqueio anterior. A troca normal exige a senha
-administrativa atual e incrementa a versão do cadeado.
+O servidor registra na sessão a versão do cadeado, o instante de expiração,
+uma geração do processo e a identidade técnica da instalação.
+Sair da Administração, timeout, reinício do ERP, restauração do banco ou
+mudança da credencial invalidam o desbloqueio anterior. A troca exige a senha
+administrativa atual. A remoção exige a senha atual e confirmação explícita;
+a versão permanece monotônica, inclusive depois de remover e recriar a senha,
+para impedir reutilização de cookies de desbloqueios antigos.
+
+O desbloqueio não concede acesso ao Control Center. Restauração continua
+exigindo confirmação explícita, validação de integridade e cópia anterior.
+Com o cadeado ativo, tarefas internas que exijam Administração precisam de
+contexto administrativo válido; a identidade técnica sozinha não o substitui.
 
 ## Recuperação única pela NexPoint
 
 A interface oferece somente **Solicitar recuperação à NexPoint**. Não existem
 campo de código, chave offline, ID de chamado ou token para copiar. A Nexa não
 aparece como ação de recuperação e não pode iniciar, autorizar ou concluir um
-reset. Se perguntada, ela apenas orienta o Proprietário a usar o botão na tela do
+reset. Se perguntada, ela apenas orienta o usuário a usar o botão na tela do
 Admin Lock.
 
-O endpoint confirma novamente que a conta autenticada é um Proprietário legítimo
-e cria um chamado `admin_access_recovery` com:
+O endpoint confirma a identidade técnica da instalação e cria um chamado
+`admin_access_recovery` com:
 
 - tenant e instalação derivados no servidor;
-- pseudônimo do solicitante;
+- referência opaca exclusiva daquela solicitação, independente de conta humana;
 - `correlation_id`;
 - versão e status limitado do Admin Lock;
 - tentativas recentes e diagnóstico sanitizado.
 
 O chamado segue pela Outbox idempotente. Se a conexão estiver indisponível, ele
 permanece localmente e a tela informa que será enviado quando a conexão voltar.
-Caixa, Clientes, Serviços e outras áreas autorizadas continuam operando; somente
+Caixa, Clientes, Serviços e Financeiro continuam operando; somente
 a Administração permanece bloqueada. Por decisão de produto e segurança, a
 senha administrativa esquecida não pode ser redefinida totalmente offline.
 
@@ -63,8 +74,11 @@ senha”, “Confirmar nova senha” e “Definir nova senha”.
 O consumo e a mudança de estado da autorização são atômicos no Control Center.
 Depois do consumo, o ERP grava um novo hash para o Admin Lock, incrementa sua
 versão e registra auditoria e observabilidade. A operação modifica somente a
-credencial do Admin Lock: login normal, usuário, papel, permissões, tenant e
-sessão normal permanecem iguais.
+credencial do Admin Lock. Empresa, instalação, dados operacionais e credencial
+protegida pelo Windows são preservados. O desbloqueio anterior é invalidado.
+Uma nova solicitação não pode consumir autorização emitida para a anterior.
+Se o processo parar depois do consumo remoto e antes do commit local, exige-se
+nova autorização; o consumo não é desfeito nem reutilizado.
 
 Esse fluxo de Admin Lock é distinto da redefinição da senha de um administrador
 interno do Control Center. A arquitetura publicada está registrada em
@@ -89,5 +103,5 @@ Sanitizadores continuam reconhecendo formatos legados para impedir vazamento de
 registros antigos. Senha, hash, cookie, cabeçalho `Authorization` e qualquer
 verificador interno não podem aparecer em logs, exports, Nexa, chamado ou
 Control Center. Não existe senha mestra e nenhuma senha pode ser recuperada em
-texto; o fluxo permite ao Proprietário criar uma nova credencial após a
+texto; o fluxo permite ao solicitante criar uma nova credencial após a
 autorização da NexPoint.

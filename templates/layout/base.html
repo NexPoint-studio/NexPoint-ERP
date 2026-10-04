@@ -29,8 +29,7 @@
         {% endfor %}
       </nav>
       <div class="sidebar__footer">
-        <div class="user-chip"><span class="user-chip__avatar">{{ current_user.display_name[0] }}</span><div><strong>{{ current_user.display_name }}</strong><small>{{ current_user.role_labels|join(', ') }}</small></div></div>
-        <form action="/logout" method="post"><button class="icon-button" type="submit" title="Sair" aria-label="Sair">{{ icon('logout') }}</button></form>
+        <div class="user-chip"><span class="user-chip__avatar">{{ company_name[0] }}</span><div><strong>{{ company_name }}</strong><small>ERP NexPoint</small></div></div>
       </div>
     </aside>
     <section class="workspace">
@@ -45,7 +44,14 @@
           <span aria-hidden="true"></span><span data-sync-status-text>Sincronização local</span>
         </div>
       </header>
-      <main class="content" id="main-content">{% block content %}{% endblock %}</main>
+      <main class="content" id="main-content">
+        {% if update_notice %}<div class="alert alert--success" role="status">
+          <strong>Nova versão disponível: NexPoint ERP {{ update_notice.version }}</strong>
+          {% if update_notice.mandatory %}<p>Esta versão precisa ser atualizada para continuar. Salve seu trabalho antes de atualizar.</p>{% endif %}
+          <a href="/admin/sistema">Ver melhorias e atualizar</a>
+        </div>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
     </section>
   </div>
   <div class="sidebar-backdrop" data-sidebar-toggle></div>

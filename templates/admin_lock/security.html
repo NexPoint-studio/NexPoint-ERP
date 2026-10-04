@@ -1,0 +1,28 @@
+{% extends "layout/base.html" %}
+{% block content %}
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO</p><h1>Segurança da Administração</h1><p>O ERP abre diretamente. Esta senha protege apenas a Administração.</p></header>
+{% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+<section class="panel section-block">
+  <h2>Proteção por senha</h2>
+  {% if lock_status.configured %}
+  <p><strong>ATIVADA</strong></p>
+  <p>Ao sair da Administração, encerrar a sessão ou expirar o desbloqueio, será necessário informar a senha novamente.</p>
+  <a class="button button--primary" href="/admin/cadeado/trocar">Alterar senha administrativa</a>
+  {% else %}
+  <p><strong>DESATIVADA</strong></p>
+  <p>Enquanto a proteção estiver desativada, qualquer pessoa com acesso a este computador pode abrir a Administração.</p>
+  <a class="button button--primary" href="/admin/cadeado/configurar">Criar senha administrativa</a>
+  {% endif %}
+</section>
+{% if lock_status.configured %}
+<section class="panel section-block">
+  <h2>Remover proteção por senha</h2>
+  <p>A Administração voltará a abrir neste computador sem solicitar a senha desta área.</p>
+  <form method="post" action="/admin/cadeado/remover">
+    <label class="field">Senha administrativa atual<input type="password" name="current_password" maxlength="256" autocomplete="current-password" required></label>
+    <label class="checkbox"><input type="checkbox" name="confirmation" value="remove" required> Confirmo que quero desativar a proteção da Administração.</label>
+    <div class="form-actions"><button class="button button--secondary" type="submit">Remover proteção por senha</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -498,13 +498,17 @@ class CashService:
         if effective_per_page not in {10, 25, 50, 100}:
             effective_per_page = 25
         start_utc, end_utc = self._operator_window(now)
-        rows, total, effective_page = self.repository.list_for_creator(
-            creator_id=user_id,
-            start_utc=start_utc,
-            end_utc=end_utc,
-            page=effective_page,
-            per_page=effective_per_page,
-        )
+        from app.services.installation_actor import is_installation_actor
+        if is_installation_actor(self.session, user_id):
+            rows, total, effective_page = self.repository.list(
+                start_utc=start_utc, end_utc=end_utc,
+                page=effective_page, per_page=effective_per_page,
+            )
+        else:
+            rows, total, effective_page = self.repository.list_for_creator(
+                creator_id=user_id, start_utc=start_utc, end_utc=end_utc,
+                page=effective_page, per_page=effective_per_page,
+            )
         return CashOperationsResult(
             rows=rows,
             total=total,

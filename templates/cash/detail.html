@@ -108,7 +108,7 @@
     <div><dt>Última alteração por</dt><dd>{{ movement.updater.display_name }}</dd></div>
     <div><dt>Última alteração</dt><dd>{{ local_datetime(movement.updated_at)|datetime_br }}</dd></div>
     {% if movement.status == 'CANCELED' %}
-      <div><dt>Cancelado por</dt><dd>{{ movement.canceler.display_name if movement.canceler else 'Usuário local' }}</dd></div>
+      <div><dt>Cancelado por</dt><dd>{{ movement.canceler.display_name if movement.canceler else 'Registro local' }}</dd></div>
       <div><dt>Cancelado em</dt><dd>{{ local_datetime(movement.canceled_at)|datetime_br }}</dd></div>
       <div><dt>Motivo</dt><dd>{{ movement.cancellation_reason }}</dd></div>
     {% endif %}

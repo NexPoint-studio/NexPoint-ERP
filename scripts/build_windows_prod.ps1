@@ -71,6 +71,10 @@ try {
         --distpath $distRoot --workpath $workRoot `
         "packaging\nexpoint_erp.spec"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller encerrou com erro." }
+    & $pythonPath -m PyInstaller --noconfirm --clean `
+        --distpath $distRoot --workpath $workRoot `
+        "packaging\nexpoint_updater.spec"
+    if ($LASTEXITCODE -ne 0) { throw "A build do atualizador encerrou com erro." }
 }
 finally {
     Remove-Item Env:\NEXPOINT_BUILD_MANIFEST -ErrorAction SilentlyContinue
@@ -81,6 +85,13 @@ $executable = Join-Path $bundle "NexPointERP.exe"
 if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
     throw "Executavel esperado nao foi gerado."
 }
+$updater = Join-Path $distRoot "NexPointUpdater.exe"
+if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) {
+    throw "O atualizador separado nao foi gerado."
+}
+Copy-Item -LiteralPath $updater -Destination (Join-Path $bundle "NexPointUpdater.exe")
+& $updater --verify-runtime
+if ($LASTEXITCODE -ne 0) { throw "O atualizador compilado nao carregou as dependencias locais." }
 
 if ($ActivationProfilePath) {
     $profilePath = (Resolve-Path -LiteralPath $ActivationProfilePath).Path

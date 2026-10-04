@@ -302,19 +302,11 @@ def test_demo_http_mode_blocks_restore_over_original_dataset(monkeypatch, tmp_pa
     application = run_demo.build_demo_application()
 
     with TestClient(application) as client:
-        login_page = client.get("/login")
-        assert login_page.status_code == 200
-        assert f'value="{run_demo.DEMO_OWNER_LOGIN}"' in login_page.text
-        assert 'name="password" value=""' in login_page.text
-        assert "dados exclusivamente fictícios" in login_page.text
-        assert "Demo#2026!ERP" not in login_page.text
-        login = client.post(
-            "/login",
-            data={"email": run_demo.DEMO_OWNER_LOGIN, "password": LOCAL_TEST_PASSWORD},
-            follow_redirects=False,
-        )
-        assert login.status_code == 303
-        assert login.headers["set-cookie"].startswith("erp_demo_session=")
+        page = client.get("/clientes/lista")
+        assert page.status_code == 200
+        assert client.get("/login").status_code == 404
+        assert 'action="/logout"' not in page.text
+        assert page.headers["set-cookie"].startswith("erp_demo_session=")
         admin_password = "cadeado-demo-isolado"
         configured = client.post(
             "/admin/cadeado/configurar",
@@ -350,7 +342,8 @@ def test_check_mode_validates_without_starting_server_or_window(monkeypatch, tmp
     assert run_demo.main(["--check"]) == 0
     output = capsys.readouterr().out
     assert str(demo.resolve()) in output
-    assert run_demo.DEMO_OWNER_LOGIN in output
+    assert run_demo.DEMO_OWNER_LOGIN not in output
+    assert "Abertura direta" in output
     assert "senha" not in output.lower()
 
 
@@ -461,7 +454,7 @@ def test_guard_blocks_replacing_demo_file_until_shutdown(tmp_path):
     assert demo.exists()
 
 
-def test_operational_login_never_prefills_default_credentials(tmp_path):
+def test_operational_login_is_not_exposed(tmp_path):
     database = _create_current_database(tmp_path / "operational.sqlite3", demo_identity=False)
     application = create_app(
         database_url=f"sqlite+pysqlite:///{database.as_posix()}",
@@ -470,7 +463,6 @@ def test_operational_login_never_prefills_default_credentials(tmp_path):
     )
     with TestClient(application) as client:
         page = client.get("/login")
-    assert page.status_code == 200
-    assert 'name="email" value=""' in page.text
-    assert 'name="password" value=""' in page.text
-    assert 'value="adm"' not in page.text
+    assert page.status_code == 404
+    assert 'name="email"' not in page.text
+    assert 'name="password"' not in page.text

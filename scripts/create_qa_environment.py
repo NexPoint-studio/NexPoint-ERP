@@ -227,7 +227,7 @@ def _prepare_qa_identity(
         ).fetchone()
         if owner is None:
             raise RuntimeError("O seed QA nao criou o proprietario esperado.")
-        connection.execute("UPDATE users SET active=0")
+        connection.execute("UPDATE users SET active=0 WHERE password_hash <> '!installation-actor-no-login'")
         connection.execute(
             "UPDATE users SET email=?,display_name=?,password_hash=?,active=1,auth_version=auth_version+1 WHERE id=?",
             (QA_USERNAME, "Proprietario NexPoint QA Lab", hash_password(password), owner[0]),
@@ -256,6 +256,10 @@ def _prepare_qa_identity(
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             tuple(settings.items()),
         )
+        # This function operates only on the newly generated synthetic QA copy.
+        # Its fresh dataset identity must not inherit the source profile binding.
+        connection.execute("DELETE FROM settings WHERE key IN ('company.profile_tenant_id','company.profile_installation_id','company.profile_revision')")
+        connection.execute("DELETE FROM outbox_items WHERE event_type='company_profile'")
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
         if integrity != "ok" or foreign_keys:

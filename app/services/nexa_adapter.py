@@ -9,7 +9,8 @@ import re
 from app.core.modules import MODULES
 from app.knowledge import ERP_HELP
 from app.services.authorization import active_actor_access, require_effective_actor_permission, ActorAuthorizationError
-from app.services.admin_lock import AdminLockService
+from app.services.admin_lock import AdminLockService, admin_unlock_valid, lock_configured
+from app.core.permissions import INSTALLATION_ADMIN_CAPABILITIES
 from app.repositories.sync import OutboxRepository
 import json
 
@@ -80,7 +81,11 @@ def build_nexa_snapshot(request, screen: object, *, query: str = "") -> tuple[st
             permissions = frozenset(permitted)
         else:
             permissions = frozenset(user.permissions) & access.permissions
-        if "admin" in access.role_codes and "admin.overview.view" in permissions:
+        if access.installation_actor:
+            lock = AdminLockService(session).get()
+            if lock_configured(lock) and not admin_unlock_valid(request, lock):
+                permissions = permissions - INSTALLATION_ADMIN_CAPABILITIES
+        if (access.installation_actor or "admin" in access.role_codes) and "admin.overview.view" in permissions:
             lock_status = AdminLockService(session).status()
             support_status = "none"
             for item in OutboxRepository(session).list_unsynced(

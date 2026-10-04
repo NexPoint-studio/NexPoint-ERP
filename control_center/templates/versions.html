@@ -1,5 +1,33 @@
 {% extends "base.html" %}
 {% block content %}
 <header class="page-heading"><div><p class="eyebrow">VERSÕES</p><h1>Distribuição de versões</h1><p>Comparação rápida de saúde e regressões entre instalações.</p></div></header>
+{% if platform_user.role == 'platform_admin' %}
+<section class="panel"><h2>Releases oficiais</h2>
+  <p>O arquivo precisa ser enviado e verificado antes da publicação. Publicar torna a versão disponível somente no canal indicado.</p>
+  {% for release in releases %}
+  <article class="panel">
+    <h3>ERP {{ release.version }} · {{ release.update_channel|title }}</h3>
+    <p>{{ {'draft':'Rascunho','verified':'Arquivo verificado','published':'Publicado','withdrawn':'Retirado'}[release.status] }} · Windows x64</p>
+    <p class="release-notes">{{ release.release_notes }}</p>
+    <p>{{ 'Atualização necessária' if release.mandatory else 'Atualização opcional' }} · Versão mínima {{ release.minimum_supported_version }}</p>
+    {% if release.code_signing == 'CODE_SIGNING_PENDING' %}<p>Assinatura de código pendente. Integridade conferida pelo hash do arquivo oficial.</p>{% endif %}
+    {% if release.status == 'verified' %}
+    <form method="post" action="/versoes/{{ release.id }}/publicar" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label><input type="checkbox" name="confirmation" value="publicar" required> Confirmo a publicação desta versão no canal {{ release.update_channel }}.</label>
+      <button type="submit" class="button button--primary">Publicar versão {{ release.version }}</button>
+    </form>
+    {% endif %}
+  </article>
+  {% else %}<p class="empty-copy">Nenhuma release cadastrada.</p>{% endfor %}
+</section>
+{% endif %}
+<section class="panel"><h2>Instalações e atualizações</h2>
+  <div class="table-wrap"><table><thead><tr><th>Empresa / instalação</th><th>Versão</th><th>Canal</th><th>Atualização</th><th>Última comunicação</th></tr></thead>
+  <tbody>{% for row in installation_rows %}<tr>
+    <td><a href="/empresas/{{ row.installation.tenant_id }}">{{ row.company }}</a><br>{{ row.installation.metadata.get('label') or row.installation.installation_id }}</td>
+    <td>{{ row.installation.version }}</td><td>{{ row.channel }}</td><td>{{ row.update_status }}</td><td>{{ row.installation.last_seen_at|datetime_br }}</td>
+  </tr>{% else %}<tr><td colspan="5">Nenhuma instalação nesse escopo.</td></tr>{% endfor %}</tbody></table></div>
+</section>
 <section class="version-grid">{% for item in versions %}<article class="panel version-card"><header><span>ERP</span><strong>{{ item.version }}</strong></header><dl><div><dt>Instalações</dt><dd>{{ item.installation_count }}</dd></div><div><dt>Saudáveis</dt><dd>{{ item.healthy_count }}</dd></div><div><dt>Com alerta</dt><dd>{{ item.warning_count }}</dd></div><div><dt>Risco alto</dt><dd>{{ item.high_risk_count }}</dd></div></dl></article>{% else %}<article class="empty-card"><h2>Sem versões registradas</h2></article>{% endfor %}</section>
 {% endblock %}

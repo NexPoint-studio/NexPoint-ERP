@@ -14,8 +14,8 @@
 {% if authorization_available %}
 <section class="panel section-block">
   <form method="post" action="/admin/cadeado/recuperar/redefinir" class="form-stack">
-    <label>Nova senha<input type="password" name="new_password" minlength="8" maxlength="256" autocomplete="new-password" required autofocus></label>
-    <label>Confirmar nova senha<input type="password" name="confirmation" minlength="8" maxlength="256" autocomplete="new-password" required></label>
+    <label class="field">Nova senha<input type="password" name="new_password" minlength="8" maxlength="256" autocomplete="new-password" required autofocus></label>
+    <label class="field">Confirmar nova senha<input type="password" name="confirmation" minlength="8" maxlength="256" autocomplete="new-password" required></label>
     <div class="form-actions">
       <button class="button button--primary" name="submit" value="reset" type="submit">Definir nova senha</button>
       <a class="button button--secondary" href="/admin/cadeado/desbloquear">Cancelar</a>

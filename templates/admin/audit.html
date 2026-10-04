@@ -10,7 +10,7 @@
   <form method="get" class="filter-bar">
     <label>Buscar<input name="q" value="{{ filters.q }}" maxlength="160" placeholder="Ação ou recurso"></label>
     <label>Ação<select name="action"><option value="">Todas</option>{% for item in result.actions %}<option value="{{ item }}" {% if filters.action == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
-    <label>Usuário<input name="user_id" value="{{ filters.user_id }}" inputmode="numeric" placeholder="ID"></label>
+    <label>Origem do registro<input name="user_id" value="{{ filters.user_id }}" inputmode="numeric" placeholder="ID do histórico"></label>
     <label>De<input type="date" name="date_from" value="{{ filters.date_from }}"></label>
     <label>Até<input type="date" name="date_to" value="{{ filters.date_to }}"></label>
     <button class="button button--secondary" type="submit">Filtrar</button>

@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
+from app.core.permissions import normal_local_user
 from app.models.admin_lock import AdminLock
 from app.models.auth import AuditEvent
 from app.observability.context import emit_observability_event
@@ -23,6 +24,8 @@ PROCESS_UNLOCK_GENERATION = secrets.token_urlsafe(32)
 SESSION_VERSION = "admin_lock_version"
 SESSION_UNTIL = "admin_lock_until"
 SESSION_PROCESS = "admin_lock_process"
+SESSION_ACTOR = "admin_lock_actor"
+SESSION_AUTH = "admin_lock_auth_version"
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 256
 DEFAULT_TIMEOUT_MINUTES = 15
@@ -45,22 +48,27 @@ def _now_timestamp() -> int:
 
 
 def clear_admin_unlock(request: Request) -> None:
-    for key in (SESSION_VERSION, SESSION_UNTIL, SESSION_PROCESS):
+    for key in (SESSION_VERSION, SESSION_UNTIL, SESSION_PROCESS, SESSION_ACTOR, SESSION_AUTH):
         request.session.pop(key, None)
+
+
+def lock_configured(lock: AdminLock | None) -> bool:
+    return lock is not None and bool(lock.password_hash)
 
 
 def has_admin_area_access(user) -> bool:
     """Indica acesso potencial à área sem substituir o check de cada rota."""
 
-    return any(
+    return user.installation_actor or normal_local_user(user.roles) or any(
         code.startswith("admin.") or code.startswith("finance.")
         for code in user.permissions
     )
 
 
 def admin_unlock_valid(request: Request, lock: AdminLock | None) -> bool:
-    if lock is None:
+    if not lock_configured(lock):
         return False
+    user = getattr(request.state, "current_user", None)
     version = request.session.get(SESSION_VERSION)
     until = request.session.get(SESSION_UNTIL)
     generation = request.session.get(SESSION_PROCESS)
@@ -71,6 +79,9 @@ def admin_unlock_valid(request: Request, lock: AdminLock | None) -> bool:
         and until > _now_timestamp()
         and isinstance(generation, str)
         and secrets.compare_digest(generation, PROCESS_UNLOCK_GENERATION)
+        and user is not None
+        and request.session.get(SESSION_ACTOR) == user.id
+        and request.session.get(SESSION_AUTH) == user.auth_version
     )
     if not valid:
         clear_admin_unlock(request)
@@ -85,13 +96,9 @@ def require_admin_unlock(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     with request.app.state.session_factory() as session:
         lock = session.get(AdminLock, 1)
-        if lock is None:
-            if "admin" in user.roles:
-                raise HTTPException(
-                    status_code=status.HTTP_303_SEE_OTHER,
-                    headers={"Location": "/admin/cadeado/configurar"},
-                )
-            raise HTTPException(status_code=status.HTTP_423_LOCKED)
+        if not lock_configured(lock):
+            clear_admin_unlock(request)
+            return
         if not admin_unlock_valid(request, lock):
             destination = request.url.path
             raise HTTPException(
@@ -115,13 +122,14 @@ class AdminLockService:
     def get(self) -> AdminLock | None:
         return self.session.get(AdminLock, 1)
 
-    def _owner(self, actor_id: int) -> None:
+    def _normal_actor(self, actor_id: int):
         try:
             access = active_actor_access(self.session, actor_id)
         except ActorAuthorizationError as exc:
             raise AdminLockError(str(exc)) from None
-        if not access.is_owner or "admin.overview.view" not in access.permissions:
-            raise AdminLockError("Somente um Proprietário ativo pode configurar o cadeado.")
+        if not access.installation_actor and not normal_local_user(access.role_codes):
+            raise AdminLockError("Somente usuários locais ativos podem gerenciar a proteção.")
+        return access
 
     @staticmethod
     def _now() -> datetime:
@@ -129,7 +137,7 @@ class AdminLockService:
 
     def status(self) -> AdminLockStatus:
         lock = self.get()
-        if lock is None:
+        if not lock_configured(lock):
             return AdminLockStatus(False, 0, None, None)
         return AdminLockStatus(
             True,
@@ -156,26 +164,34 @@ class AdminLockService:
     ) -> None:
         """Check every deterministic local precondition before consuming a token."""
 
-        self._owner(actor_id)
+        access = self._normal_actor(actor_id)
         self._validate_new(password, confirmation)
-        if self.get() is None:
+        if not lock_configured(self.get()):
             raise AdminLockError("O cadeado administrativo ainda não foi configurado.")
 
     def configure(
         self, actor_id: int, password: str, confirmation: str, timeout_minutes: int
     ) -> AdminLock:
-        self._owner(actor_id)
+        # Serialize competing first-password requests; never overwrite a lock
+        # configured concurrently after the form was opened.
+        if not self.session.in_transaction():
+            self.session.connection().exec_driver_sql("begin immediate")
+        access = self._normal_actor(actor_id)
         self._validate_new(password, confirmation)
         if not 1 <= timeout_minutes <= 480:
             raise AdminLockError("O tempo de desbloqueio deve ficar entre 1 e 480 minutos.")
-        if self.get() is not None:
+        lock = self.get()
+        if lock_configured(lock):
             raise AdminLockError("O cadeado administrativo já foi configurado.")
-        lock = AdminLock(
-            id=1,
-            password_hash=hash_password(password),
-            timeout_minutes=timeout_minutes,
-            configured_by=actor_id,
-        )
+        if lock is None:
+            lock = AdminLock(id=1, version=1)
+        else:
+            lock.version += 1
+        lock.password_hash = hash_password(password)
+        lock.timeout_minutes = timeout_minutes
+        lock.configured_by = actor_id
+        lock.failed_attempt_count = 0
+        lock.lockout_until = None
         self.session.add(lock)
         self.session.add(AuditEvent(
             user_id=actor_id,
@@ -205,13 +221,13 @@ class AdminLockService:
                 )
         except ActorAuthorizationError as exc:
             raise AdminLockError(str(exc)) from None
-        if not any(
+        if not access.installation_actor and not normal_local_user(access.role_codes) and not any(
             code.startswith("admin.") or code.startswith("finance.")
             for code in access.permissions
         ):
             raise AdminLockError("O usuário não possui acesso à Administração.")
         lock = self.get()
-        if lock is None:
+        if not lock_configured(lock):
             return None
         now = self._now()
         if lock.lockout_until is not None and lock.lockout_until > now:
@@ -271,12 +287,12 @@ class AdminLockService:
         confirmation: str,
         timeout_minutes: int,
     ) -> AdminLock:
-        self._owner(actor_id)
+        access = self._normal_actor(actor_id)
         self._validate_new(new_password, confirmation)
         if not 1 <= timeout_minutes <= 480:
             raise AdminLockError("O tempo de desbloqueio deve ficar entre 1 e 480 minutos.")
-        lock = self.get()
-        if lock is None or not verify_password(current_password, lock.password_hash):
+        lock = self.unlock(actor_id, current_password)
+        if lock is None:
             raise AdminLockError("A senha administrativa atual está incorreta.")
         lock.password_hash = hash_password(new_password)
         lock.timeout_minutes = timeout_minutes
@@ -301,10 +317,10 @@ class AdminLockService:
         new_password: str,
         confirmation: str,
     ) -> AdminLock:
-        self._owner(actor_id)
+        self.validate_authorized_reset_request(actor_id, new_password, confirmation)
         self._validate_new(new_password, confirmation)
         lock = self.get()
-        if lock is None:
+        if not lock_configured(lock):
             raise AdminLockError("O cadeado administrativo ainda não foi configurado.")
         now = self._now()
         lock.password_hash = hash_password(new_password)
@@ -331,10 +347,37 @@ class AdminLockService:
         )
         return lock
 
+    def remove(self, actor_id: int, current_password: str, *, confirmed: bool) -> None:
+        self._normal_actor(actor_id)
+        if not confirmed:
+            raise AdminLockError("Confirme que deseja remover a proteção por senha.")
+        lock = self.unlock(actor_id, current_password)
+        if lock is None:
+            raise AdminLockError("A senha administrativa atual está incorreta.")
+        # Retain the version counter: deleting/recreating row 1 would let an old
+        # signed unlock cookie become valid again when the version returns to 1.
+        lock.password_hash = ""
+        lock.version += 1
+        lock.failed_attempt_count = 0
+        lock.lockout_until = None
+        lock.configured_by = actor_id
+        self.session.add(AuditEvent(
+            user_id=actor_id, action="admin.lock_removed", resource="admin_lock",
+        ))
+        self.session.commit()
+        emit_observability_event(
+            module="admin", component="admin_lock_service",
+            event_type="admin.lock.removed", operation="remove",
+            status="completed", user_id=actor_id, sync_required=True,
+        )
+
 
 def mark_admin_unlocked(request: Request, lock: AdminLock) -> None:
+    user = request.state.current_user
     request.session[SESSION_VERSION] = lock.version
     request.session[SESSION_UNTIL] = _now_timestamp() + int(
         timedelta(minutes=lock.timeout_minutes).total_seconds()
     )
     request.session[SESSION_PROCESS] = PROCESS_UNLOCK_GENERATION
+    request.session[SESSION_ACTOR] = user.id
+    request.session[SESSION_AUTH] = user.auth_version

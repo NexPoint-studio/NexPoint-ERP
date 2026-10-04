@@ -2,7 +2,8 @@
 
 The database is built and validated in a sibling staging file, then published
 create-only. Existing PROD data is inspected but never replaced or migrated by
-this command. The first local owner is distinct from the cloud platform_admin.
+this command. Only a non-authenticable installation actor is bootstrapped;
+activation and protected credentials remain the responsibility of the desktop flow.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import argparse
 from contextlib import closing, suppress
 from dataclasses import dataclass
-import getpass
 import os
 from pathlib import Path
 import secrets
@@ -18,7 +18,6 @@ import sqlite3
 import sys
 from typing import Mapping, Sequence
 
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,8 +25,6 @@ sys.path.insert(0, str(ROOT))
 
 from app.core.config import Settings  # noqa: E402
 from app.core.database import build_engine, build_session_factory  # noqa: E402
-from app.core.security import hash_password, verify_password  # noqa: E402
-from app.models import Role, User  # noqa: E402
 from app.services.bootstrap import initialize_database  # noqa: E402
 from app.services.system_maintenance import (  # noqa: E402
     DatabaseSnapshot,
@@ -35,7 +32,7 @@ from app.services.system_maintenance import (  # noqa: E402
     validate_database,
 )
 from scripts.install_prod_database import default_destination  # noqa: E402
-from scripts.provision_prod import _password, _plain_text, _username  # noqa: E402
+from scripts.provision_prod import _plain_text  # noqa: E402
 
 
 class FreshProductionDatabaseError(RuntimeError):
@@ -65,33 +62,13 @@ def _outside_checkout(destination: Path) -> Path:
     return target
 
 
-def _verify_identity(
-    database: Path,
-    *,
-    username: str,
-    display_name: str,
-    password: str,
-    company_name: str,
-) -> None:
+def _verify_identity(database: Path, *, company_name: str) -> None:
     with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as db:
         db.execute("pragma query_only=on")
-        rows = db.execute(
-            "select u.password_hash, u.display_name from users u "
-            "join user_roles ur on ur.user_id = u.id "
-            "join roles r on r.id = ur.role_id "
-            "where u.email = ? and u.active = 1 and r.code = 'admin' limit 2",
-            (username,),
-        ).fetchall()
         company = db.execute(
             "select value from settings where key = 'company.name'"
         ).fetchone()
-        if (
-            len(rows) != 1
-            or not verify_password(password, rows[0][0])
-            or rows[0][1] != display_name
-            or company is None
-            or company[0] != company_name
-        ):
+        if company is None or company[0] != company_name:
             raise FreshProductionDatabaseError(
                 "O banco PROD existente nao corresponde ao bootstrap informado."
             )
@@ -100,20 +77,12 @@ def _verify_identity(
 def create_fresh_production_database(
     destination: Path,
     *,
-    admin_username: str,
-    admin_display_name: str,
-    admin_password: str,
     company_name: str,
     tenant_type: str,
 ) -> FreshProductionDatabaseResult:
     """Create a fresh, validated database or verify the already-installed one."""
     target = _outside_checkout(destination)
-    username = _username(admin_username)
-    password = _password(admin_password)
-    display_name = _plain_text(
-        admin_display_name, field_name="admin_display_name", maximum=120
-    )
-    company = _plain_text(company_name, field_name="company_name", maximum=160)
+    company = _plain_text(company_name, field_name="company_name", maximum=180)
     kind = str(tenant_type or "").strip().upper()
     if kind not in {"INTERNAL", "CUSTOMER"}:
         raise FreshProductionDatabaseError("O tenant PROD deve ser INTERNAL ou CUSTOMER.")
@@ -123,9 +92,6 @@ def create_fresh_production_database(
             snapshot = validate_database(target, require_latest=True)
             _verify_identity(
                 target,
-                username=username,
-                display_name=display_name,
-                password=password,
                 company_name=company,
             )
         except (MaintenanceError, sqlite3.DatabaseError, OSError, SQLAlchemyError) as exc:
@@ -158,29 +124,12 @@ def create_fresh_production_database(
         initialize_database(
             engine, factory, {}, settings, require_migration_backup=False
         )
-        with factory() as session:
-            role = session.scalar(select(Role).where(Role.code == "admin"))
-            if role is None:
-                raise FreshProductionDatabaseError("O papel de Proprietario esta ausente.")
-            session.add(
-                User(
-                    email=username,
-                    display_name=display_name,
-                    password_hash=hash_password(password),
-                    active=True,
-                    roles=[role],
-                )
-            )
-            session.commit()
         engine.dispose()
         engine = None
 
         staged = validate_database(stage, require_latest=True)
         _verify_identity(
             stage,
-            username=username,
-            display_name=display_name,
-            password=password,
             company_name=company,
         )
         with closing(sqlite3.connect(stage.as_uri() + "?mode=ro", uri=True)) as db:
@@ -216,18 +165,10 @@ def create_fresh_production_database(
 def main(argv: Sequence[str] | None = None, *, environment: Mapping[str, str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Cria um SQLite PROD novo e validado.")
     parser.add_argument("--destination")
-    parser.add_argument("--admin-username", required=True)
-    parser.add_argument("--admin-display-name", required=True)
     parser.add_argument("--company-name", required=True)
     parser.add_argument("--tenant-type", choices=("internal", "customer"), required=True)
     values = parser.parse_args(argv)
     env = os.environ if environment is None else environment
-    password = env.get("NEXPOINT_PROVISION_ADMIN_PASSWORD", "")
-    if not password:
-        if not sys.stdin.isatty():
-            print("ERRO: A senha inicial deve vir de entrada oculta ou ambiente.", file=sys.stderr)
-            return 1
-        password = getpass.getpass("Senha inicial do Proprietario local: ")
     try:
         destination = (
             Path(values.destination)
@@ -236,9 +177,6 @@ def main(argv: Sequence[str] | None = None, *, environment: Mapping[str, str] | 
         )
         result = create_fresh_production_database(
             destination,
-            admin_username=values.admin_username,
-            admin_display_name=values.admin_display_name,
-            admin_password=password,
             company_name=values.company_name,
             tenant_type=values.tenant_type,
         )

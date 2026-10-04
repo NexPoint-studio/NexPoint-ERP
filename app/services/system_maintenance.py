@@ -22,6 +22,7 @@ from app.core.security import verify_password
 from app.models import AuditEvent, Role, Setting, User
 from app.services.bootstrap import initialize_database
 from app.services.system_info import installed_package_version
+from app.services.authorization import ActorAuthorizationError, require_active_actor_permission
 
 
 DEFAULT_MAX_RESTORE_BYTES = 512 * 1024 * 1024
@@ -213,15 +214,16 @@ def validate_database(path: Path, *, require_latest: bool) -> DatabaseSnapshot:
                 )
             if require_latest and versions[-1] != latest:
                 raise MaintenanceValidationError("O banco preparado não está no schema atual.")
-            owner = connection.execute(
-                "select 1 from users u "
-                "join user_roles ur on ur.user_id = u.id "
-                "join roles r on r.id = ur.role_id "
-                "where u.active = 1 and r.code = ? limit 1",
-                (OWNER_ROLE_CODE,),
-            ).fetchone()
-            if owner is None:
-                raise MaintenanceValidationError("O backup não possui um Proprietário ativo.")
+            if "0016_installation_access" in versions:
+                actor = connection.execute(
+                    "select u.id from users u join settings s "
+                    "on s.key='system.installation_actor_id' and s.value=cast(u.id as text) "
+                    "where u.active=1 and u.password_hash=? and not exists "
+                    "(select 1 from user_roles r where r.user_id=u.id)",
+                    ("!installation-actor-no-login",),
+                ).fetchone()
+                if actor is None:
+                    raise MaintenanceValidationError("A identidade tecnica do backup esta inconsistente.")
     except MaintenanceValidationError:
         raise
     except (OSError, sqlite3.DatabaseError) as error:
@@ -429,23 +431,24 @@ class SystemMaintenanceService:
         *,
         owner_only: bool,
     ) -> None:
-        if not isinstance(password, str) or not 1 <= len(password) <= 1024:
-            raise MaintenanceAuthorizationError("A senha atual é obrigatória.")
         with self.session_factory() as session:
             user = session.scalar(
                 select(User)
                 .where(User.id == actor_id, User.active.is_(True))
                 .options(selectinload(User.roles).selectinload(Role.permissions))
             )
-            roles = {role.code for role in user.roles} if user else set()
-            permissions = {
-                item.code for role in user.roles for item in role.permissions
-            } if user else set()
+            from app.services.installation_actor import is_installation_actor
+            technical = is_installation_actor(session, actor_id)
+            try:
+                access = require_active_actor_permission(
+                    session, actor_id, permission, owner_only=owner_only and not technical,
+                )
+            except ActorAuthorizationError:
+                access = None
             allowed = (
                 user is not None
-                and permission in permissions
-                and (not owner_only or OWNER_ROLE_CODE in roles)
-                and verify_password(password, user.password_hash)
+                and access is not None
+                and (technical or verify_password(password, user.password_hash))
             )
             if not allowed:
                 session.add(
@@ -536,14 +539,9 @@ class SystemMaintenanceService:
 
     def list_backups(self, *, actor_id: int) -> list[BackupRecord]:
         with self.session_factory() as session:
-            user = session.scalar(
-                select(User)
-                .where(User.id == actor_id, User.active.is_(True))
-                .options(selectinload(User.roles).selectinload(Role.permissions))
-            )
-            if user is None or BACKUP_PERMISSION not in {
-                item.code for role in user.roles for item in role.permissions
-            }:
+            try:
+                require_active_actor_permission(session, actor_id, BACKUP_PERMISSION)
+            except ActorAuthorizationError:
                 raise MaintenanceAuthorizationError(
                     "A autorização para listar backups é inválida."
                 )
@@ -561,14 +559,9 @@ class SystemMaintenanceService:
 
     def backup_for_download(self, *, backup_id: str, actor_id: int) -> tuple[BackupRecord, Path]:
         with self.session_factory() as session:
-            user = session.scalar(
-                select(User)
-                .where(User.id == actor_id, User.active.is_(True))
-                .options(selectinload(User.roles).selectinload(Role.permissions))
-            )
-            if user is None or BACKUP_PERMISSION not in {
-                item.code for role in user.roles for item in role.permissions
-            }:
+            try:
+                require_active_actor_permission(session, actor_id, BACKUP_PERMISSION)
+            except ActorAuthorizationError:
                 raise MaintenanceAuthorizationError(
                     "A autorização para baixar este backup é inválida."
                 )
@@ -596,6 +589,7 @@ class SystemMaintenanceService:
 
     def _prepare_uploaded_database(self, uploaded: Path, prepared: Path) -> DatabaseSnapshot:
         validate_database(uploaded, require_latest=False)
+        _assert_restore_identity(self.database_path, uploaded)
         _copy_database(uploaded, prepared)
         staged_settings = replace(
             self.settings,
@@ -734,12 +728,59 @@ def _initialize_standalone(path: Path, settings) -> None:
         engine.dispose()
 
 
-def _audit_restored_database(path: Path, settings, plan: RestorePlan) -> None:
+def _restore_identity(path: Path) -> dict[str, str]:
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        db.execute("pragma query_only=on")
+        return dict(db.execute(
+            "select key,value from settings where key in "
+            "('system.control_center_identity','company.profile_tenant_id',"
+            "'company.profile_installation_id','company.profile_revision')"
+        ).fetchall())
+
+
+def _assert_restore_identity(source: Path, candidate: Path) -> dict[str, str]:
+    current, restored = _restore_identity(source), _restore_identity(candidate)
+    identity = "system.control_center_identity"
+    if not current.get(identity) or restored.get(identity) != current[identity]:
+        raise MaintenanceValidationError("O backup pertence a outra instalação ou não comprova sua origem.")
+    keys = ("company.profile_tenant_id", "company.profile_installation_id")
+    # Older backups may predate profile synchronization, but must prove the
+    # same durable installation identity. Never accept partial scope bindings.
+    if any(key in restored for key in keys) and (
+        not all(restored.get(key) for key in keys)
+        or any(restored.get(key) != current.get(key) for key in keys)
+    ):
+        raise MaintenanceValidationError("A empresa ou instalação do backup não corresponde a este computador.")
+    return current
+
+
+def _audit_restored_database(path: Path, settings, plan: RestorePlan, source: Path) -> None:
+    current = _assert_restore_identity(source, path)
     staged_settings = replace(settings, database_url=f"sqlite+pysqlite:///{path.as_posix()}")
     engine = build_engine(staged_settings.database_url)
     factory = build_session_factory(engine)
     try:
         with factory() as session:
+            marker = "system.restore_profile_operation"
+            completed_profile = session.get(Setting, marker)
+            if completed_profile is None or completed_profile.value != plan.operation_id:
+                from app.services.company_identity import bind_profile_scope, enqueue_profile
+                tenant = current.get("company.profile_tenant_id")
+                installation = current.get("company.profile_installation_id")
+                if tenant and installation:
+                    bind_profile_scope(session, tenant, installation)
+                    revision = session.get(Setting, "company.profile_revision")
+                    high_water = max(int(current.get("company.profile_revision", "0")), int(revision.value if revision else "0"))
+                    if revision is None:
+                        session.add(Setting(key="company.profile_revision", value=str(high_water)))
+                    else:
+                        revision.value = str(high_water)
+                    session.flush()
+                    enqueue_profile(session, changed=True)
+                if completed_profile is None:
+                    session.add(Setting(key=marker, value=plan.operation_id))
+                else:
+                    completed_profile.value = plan.operation_id
             generation = session.get(Setting, "security.session_generation")
             new_generation = secrets.token_urlsafe(32)
             if generation is None:
@@ -836,6 +877,7 @@ def apply_pending_restore(
             if plan.status == "ROLLING_BACK":
                 raise MaintenanceError("Retomando rollback interrompido.")
             if not swapped:
+                _assert_restore_identity(database_path, prepared)
                 source_snapshot = validate_database(database_path, require_latest=False)
                 if plan.rollback_filename:
                     rollback = _safe_child(service.backups_dir, plan.rollback_filename)
@@ -871,7 +913,11 @@ def apply_pending_restore(
 
             _initialize_standalone(database_path, settings)
             validate_database(database_path, require_latest=True)
-            _audit_restored_database(database_path, settings, plan)
+            if rollback is None:
+                rollback = _safe_child(service.backups_dir, plan.rollback_filename)
+            if _sha256(rollback) != plan.rollback_sha256:
+                raise MaintenanceRecoveryError("O backup de rollback falhou na verificação.")
+            _audit_restored_database(database_path, settings, plan, rollback)
             validate_database(database_path, require_latest=True)
             completed = replace(plan, status="COMPLETED")
             _archive_and_clear(service, completed)

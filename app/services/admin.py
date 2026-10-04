@@ -16,6 +16,7 @@ from app.models import AuditEvent, BillingUnit, Permission, Role, Service, Setti
 from app.observability.context import emit_observability_event
 from app.services.authorization import (
     ActorAuthorizationError,
+    active_actor_access,
     require_active_actor_permission,
 )
 from app.services.cash_validation import project_zone
@@ -204,7 +205,8 @@ class AdminService:
             )
         except ActorAuthorizationError as exc:
             raise AdminConflictError(str(exc)) from None
-        return access.is_owner, access.permissions
+        # Admin Lock authorizes this operation, not permanent role escalation.
+        return access.is_owner, active_actor_access(self.session, actor_id).permissions
 
     @staticmethod
     def _role_permissions(roles: list[Role]) -> frozenset[str]:
@@ -694,6 +696,12 @@ class AdminService:
                 else:
                     setting.value = value
             changed = sorted(key for key in fields if before.get(key) != fields[key])
+            from app.services.company_identity import enqueue_profile
+            self.session.flush()
+            try:
+                enqueue_profile(self.session, changed=bool(set(changed) & {"company.name", "company.trade_name"}))
+            except ValueError as exc:
+                raise AdminValidationError(str(exc)) from None
             self._audit(actor_id, "admin.company_updated", "settings/company", {"keys": changed})
             self.session.commit()
             return fields

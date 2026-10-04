@@ -43,7 +43,7 @@ def test_install_prod_database_preserves_source_and_publishes_valid_copy(tmp_pat
     assert sha256(source.read_bytes()).hexdigest() == before
     assert result.source_snapshot.sha256 == before
     assert result.destination == destination.resolve()
-    assert result.installed_snapshot.schema_version == "0015_remember_sessions"
+    assert result.installed_snapshot.schema_version == "0016_installation_access"
     assert result.installed_snapshot.sha256 == sha256(destination.read_bytes()).hexdigest()
     assert not list(destination.parent.glob("*.partial"))
 

@@ -27,7 +27,6 @@ ADMIN_PATHS = (
     "/admin/servicos",
     "/admin/financeiro",
     "/admin/pagamentos",
-    "/admin/usuarios",
     "/admin/empresa",
 )
 
@@ -67,19 +66,19 @@ def test_administration_has_six_functional_owner_areas(client):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "Em construção" not in response.text
-    users = client.get("/admin/usuarios").text
-    assert "Proprietário" in users
-    assert "Suporte NexPoint" not in users
+    assert client.get("/admin/usuarios").status_code == 404
 
 
-def test_operator_cannot_query_admin_finance_or_manage_catalog_directly(client):
-    login(client, "usuario@local")
+def test_locked_operator_cannot_query_admin_finance_or_manage_catalog_directly(client):
+    from tests.conftest import protect_administration
+    protect_administration(client)
+    login(client, "usuario@local", unlock_admin=False)
     for path in ADMIN_PATHS:
-        assert client.get(path).status_code == 403, path
+        assert client.get(path, follow_redirects=False).status_code == 303, path
     assert client.get("/caixa/operacoes").status_code == 200
-    assert client.get("/caixa/resumo").status_code == 403
-    assert client.get("/caixa/historico").status_code == 403
-    assert client.get("/caixa/relatorios").status_code == 403
+    assert client.get("/caixa/resumo", follow_redirects=False).status_code == 200
+    assert client.get("/caixa/historico", follow_redirects=False).status_code == 200
+    assert client.get("/caixa/relatorios", follow_redirects=False).status_code == 200
     for method, path in (
         ("GET", "/servicos/novo"),
         ("POST", "/servicos/novo"),
@@ -88,10 +87,12 @@ def test_operator_cannot_query_admin_finance_or_manage_catalog_directly(client):
         ("POST", "/servicos/1/preco"),
         ("POST", "/servicos/1/status"),
     ):
-        assert client.request(method, path, data={"role": "admin"}).status_code == 403
+        assert client.request(method, path, data={"role": "admin"}, follow_redirects=False).status_code == 303
 
 
-def test_overview_without_finance_permission_never_executes_finance_query(client, app, monkeypatch):
+def test_locked_overview_never_executes_finance_query(client, app, monkeypatch):
+    from tests.conftest import protect_administration
+    protect_administration(client)
     with app.state.session_factory() as session:
         role = session.scalar(select(Role).where(Role.code == "user"))
         overview = session.scalar(
@@ -104,9 +105,9 @@ def test_overview_without_finance_permission_never_executes_finance_query(client
         raise AssertionError("Resumo financeiro não autorizado foi consultado")
 
     monkeypatch.setattr(CashReportService, "summary", forbidden_finance_query)
-    login(client, "usuario@local")
-    response = client.get("/admin/visao-geral")
-    assert response.status_code == 200
+    login(client, "usuario@local", unlock_admin=False)
+    response = client.get("/admin/visao-geral", follow_redirects=False)
+    assert response.status_code == 303
     assert "Resumo do mês" not in response.text
 
 
@@ -143,117 +144,12 @@ def test_last_owner_and_essential_permissions_cannot_be_removed(app):
         assert user_role_id != owner_role_id
 
 
-def test_owner_can_create_deactivate_reactivate_and_reset_user_password(client, app):
-    login(client, "admin@local")
-    response = client.post(
-        "/admin/usuarios",
-        data={
-            "email": "novo@local",
-            "display_name": "Novo operador",
-            "password": "senha-inicial-segura",
-            "roles": "user",
-        },
-        follow_redirects=False,
-    )
-    assert response.status_code == 303
-    with app.state.session_factory() as session:
-        user = session.scalar(select(User).where(User.email == "novo@local"))
-        assert user.active and {role.code for role in user.roles} == {"user"}
-        assert user.password_hash.startswith("scrypt$")
-        assert "senha-inicial-segura" not in user.password_hash
-        user_id = user.id
-
-    assert client.post(
-        f"/admin/usuarios/{user_id}/status", data={"active": "0"}, follow_redirects=False
-    ).status_code == 303
-    assert client.post(
-        f"/admin/usuarios/{user_id}/senha",
-        data={"password": "senha-nova-segura"},
-        follow_redirects=False,
-    ).status_code == 303
-    assert client.post(
-        f"/admin/usuarios/{user_id}/status", data={"active": "1"}, follow_redirects=False
-    ).status_code == 303
-    client.post("/logout")
-    assert client.post(
-        "/login", data={"email": "novo@local", "password": "senha-inicial-segura"}
-    ).status_code == 401
-    assert client.post(
-        "/login", data={"email": "novo@local", "password": "senha-nova-segura"},
-        follow_redirects=False,
-    ).status_code == 303
-    with app.state.session_factory() as session:
-        audit_details = "\n".join(event.details or "" for event in session.scalars(select(AuditEvent)))
-        assert "senha-inicial-segura" not in audit_details
-        assert "senha-nova-segura" not in audit_details
-
-
-def test_delegated_user_manager_cannot_escalate_or_take_over_owner(client, app):
-    with app.state.session_factory() as session:
-        delegated_role = session.scalar(select(Role).where(Role.code == "user"))
-        delegated_role.permissions.extend(list(session.scalars(
-            select(Permission).where(Permission.code.in_({
-                "admin.overview.view", "admin.users", "admin.permissions",
-            }))
-        )))
-        owner = session.scalar(select(User).where(User.email == "admin@local"))
-        owner_id = owner.id
-        owner_hash = owner.password_hash
-        delegated_role_id = delegated_role.id
-        session.commit()
-
-    assert login(client, "usuario@local").status_code == 303
-    escalation = client.post(
-        "/admin/usuarios",
-        data={
-            "email": "proprietario-forjado@local",
-            "display_name": "Proprietário forjado",
-            "password": "senha-forjada-segura",
-            "roles": "admin",
-        },
-        follow_redirects=False,
-    )
-    assert escalation.status_code == 409
-    assert client.post(
-        f"/admin/usuarios/{owner_id}/senha",
-        data={"password": "senha-tomada-segura"},
-        follow_redirects=False,
-    ).status_code == 303
-    assert client.post(
-        f"/admin/usuarios/{owner_id}/status",
-        data={"active": "0"},
-        follow_redirects=False,
-    ).status_code == 303
-    assert client.post(
-        f"/admin/permissoes/{delegated_role_id}",
-        data={"permissions": "finance.config.manage"},
-        follow_redirects=False,
-    ).status_code == 303
-
-    with app.state.session_factory() as session:
-        owner = session.get(User, owner_id)
-        delegated_role = session.get(Role, delegated_role_id)
-        assert owner.active is True
-        assert owner.password_hash == owner_hash
-        assert session.scalar(
-            select(User.id).where(User.email == "proprietario-forjado@local")
-        ) is None
-        delegated_permissions = {item.code for item in delegated_role.permissions}
-        assert "admin.users" in delegated_permissions
-        assert "admin.permissions" in delegated_permissions
-        assert "finance.config.manage" not in delegated_permissions
-
-
 def test_company_database_values_override_seed_and_invalid_logo_is_rejected(client, app):
     login(client, "admin@local")
     response = client.post("/admin/empresa", data=_company_form(), follow_redirects=False)
     assert response.status_code == 303
-    assert "Empresa Persistida" in client.get("/clientes/lista").text
-    assert client.post("/logout", follow_redirects=False).status_code == 303
-    login_page = client.get("/login")
-    assert login_page.status_code == 200
-    assert "Empresa Persistida" in login_page.text
-    assert login(client, "admin@local").status_code == 303
+    assert "Persistida" in client.get("/clientes/lista").text
+    assert client.get("/login").status_code == 404
     initialize_database(
         app.state.engine,
         app.state.session_factory,

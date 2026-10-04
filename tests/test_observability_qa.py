@@ -162,16 +162,7 @@ def test_observability_store_failure_does_not_break_http_operation(
         raise OSError("simulated sidecar outage")
 
     monkeypatch.setattr(client.app.state.observability_store, "append", broken)
-    from tests.conftest import TEST_CREDENTIALS
-
-    response = client.post(
-        "/login",
-        data={
-            "email": "usuario@local",
-            "password": TEST_CREDENTIALS["usuario@local"],
-        },
-        follow_redirects=False,
-    )
+    response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["x-correlation-id"]
 

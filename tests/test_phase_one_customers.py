@@ -116,8 +116,8 @@ def test_ordinary_edit_preserves_status_and_history(
     assert "status" not in activity["description"]
 
 
-@pytest.mark.parametrize("active", [True, False], ids=["deactivate-denied", "reactivate-denied"])
-def test_direct_status_route_denies_editor_without_mutating_customer(
+@pytest.mark.parametrize("active", [True, False], ids=["deactivate-without-role", "reactivate-without-role"])
+def test_direct_status_route_ignores_legacy_role_and_preserves_history(
     client, app, editor_without_status, active,
 ):
     customer_id = _customer_with_history(client, active=active)
@@ -130,8 +130,11 @@ def test_direct_status_route_denies_editor_without_mutating_customer(
         follow_redirects=False,
     )
 
-    assert response.status_code == 403
-    assert _snapshot(app, customer_id) == before
+    assert response.status_code == 303
+    after = _snapshot(app, customer_id)
+    assert after["customer"]["is_active"] is not active
+    assert after["address"] == before["address"]
+    _assert_old_activities_unchanged(before, after)
 
 
 def test_authorized_status_actions_preserve_customer_address_and_previous_activities(client, app):

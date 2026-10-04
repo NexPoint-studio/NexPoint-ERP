@@ -85,7 +85,7 @@ def _branding_from_settings(request: Request, settings: dict[str, str]) -> dict[
         logo_path = request.app.state.settings.logo_path
     return {
         "app_name": settings.get("app.name") or request.app.state.settings.app_name,
-        "company_name": settings.get("company.name") or request.app.state.settings.company_name,
+        "company_name": settings.get("company.trade_name") or settings.get("company.name") or request.app.state.settings.company_name,
         "logo_path": logo_path,
         "app_version": settings.get("app.version") or request.app.state.settings.version,
     }
@@ -117,5 +117,11 @@ def navigation_context(request: Request, session: Session, **extra):
         **_branding_from_settings(request, settings),
         "runtime_timezone": runtime_timezone(request, session),
     }
+    manager = getattr(request.app.state, "update_manager", None)
+    if manager is not None and user is not None and "support" not in user.roles:
+        update = manager.snapshot()
+        if update["state"] in {"AVAILABLE", "READY"} and update["release"]:
+            context["update_notice"] = {"version": update["release"]["version"],
+                                        "mandatory": update["release"]["mandatory"]}
     context.update(extra)
     return context

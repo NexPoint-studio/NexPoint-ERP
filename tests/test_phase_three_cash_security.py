@@ -12,7 +12,7 @@ from app.repositories.cash import CashMovementRepository
 from app.routes import cash as cash_routes
 from app.services.cash import CashService, CashStateError
 from app.services.cash_validation import CashMovementInput
-from tests.conftest import login
+from tests.conftest import login, protect_administration
 
 
 TIMEZONE = "America/Sao_Paulo"
@@ -119,19 +119,7 @@ def test_phase_three_permissions_are_registered():
     assert expected <= set(ALL_PERMISSIONS)
 
 
-def test_financial_pages_reject_operator_before_cash_query(client, monkeypatch):
-    login(client, "usuario@local")
-
-    def forbidden_query(*args, **kwargs):
-        raise AssertionError("consulta financeira executada sem permissão")
-
-    monkeypatch.setattr(cash_routes, "_cash_service", forbidden_query)
-    assert client.get("/caixa/resumo").status_code == 403
-    assert client.get("/caixa/historico").status_code == 403
-    assert client.get("/caixa/relatorios").status_code == 403
-
-
-def test_operator_history_is_own_recent_paginated_and_has_no_aggregates(client, app, monkeypatch):
+def test_installation_history_includes_legacy_authors_with_pagination(client, app, monkeypatch):
     _grant(app, "user", "cash.operations.view")
     user_id = _user_id(app, "usuario@local")
     admin_id = _user_id(app, "admin@local")
@@ -165,20 +153,21 @@ def test_operator_history_is_own_recent_paginated_and_has_no_aggregates(client, 
     login(client, "usuario@local")
     first_page = client.get("/caixa/operacoes?per_page=10")
     assert first_page.status_code == 200
-    assert "Minhas operações" in first_page.text
-    assert "Página 1 de 2 · 11 lançamento(s)" in first_page.text
+    assert "Operações do Caixa" in first_page.text
+    assert "Página 1 de 2 · 12 lançamento(s)" in first_page.text
     assert "Operação própria recente 00" in first_page.text
-    assert "Operação alheia sigilosa" not in first_page.text
+    assert "Operação alheia sigilosa" in first_page.text
     assert "Operação própria antiga" not in first_page.text
     assert "Saldo atual" not in first_page.text
     assert "Resultado do período" not in first_page.text
 
     second_page = client.get("/caixa/operacoes?page=2&per_page=10")
     assert second_page.status_code == 200
-    assert "Página 2 de 2 · 11 lançamento(s)" in second_page.text
+    assert "Página 2 de 2 · 12 lançamento(s)" in second_page.text
 
 
-def test_operator_detail_edit_and_cancel_are_limited_to_own_recent_movements(client, app):
+def test_installation_can_operate_legacy_movements_without_actor_scope(client, app):
+    protect_administration(client)
     _grant(app, "user", "cash.operations.view", "cash.edit", "cash.cancel")
     user_id = _user_id(app, "usuario@local")
     admin_id = _user_id(app, "admin@local")
@@ -193,19 +182,20 @@ def test_operator_detail_edit_and_cancel_are_limited_to_own_recent_movements(cli
         app, user_id=user_id, description="Próprio antigo", occurred_at=now - timedelta(days=8),
     )
 
-    login(client, "usuario@local")
+    login(client, "usuario@local", unlock_admin=False)
     assert client.get(f"/caixa/movimentos/{own_recent}").status_code == 200
     assert client.get(f"/caixa/movimentos/{own_recent}/editar").status_code == 200
-    assert client.get(f"/caixa/movimentos/{foreign_recent}").status_code == 404
-    assert client.get(f"/caixa/movimentos/{foreign_recent}/editar").status_code == 404
+    assert client.get(f"/caixa/movimentos/{foreign_recent}").status_code == 200
+    assert client.get(f"/caixa/movimentos/{foreign_recent}/editar").status_code == 200
     assert client.post(
         f"/caixa/movimentos/{foreign_recent}/cancelar",
-        data={"reason": "Tentativa fora do escopo"},
-    ).status_code == 404
-    assert client.get(f"/caixa/movimentos/{own_old}").status_code == 404
+        data={"reason": "Cancelamento operacional validado"},
+        follow_redirects=False,
+    ).status_code == 303
+    assert client.get(f"/caixa/movimentos/{own_old}").status_code == 200
 
     with app.state.session_factory() as session:
-        assert session.get(CashMovement, foreign_recent).status == "ACTIVE"
+        assert session.get(CashMovement, foreign_recent).status == "CANCELED"
 
 
 def test_finance_permission_can_view_movements_outside_operator_scope(client, app):

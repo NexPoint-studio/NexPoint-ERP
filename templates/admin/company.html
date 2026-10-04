@@ -1,6 +1,6 @@
 {% extends "layout/base.html" %}
 {% block content %}
-<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › EMPRESA</p><h1>Dados da Empresa</h1><p>O banco local é a fonte operacional; o ambiente fornece apenas valores iniciais ausentes.</p></header>
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › EMPRESA</p><h1>Dados da Empresa</h1><p>Identifique a empresa que utiliza este NexPoint ERP. O nome identifica sua empresa no sistema e no suporte NexPoint. As alterações são salvas neste computador mesmo sem internet; a sincronização ocorre quando a conexão estiver disponível.</p></header>
 {% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
 {% if errors.form %}<div class="alert alert--error">{{ errors.form }}</div>{% endif %}
 <form method="post" class="customer-form">

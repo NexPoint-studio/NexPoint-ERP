@@ -238,7 +238,7 @@ def ensure_control_center_repository(app) -> ControlCenterRepository:
         return repository
 
 
-def client_support_identity(request, session) -> ClientSupportIdentity:
+def client_support_identity(request, session, *, recovery: bool = False) -> ClientSupportIdentity:
     """Derive trusted installation and actor references from server-side state."""
 
     from app.repositories import ConfigurationRepository
@@ -261,12 +261,19 @@ def client_support_identity(request, session) -> ClientSupportIdentity:
         "control_center_installation_id",
         fallback_installation_id,
     )
-    user = request.state.current_user
+    # Support is scoped to an installation, never to a person using this PC.
+    # Each recovery request has its own durable opaque reference, independent
+    # of operational users and reused only to query/consume that request.
+    actor_source = f"installation:{tenant_id}:{installation_id}"
+    if recovery:
+        from app.models import Setting
+        pending = session.get(Setting, "security.admin_recovery_request_ref")
+        actor_source = f"recovery:{tenant_id}:{installation_id}:{pending.value if pending else 'none'}"
     return ClientSupportIdentity(
         tenant_id=tenant_id,
         installation_id=installation_id,
         tenant_name=sanitize_text(
-            configuration.get("company.name") or settings.company_name,
+            configuration.get("company.trade_name") or configuration.get("company.name") or settings.company_name,
             maximum=160,
         )
         or "Empresa local",
@@ -277,7 +284,7 @@ def client_support_identity(request, session) -> ClientSupportIdentity:
         or "unknown",
         build=sanitize_text(settings.build, maximum=40) or "unknown",
         environment=sanitize_text(settings.environment, maximum=24) or "local",
-        actor_ref=pseudonymize_identifier(user.id, salt=secret),
+        actor_ref=pseudonymize_identifier(actor_source, salt=secret),
     )
 
 

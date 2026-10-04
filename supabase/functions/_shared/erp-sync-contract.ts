@@ -27,6 +27,7 @@ export interface SyncAckOutput {
 }
 
 const EVENT_TYPES = new Set([
+  "company_profile",
   "heartbeat",
   "health",
   "diagnostic_event",

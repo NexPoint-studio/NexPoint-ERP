@@ -72,6 +72,69 @@ def _create_backup(app, backup_root: Path):
     )
 
 
+def test_restore_rejects_other_installation_before_swap(app, tmp_path):
+    from app import create_app
+    other = create_app(database_url=f"sqlite+pysqlite:///{(tmp_path / 'other.sqlite3').as_posix()}", credentials={})
+    other.state.engine.dispose()
+    service = _service(app, tmp_path / "backups")
+    with (tmp_path / "other.sqlite3").open("rb") as stream:
+        with pytest.raises(MaintenanceValidationError, match="outra instala"):
+            service.schedule_restore(actor_id=1, password=TEST_CREDENTIALS["admin@local"], confirmation="RESTAURAR", upload_stream=stream, original_filename="other.sqlite3")
+    assert service.pending_restore() is None
+    # A rejection may add an audit row, but never replaces installation scope.
+    with sqlite3.connect(_database_path(app)) as db:
+        scope = dict(db.execute("select key,value from settings where key like 'company.profile_%'"))
+        assert scope["company.profile_tenant_id"] == app.state.control_center_tenant_id
+        assert db.execute("pragma integrity_check").fetchone() == ("ok",)
+        assert db.execute("pragma foreign_key_check").fetchall() == []
+
+
+def test_restore_preserves_profile_revision_high_water_and_is_idempotent(app, tmp_path):
+    from app.models.sync import OutboxItem
+    backup_root = tmp_path / "backups"
+    record = _create_backup(app, backup_root)
+    with app.state.session_factory() as session:
+        session.get(Setting, "company.profile_revision").value = "40"
+        session.get(Setting, "company.trade_name").value = "Newer company name"
+        session.commit()
+    with (backup_root / "erp" / record.filename).open("rb") as stream:
+        _service(app, backup_root).schedule_restore(actor_id=1, password=TEST_CREDENTIALS["admin@local"], confirmation="RESTAURAR", upload_stream=stream, original_filename=record.filename)
+    app.state.engine.dispose()
+    result = apply_pending_restore(database_path=_database_path(app), backup_root=backup_root, settings=app.state.settings)
+    assert result.restored
+    with app.state.session_factory() as session:
+        assert session.get(Setting, "company.profile_revision").value == "41"
+
+        snapshots = [json.loads(item.payload_json) for item in session.scalars(select(OutboxItem).where(OutboxItem.event_type == "company_profile"))]
+        restored = next(item for item in snapshots if item["revision"] == 41)
+        assert restored["trade_name"] == ""
+        assert restored["installation_id"] == app.state.control_center_installation_id
+    assert apply_pending_restore(database_path=_database_path(app), backup_root=backup_root, settings=app.state.settings) is None
+    with app.state.session_factory() as session:
+        assert session.get(Setting, "company.profile_revision").value == "41"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_restore_scope_binding_cannot_change_and_legacy_backup_keeps_identity(app, tmp_path, legacy):
+    backup_root = tmp_path / "backups"
+    record = _create_backup(app, backup_root)
+    candidate = tmp_path / "candidate.sqlite3"
+    with sqlite3.connect(backup_root / "erp" / record.filename) as origin, sqlite3.connect(candidate) as target:
+        origin.backup(target)
+        if legacy:
+            target.execute("delete from settings where key like 'company.profile_%'")
+            target.execute("delete from outbox_items where event_type='company_profile'")
+        else:
+            target.execute("update settings set value='other-company' where key='company.profile_tenant_id'")
+    service = _service(app, backup_root)
+    with candidate.open("rb") as stream:
+        if legacy:
+            assert service.schedule_restore(actor_id=1, password=TEST_CREDENTIALS["admin@local"], confirmation="RESTAURAR", upload_stream=stream, original_filename=candidate.name).status == "READY"
+        else:
+            with pytest.raises(MaintenanceValidationError, match="não corresponde"):
+                service.schedule_restore(actor_id=1, password=TEST_CREDENTIALS["admin@local"], confirmation="RESTAURAR", upload_stream=stream, original_filename=candidate.name)
+
+
 def test_backup_uses_verified_unique_files_and_safe_manifest(app, tmp_path):
     backup_root = tmp_path / "backups"
     _grant_phase_four_permissions(app)
@@ -263,6 +326,8 @@ def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions
     _grant_phase_four_permissions(app)
     with TestClient(app) as client:
         assert login(client, "admin@local").status_code == 303
+        from tests.test_admin_optional_access import configure
+        assert configure(client).status_code == 303
         previous_cookies = dict(client.cookies)
         assert previous_cookies
         with app.state.session_factory() as session:
@@ -313,7 +378,7 @@ def test_pending_restore_applies_offline_keeps_rollback_and_invalidates_sessions
         restarted_client.cookies.update(previous_cookies)
         expired = restarted_client.get("/admin/sistema", follow_redirects=False)
         assert expired.status_code == 303
-        assert expired.headers["location"] == "/login"
+        assert expired.headers["location"].startswith("/admin/cadeado/desbloquear")
     assert not (backup_root / "restore" / "pending.json").exists()
     history = json.loads(
         (backup_root / "restore" / "history" / f"{plan.operation_id}.json").read_text(

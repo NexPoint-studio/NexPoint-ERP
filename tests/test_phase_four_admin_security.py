@@ -206,10 +206,13 @@ def test_company_normalizes_valid_fields_and_audits_only_changed_keys(app):
             assert sensitive_value not in serialized
 
 
-def test_company_post_is_forbidden_without_permission(client):
-    login(client, "usuario@local")
-    response = client.post("/admin/empresa", data=_company_form())
-    assert response.status_code == 403
+def test_company_post_is_forbidden_without_admin_unlock(client):
+    from tests.conftest import protect_administration
+    protect_administration(client)
+    login(client, "usuario@local", unlock_admin=False)
+    response = client.post("/admin/empresa", data=_company_form(), follow_redirects=False)
+    assert response.status_code == 303
+    assert "/admin/cadeado/desbloquear" in response.headers["location"]
 
 
 def test_support_role_cannot_receive_permanent_permissions(app):

@@ -119,7 +119,7 @@ def test_concurrent_database_initialization_is_serialized(tmp_path):
         assert connection.exec_driver_sql(
             "select count(*), count(distinct code) from billing_units"
         ).one() == (len(BILLING_UNIT_DEFAULTS), len(BILLING_UNIT_DEFAULTS))
-        assert connection.exec_driver_sql("select count(*) from users").scalar_one() == 1
+        assert connection.exec_driver_sql("select count(*) from users").scalar_one() == 2
         assert connection.exec_driver_sql("pragma foreign_key_check").all() == []
         assert connection.exec_driver_sql("pragma integrity_check").scalar_one() == "ok"
     engine.dispose()

@@ -1,4 +1,5 @@
 from pathlib import Path
+import zipfile
 
 import pytest
 
@@ -35,3 +36,24 @@ def test_checksums_are_scanned_for_actual_secret_values(tmp_path, monkeypatch, c
     monkeypatch.setattr(scan.sys, "argv", ["scan", "--distribution", str(distribution)])
     assert scan.main() == 3
     assert value not in capsys.readouterr().err
+
+
+def test_compressed_values_are_scanned_without_extracting_files(tmp_path, monkeypatch, capsys):
+    value = "synthetic-distribution-scan-value"
+    (tmp_path / ".env.local").write_text(f"ERP_ADMIN_PASSWORD={value}\n", encoding="utf-8")
+    distribution = tmp_path / "dist"
+    distribution.mkdir()
+    with zipfile.ZipFile(distribution / "base_library.zip", "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("../../untrusted-name.txt", value)
+    monkeypatch.setattr(scan, "__file__", str(tmp_path / "scripts" / "verify_distribution_secrets.py"))
+    monkeypatch.setattr(scan.sys, "argv", ["scan", "--distribution", str(distribution)])
+    assert scan.main() == 3
+    assert value not in capsys.readouterr().err
+    assert not (tmp_path.parent / "untrusted-name.txt").exists()
+
+
+def test_unreadable_official_executable_blocks_scan(tmp_path, monkeypatch):
+    (tmp_path / "NexPointUpdater.exe").write_bytes(b"MZ-not-a-pyinstaller-distribution")
+    monkeypatch.setattr(scan, "local_secret_values", lambda _: ())
+    monkeypatch.setattr(scan.sys, "argv", ["scan", "--distribution", str(tmp_path)])
+    assert scan.main() == 4

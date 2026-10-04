@@ -19,7 +19,7 @@ def health():
 
 @router.get("/", include_in_schema=False)
 def root(request: Request):
-    destination = "/clientes/lista" if request.state.current_user else "/login"
+    destination = "/clientes/lista"
     return RedirectResponse(destination, status_code=status.HTTP_303_SEE_OTHER)
 
 

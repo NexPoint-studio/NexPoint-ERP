@@ -55,6 +55,7 @@ from control_center.domain import (
 )
 from control_center.sanitization import sanitize_mapping, sanitize_text
 from control_center.security import hash_password, verify_password
+from control_center.releases import METADATA_FIELDS, release_record, validate_release_metadata
 
 
 Transport = Callable[[str, str, Mapping[str, str], bytes | None, float], tuple[int, Mapping[str, str], bytes]]
@@ -286,6 +287,30 @@ class SupabaseControlCenterRepository:
             raise ControlCenterError("Resposta tabular invalida do armazenamento remoto.")
         return result
 
+    def list_releases(self) -> tuple[dict, ...]:
+        columns = sorted(METADATA_FIELDS | {"id", "sequence", "status", "created_at", "verified_at", "published_at"})
+        return tuple(release_record(row) for row in self._select(
+            "np_erp_releases", select=",".join(columns), order="sequence.desc", limit=100,
+        ))
+
+    def create_release(self, actor_id: str, metadata: dict) -> dict:
+        return self._rpc_success(self._rpc("np_admin_create_release", {
+            "p_actor_id": _identifier(actor_id, "actor_id"), "p_metadata": validate_release_metadata(metadata),
+        }), "criar versão")
+
+    def verify_release(self, actor_id: str, release_id: str, *, sha256: str, size: int) -> None:
+        if not re.fullmatch(r"[a-f0-9]{64}", sha256) or type(size) is not int or not 1 <= size <= 536870912:
+            raise ControlCenterValidationError("A verificação do arquivo é inválida.")
+        self._rpc_success(self._rpc("np_admin_verify_release", {
+            "p_actor_id": _identifier(actor_id, "actor_id"), "p_release_id": _identifier(release_id, "release_id"),
+            "p_sha256": sha256, "p_size": size,
+        }), "verificar versão")
+
+    def publish_release(self, actor_id: str, release_id: str) -> dict:
+        return self._rpc_success(self._rpc("np_admin_publish_release", {
+            "p_actor_id": _identifier(actor_id, "actor_id"), "p_release_id": _identifier(release_id, "release_id"),
+        }), "publicar versão")
+
     def _insert(
         self,
         table: str,
@@ -399,7 +424,7 @@ class SupabaseControlCenterRepository:
         kind = str(row.get("kind", "customer"))
         return Tenant(
             id=tenant_id,
-            display_name=sanitize_text(row.get("display_name"), maximum=160),
+            display_name=sanitize_text(row.get("display_name"), maximum=180),
             status={"closed": "inactive"}.get(str(row.get("status")), str(row.get("status", "active"))),
             created_at=_dt(row.get("created_at")) or utc_now(),
             updated_at=_dt(row.get("updated_at")) or utc_now(),
@@ -437,7 +462,10 @@ class SupabaseControlCenterRepository:
             last_seen_at=_dt(row.get("last_seen_at")),
             health=health,
             platform="windows",
-            metadata={"label": sanitize_text(row.get("label"), maximum=160)},
+            metadata={"label": sanitize_text(row.get("label"), maximum=160),
+                      "update_channel": str(row.get("update_channel") or "unknown"),
+                      "update_state": str(row.get("update_state") or "unknown"),
+                      "update_reported_at": str(row.get("update_reported_at") or "")},
             created_at=_dt(row.get("created_at")) or utc_now(),
             updated_at=_dt(row.get("updated_at")) or utc_now(),
         )

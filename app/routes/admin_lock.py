@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from uuid import uuid4
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -10,7 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from control_center.domain import ControlCenterError
 
 from app.core.modules import MODULE_BY_ID
-from app.core.permissions import require_permission
+from app.core.permissions import normal_local_user
 from app.observability.context import emit_observability_event
 from app.repositories import AuthRepository
 from app.repositories.sync import OutboxRepository
@@ -20,7 +21,9 @@ from app.services.admin_lock import (
     AdminLockService,
     clear_admin_unlock,
     has_admin_area_access,
+    lock_configured,
     mark_admin_unlocked,
+    require_admin_unlock,
 )
 from app.services.connectivity import ConnectivityState
 from app.services.support_tickets import (
@@ -68,14 +71,48 @@ def _context(request: Request, session, **extra):
 
 
 def _owner(request: Request):
-    user = require_permission(request, "admin.overview.view")
-    if "admin" not in user.roles:
+    user = getattr(request.state, "current_user", None)
+    if user is None or not (user.installation_actor or normal_local_user(user.roles)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     return user
 
 
+@router.get("")
+def security_page(request: Request):
+    _owner(request)
+    require_admin_unlock(request)
+    with request.app.state.session_factory() as session:
+        return templates.TemplateResponse(
+            request, "admin_lock/security.html",
+            _context(request, session, page_title="Segurança da Administração",
+                     lock_status=_service(request, session).status(), error=None),
+        )
+
+
+@router.post("/remover")
+async def remove_protection(request: Request):
+    actor = _owner(request)
+    require_admin_unlock(request)
+    form = await request.form()
+    if set(form) - {"current_password", "confirmation", "submit"}:
+        raise HTTPException(status_code=422)
+    with request.app.state.session_factory() as session:
+        service = _service(request, session)
+        try:
+            service.remove(actor.id, str(form.get("current_password") or ""),
+                           confirmed=form.get("confirmation") == "remove")
+        except AdminLockError as exc:
+            return templates.TemplateResponse(
+                request, "admin_lock/security.html",
+                _context(request, session, page_title="Segurança da Administração",
+                         lock_status=service.status(), error=str(exc)), status_code=422,
+            )
+    clear_admin_unlock(request)
+    return RedirectResponse("/admin/cadeado", status_code=303)
+
+
 def _available_authorization(request: Request, session):
-    identity = client_support_identity(request, session)
+    identity = client_support_identity(request, session, recovery=True)
     production = str(request.app.state.settings.environment).strip().casefold() in {
         "prod", "production"
     }
@@ -131,7 +168,7 @@ def _recovery_response(
 def configure_page(request: Request):
     _owner(request)
     with request.app.state.session_factory() as session:
-        if _service(request, session).get() is not None:
+        if _service(request, session).status().configured:
             return RedirectResponse("/admin/cadeado/desbloquear", status_code=303)
         return templates.TemplateResponse(
             request,
@@ -187,8 +224,8 @@ def unlock_page(request: Request, next: str = "/admin/visao-geral"):
     if user is None or not has_admin_area_access(user):
         raise HTTPException(status_code=403)
     with request.app.state.session_factory() as session:
-        if _service(request, session).get() is None:
-            return RedirectResponse("/admin/cadeado/configurar", status_code=303)
+        if not _service(request, session).status().configured:
+            return RedirectResponse("/admin/visao-geral", status_code=303)
         return templates.TemplateResponse(
             request,
             "admin_lock/unlock.html",
@@ -212,6 +249,9 @@ async def unlock(request: Request):
         raise HTTPException(status_code=422)
     next_path = _safe_next(form.get("next"))
     with request.app.state.session_factory() as session:
+        if not _service(request, session).status().configured:
+            clear_admin_unlock(request)
+            return RedirectResponse(next_path, status_code=303)
         try:
             lock = _service(request, session).unlock(
                 user.id, str(form.get("password") or "")
@@ -250,9 +290,10 @@ async def unlock(request: Request):
 @router.get("/trocar")
 def change_page(request: Request):
     _owner(request)
+    require_admin_unlock(request)
     with request.app.state.session_factory() as session:
         lock = _service(request, session).get()
-        if lock is None:
+        if not lock_configured(lock):
             return RedirectResponse("/admin/cadeado/configurar", status_code=303)
         return templates.TemplateResponse(
             request,
@@ -270,6 +311,7 @@ def change_page(request: Request):
 @router.post("/trocar")
 async def change(request: Request):
     actor = _owner(request)
+    require_admin_unlock(request)
     form = await request.form()
     if set(form) - {
         "current_password",
@@ -347,7 +389,7 @@ async def complete_recovery(request: Request):
             new_password = str(form.get("new_password") or "")
             confirmation = str(form.get("confirmation") or "")
             service.validate_authorized_reset_request(actor.id, new_password, confirmation)
-            identity = client_support_identity(request, session)
+            identity = client_support_identity(request, session, recovery=True)
             production = str(request.app.state.settings.environment).strip().casefold() in {
                 "prod", "production"
             }
@@ -427,7 +469,18 @@ async def complete_recovery(request: Request):
 def request_recovery_support(request: Request):
     actor = _owner(request)
     with request.app.state.session_factory() as session:
-        identity = client_support_identity(request, session)
+        # Keep the active request reference and its Outbox ticket indivisible,
+        # including simultaneous submissions from two windows.
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        from app.models import Setting
+        reference = session.get(Setting, "security.admin_recovery_request_ref")
+        if reference is None:
+            reference = Setting(key="security.admin_recovery_request_ref", value=uuid4().hex)
+            session.add(reference)
+        else:
+            reference.value = uuid4().hex
+        session.flush()
+        identity = client_support_identity(request, session, recovery=True)
         repository = getattr(request.app.state, "control_center_repository", None)
         if repository is None:
             try:
@@ -473,7 +526,7 @@ def request_recovery_support(request: Request):
                 {
                     "subject": "Recuperação de acesso à Administração",
                     "description": (
-                        "O Proprietário autenticado solicita autorização para "
+                        "A instalação solicita autorização para "
                         "definir uma nova senha administrativa local."
                     ),
                     "category": "admin_access_recovery",

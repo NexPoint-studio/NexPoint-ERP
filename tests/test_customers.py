@@ -248,21 +248,7 @@ def test_standard_user_can_manage_customers(client):
     assert create_customer(client).status_code == 303
 
 
-def test_delivery_role_is_blocked_from_customer_module(tmp_path):
-    credentials = {**TEST_CREDENTIALS, "delivery@local": "senha-local-entrega"}
-    database_url = f"sqlite+pysqlite:///{(tmp_path / 'delivery.sqlite3').as_posix()}"
-    app = create_app(database_url=database_url, credentials=credentials)
-    with TestClient(app) as client:
-        response = client.post(
-            "/login", data={"email": "delivery@local", "password": "senha-local-entrega"},
-            follow_redirects=False,
-        )
-        assert response.status_code == 303
-        assert client.get("/clientes/lista").status_code == 403
-        assert client.post("/clientes/novo", data=person_form()).status_code == 403
-
-
-def test_customer_routes_require_authentication(client):
-    assert client.get("/clientes/lista", follow_redirects=False).status_code == 303
-    assert client.get("/clientes/novo", follow_redirects=False).status_code == 303
-    assert client.get("/clientes/historico", follow_redirects=False).status_code == 303
+def test_customer_routes_open_without_authentication(client):
+    assert client.get("/clientes/lista", follow_redirects=False).status_code == 200
+    assert client.get("/clientes/novo", follow_redirects=False).status_code == 200
+    assert client.get("/clientes/historico", follow_redirects=False).status_code == 200

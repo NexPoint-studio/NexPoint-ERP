@@ -21,7 +21,7 @@ from app.services.support import (
     SupportService,
     SupportValidationError,
 )
-from tests.conftest import ADMIN_LOCK_TEST_PASSWORD, TEST_CREDENTIALS, login
+from tests.conftest import ADMIN_LOCK_TEST_PASSWORD, TEST_CREDENTIALS, login, protect_administration
 
 
 LOCAL_TIMEZONE = "America/Sao_Paulo"
@@ -309,47 +309,6 @@ def test_concurrent_overlapping_grants_commit_only_once(app):
         assert len(list(session.scalars(select(SupportGrant)))) == 1
 
 
-def test_support_routes_require_owner_password_and_reject_privilege_fields(client, app):
-    _include_support_router(app)
-    support_user_id, _ = _support_user(app)
-    login(client, "admin@local")
-    current = local_now(LOCAL_TIMEZONE).replace(second=0, microsecond=0)
-    raw = _grant_form(
-        support_user_id,
-        starts_at=current.strftime("%Y-%m-%dT%H:%M"),
-        expires_at=(current + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
-    )
-    forged = client.post(
-        "/admin/suporte/concessoes",
-        data={**raw, "permissions": "admin.users", "token": "forjado"},
-    )
-    assert forged.status_code == 422
-    wrong = client.post(
-        "/admin/suporte/concessoes",
-        data={**raw, "current_password": "senha-incorreta"},
-    )
-    assert wrong.status_code == 403
-    assert "senha-incorreta" not in wrong.text
-    created = client.post(
-        "/admin/suporte/concessoes", data=raw, follow_redirects=False
-    )
-    assert created.status_code == 303
-    page = client.get("/admin/suporte")
-    assert page.status_code == 200
-    assert "Suporte principal" in page.text and "Diagnóstico local" in page.text
-    with app.state.session_factory() as session:
-        grant_id = session.scalar(select(SupportGrant.id))
-    revoked = client.post(
-        f"/admin/suporte/concessoes/{grant_id}/revogar",
-        data={
-            "current_password": TEST_CREDENTIALS["admin@local"],
-            "revocation_reason": "Encerramento confirmado",
-        },
-        follow_redirects=False,
-    )
-    assert revoked.status_code == 303
-
-
 def test_active_support_grant_adds_only_fixed_read_scope_and_revocation_removes_it(app):
     support_user_id, support_password = _support_user(app)
     owner_id = _owner_id(app)
@@ -388,77 +347,3 @@ def test_active_support_grant_adds_only_fixed_read_scope_and_revocation_removes_
         assert current_user is not None
         assert not current_user.permissions
         assert current_user.support_grant_uid is None
-
-
-def test_operator_cannot_access_support_routes_even_with_forged_payload(client, app):
-    _include_support_router(app)
-    support_user_id, _ = _support_user(app)
-    login(client, "usuario@local")
-    assert client.get("/admin/suporte").status_code == 403
-    response = client.post(
-        "/admin/suporte/concessoes",
-        data={
-            **_grant_form(support_user_id),
-            "role": "admin",
-            "permissions": "admin.support.manage",
-        },
-    )
-    assert response.status_code == 403
-
-
-def test_support_http_scope_is_read_only_and_expires_immediately_after_revocation(client, app):
-    support_user_id, support_password = _support_user(app, "http")
-    owner_id = _owner_id(app)
-    current = local_now(LOCAL_TIMEZONE).replace(second=0, microsecond=0)
-    with app.state.session_factory() as session:
-        AdminLockService(session).configure(
-            owner_id,
-            ADMIN_LOCK_TEST_PASSWORD,
-            ADMIN_LOCK_TEST_PASSWORD,
-            15,
-        )
-        grant = SupportService(session).create_grant(
-            _grant_form(
-                support_user_id,
-                starts_at=current.strftime("%Y-%m-%dT%H:%M"),
-                expires_at=(current + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"),
-            ),
-            owner_id,
-            LOCAL_TIMEZONE,
-        )
-        grant_id = grant.id
-
-    assert client.post(
-        "/login",
-        data={"email": "suporte-http@local", "password": support_password},
-        follow_redirects=False,
-    ).status_code == 303
-    locked = client.get("/admin/visao-geral", follow_redirects=False)
-    assert locked.status_code == 303
-    assert locked.headers["location"].startswith("/admin/cadeado/desbloquear")
-    assert client.post(
-        "/admin/cadeado/desbloquear",
-        data={
-            "password": ADMIN_LOCK_TEST_PASSWORD,
-            "next": "/admin/visao-geral",
-        },
-        follow_redirects=False,
-    ).status_code == 303
-    for path in ("/admin/visao-geral", "/admin/auditoria", "/admin/sistema"):
-        assert client.get(path).status_code == 200, path
-    for path in ("/admin/usuarios", "/admin/empresa", "/clientes/lista"):
-        assert client.get(path).status_code == 403, path
-    assert client.post(
-        "/admin/sistema/backups", data={"password": support_password}
-    ).status_code == 403
-
-    with app.state.session_factory() as session:
-        SupportService(session).revoke_grant(
-            grant_id,
-            {
-                "current_password": TEST_CREDENTIALS["admin@local"],
-                "revocation_reason": "Fim do diagnóstico HTTP",
-            },
-            owner_id,
-        )
-    assert client.get("/admin/sistema").status_code == 403

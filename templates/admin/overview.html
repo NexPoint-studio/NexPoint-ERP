@@ -1,6 +1,7 @@
 {% extends "layout/base.html" %}
 {% block content %}
 <header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO</p><h1>Visão geral</h1><p>Acompanhe operação, prazos e relacionamento com clientes.</p></header>
+<section class="panel section-block"><div class="section-heading section-heading--split"><div><h2>Segurança da Administração</h2><p>Gerencie a proteção opcional por senha desta área.</p></div><a class="button button--secondary" href="/admin/cadeado">Configurar proteção</a></div></section>
 {% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
 <section class="panel section-block"><div class="section-heading"><div><span class="section-kicker">Operação</span><h2>Notas de Serviço</h2></div></div>
   <div class="metrics-grid metrics-grid--four compact">

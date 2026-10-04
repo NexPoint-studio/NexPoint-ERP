@@ -25,34 +25,14 @@ def test_external_fastapi_documentation_assets_are_disabled(client):
         assert response.status_code == 404
 
 
-def test_root_redirects_to_login_when_anonymous(client):
+def test_root_opens_operation_directly(client):
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "/clientes/lista"
 
 
-def test_admin_and_user_login(client):
-    for email in TEST_CREDENTIALS:
-        response = login(client, email)
-        assert response.status_code == 303
-        assert response.headers["location"] == "/clientes/lista"
-        client.post("/logout")
-
-
-def test_invalid_login_is_rejected(client):
-    response = login(client, "admin@local", "senha-incorreta")
-    assert response.status_code == 401
-    assert "Usuário ou senha inválidos" in response.text
-
-
-def test_logout_clears_local_session(client):
-    login(client, "usuario@local")
-    assert client.post("/logout", follow_redirects=False).status_code == 303
-    assert client.get("/caixa/resumo", follow_redirects=False).status_code == 303
-
-
-def test_registry_contains_only_four_approved_modules():
-    assert list(MODULE_BY_ID) == ["cash", "customers", "services", "admin"]
+def test_registry_contains_five_approved_modules():
+    assert list(MODULE_BY_ID) == ["cash", "customers", "services", "finance", "admin"]
     assert all(module.status for module in MODULE_BY_ID.values())
 
 
@@ -64,7 +44,7 @@ def test_expected_contextual_tabs():
     ]
     assert [tab.name for tab in MODULE_BY_ID["admin"].tabs if tab.visible] == [
         "Visão geral", "Serviços", "Financeiro", "Pagamentos e taxas",
-        "Suporte", "Auditoria", "Sistema",
+        "Empresa", "Segurança", "Suporte", "Auditoria", "Sistema",
     ]
 
 
@@ -95,10 +75,10 @@ def test_contextual_tabs_change_with_module(client):
     assert "Nova Nota" in services and "Novo serviço" not in services
 
 
-def test_user_cannot_access_administration(client):
+def test_normal_user_can_access_unprotected_administration(client):
     login(client, "usuario@local")
-    assert client.get("/admin/usuarios").status_code == 403
-    assert ">Administração<" not in client.get("/caixa/operacoes").text
+    assert client.get("/admin/empresa").status_code == 200
+    assert ">Administração<" in client.get("/caixa/operacoes").text
 
 
 def test_user_can_access_business_placeholders(client):
@@ -126,20 +106,21 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
     }
 
 
-def test_database_has_only_two_generic_local_users(app):
+def test_legacy_users_are_preserved_beside_non_authenticable_actor(app):
     with app.state.session_factory() as session:
         users = list(session.scalars(select(User)))
+    users = [user for user in users if not user.email.startswith("installation-")]
     assert {user.email for user in users} == {"admin@local", "usuario@local"}
     assert all(user.password_hash.startswith("scrypt$") for user in users)
 
 
-def test_authentication_and_admin_navigation_are_audited(client, app):
+def test_admin_navigation_is_audited_without_operational_auth(client, app):
     login(client, "admin@local")
-    client.get("/admin/usuarios")
-    client.post("/logout")
+    client.get("/admin/empresa")
     with app.state.session_factory() as session:
         actions = set(session.scalars(select(AuditEvent.action)))
-    assert {"auth.login", "admin.navigate", "auth.logout"} <= actions
+    assert "admin.navigate" in actions
+    assert not {"auth.login", "auth.logout"} & actions
 
 
 def test_settings_are_strictly_local():
@@ -173,12 +154,18 @@ def test_no_cloud_package_or_unapproved_external_runtime_reference():
         root / "app/services/sync_remote.py",
         root / "app/services/admin_recovery_remote.py",
         root / "app/services/installation_activation.py",
+        root / "app/services/handoff_remote.py",
+        root / "app/services/installation_handoff.py",
+        root / "app/updates/contracts.py",
+        root / "app/updates/download.py",
+        root / "app/updates/remote.py",
+        root / "run_desktop.py",
     }
     runtime_files = [
         *(path for path in root.joinpath("app").rglob("*.py") if path not in bridge_files),
         *root.joinpath("templates").rglob("*.html"),
         *root.joinpath("static", "js").rglob("*.js"),
-        root / "run_dev.py", root / "run_desktop.py",
+        root / "run_dev.py",
     ]
     content = "\n".join(path.read_text(encoding="utf-8").lower() for path in runtime_files)
     for forbidden in ("supabase", "firebase", "cloudflare", "0.0.0.0", "https://"):

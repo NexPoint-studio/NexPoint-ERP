@@ -53,15 +53,17 @@ def _rule_form(method_id: int, terminal_id: int | None = None, **changes):
     return data
 
 
-def test_configuration_requires_permission_before_service_queries(client, monkeypatch):
-    login(client, "usuario@local")
+def test_configuration_requires_admin_unlock_before_service_queries(client, monkeypatch):
+    from tests.conftest import protect_administration
+    protect_administration(client)
+    login(client, "usuario@local", unlock_admin=False)
 
     def forbidden_query(*_args, **_kwargs):
         raise AssertionError("A consulta administrativa não deveria executar")
 
     monkeypatch.setattr(PaymentConfigurationService, "payment_methods", forbidden_query)
-    assert client.get("/admin/pagamentos").status_code == 403
-    assert client.post("/admin/pagamentos/formas", data={"name": "Forjada"}).status_code == 403
+    assert client.get("/admin/pagamentos", follow_redirects=False).status_code == 303
+    assert client.post("/admin/pagamentos/formas", data={"name": "Forjada"}, follow_redirects=False).status_code == 303
 
 
 def test_payment_methods_and_generic_terminals_are_managed_without_deletion(client, app):

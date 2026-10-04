@@ -6,6 +6,10 @@ import argparse
 from pathlib import Path
 import re
 import sys
+import zipfile
+
+MAX_MEMBER_BYTES = 256 * 1024 * 1024
+MAX_EXPANDED_BYTES = 2 * 1024 * 1024 * 1024
 
 
 SENSITIVE_MARKERS = (
@@ -40,6 +44,43 @@ def local_secret_values(root: Path) -> tuple[bytes, ...]:
     return tuple(values)
 
 
+def distribution_chunks(path: Path):
+    """Inspect compressed official executables without executing their code."""
+    yield path.read_bytes()
+    expanded = 0
+    if path.name in {"NexPointERP.exe", "NexPointUpdater.exe"}:
+        # Build dependency only. raw=True returns marshalled bytes, never code
+        # objects for execution. Fail closed if an official executable cannot
+        # be opened, including when the inspector is unavailable.
+        from PyInstaller.archive.readers import CArchiveReader
+        archive = CArchiveReader(str(path))
+        for name, entry in archive.toc.items():
+            if entry[2] > MAX_MEMBER_BYTES:
+                raise ValueError("packed member too large")
+            data = archive.extract(name)
+            expanded += len(data)
+            if expanded > MAX_EXPANDED_BYTES:
+                raise ValueError("packed distribution too large")
+            yield data
+            if entry[4] == "z":
+                modules = archive.open_embedded_archive(name)
+                for module in modules.toc:
+                    raw = modules.extract(module, raw=True)
+                    if raw is None:
+                        continue
+                    expanded += len(raw)
+                    if len(raw) > MAX_MEMBER_BYTES or expanded > MAX_EXPANDED_BYTES:
+                        raise ValueError("packed modules too large")
+                    yield raw
+    elif path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            for member in archive.infolist():
+                expanded += member.file_size
+                if member.file_size > MAX_MEMBER_BYTES or expanded > MAX_EXPANDED_BYTES:
+                    raise ValueError("compressed distribution too large")
+                yield archive.read(member)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--distribution", type=Path, required=True)
@@ -54,13 +95,17 @@ def main() -> int:
         if not path.is_file():
             continue
         checked += 1
-        data = path.read_bytes()
-        if any(marker in data for marker in SENSITIVE_MARKERS):
-            print(f"sensitive configuration marker found in {path.name}", file=sys.stderr)
-            return 2
-        if any(value in data for value in secrets):
-            print(f"local secret value found in {path.name}", file=sys.stderr)
-            return 3
+        try:
+            for data in distribution_chunks(path):
+                if any(marker in data for marker in SENSITIVE_MARKERS):
+                    print(f"sensitive configuration marker found in {path.name}", file=sys.stderr)
+                    return 2
+                if any(value in data for value in secrets):
+                    print(f"local secret value found in {path.name}", file=sys.stderr)
+                    return 3
+        except Exception:
+            print(f"could not inspect distribution content in {path.name}", file=sys.stderr)
+            return 4
     print(f"distribution secret scan passed ({checked} files)")
     return 0
 

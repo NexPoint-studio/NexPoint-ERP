@@ -1,104 +1,82 @@
 # Instalação e ativação Windows
 
-O instalador instala por usuário, cria os atalhos e registra a desinstalação.
-O programa fica em `%LOCALAPPDATA%\Programs\NexPoint ERP`; os dados permanecem
-em `%LOCALAPPDATA%\NexPoint\ERP` mesmo após desinstalar. Inno Setup fica somente
-no computador de build. O notebook precisa de Windows x64. O Setup detecta
-WebView2 e, se necessário, executa o bootstrapper Evergreen assinado pela
-Microsoft, incluído no instalador; essa preparação precisa de internet.
-O mecanismo segue a [documentação oficial da Microsoft](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution).
+Contrato v2, em validação local. A liberação depende dos gates de
+`SIMPLIFICACAO_ENTREGA.md`; a documentação não confirma publicação das novas
+migrations, função Edge ou instalador.
 
-## Contrato de primeiro acesso
+O instalador prepara o programa em `%LOCALAPPDATA%\Programs\NexPoint ERP` e os
+dados ficam em `%LOCALAPPDATA%\NexPoint\ERP`. Os dados são preservados após
+desinstalação. Python e Inno Setup não são necessários no computador de destino.
 
-1. O pacote contém somente o perfil público `activation-profile.json`:
-   `schema_version`, `tenant_key`, `installation_key`, `company_name`, `username`.
-   Esse arquivo identifica a entrega e não autoriza nenhuma operação.
-2. O usuário entra pela tela local de primeira configuração. A senha segue a
-   política operacional existente, de 8 a 256 caracteres. Nada é gravado em HTML,
-   JavaScript, URL, log ou pacote. A tela exige origem loopback exata e token CSRF.
-3. O desktop gera uma chave aleatória e um request ID, grava e relê o estado
-   protegido por DPAPI CurrentUser **antes** de contatar a nuvem.
-4. `erp-activate` recebe login, senha, escopo e somente SHA-256 da chave. HTTPS
-   verifica certificado/host, sem redirects. A função limita corpo, trabalho e
-   tentativas duráveis antes de verificar scrypt N16384/r8/p1, igual ao ERP.
-5. A autorização administrativa é ativa, revogável, expirável e limitada a uma
-   instalação. Não é uma conta Control Center. Nenhum token administrativo vai
-   ao cliente. A Edge usa sua própria service role exclusivamente no servidor.
-6. Uma transação cria instalação, uma credencial e consumo da autorização. Retry
-   autenticado exige o mesmo request ID, digest e key ID, no máximo sete dias
-   após o consumo. Outra máquina/chave é rejeitada. Revogação sempre impede retry
-   remoto. Alterações relevantes mudam a versão do grant e fecham corridas.
-7. A resposta autorizada contém identidade e hash scrypt de um proprietário local
-   técnico **novo**, independente do operador e da conta administrativa da nuvem.
-   Sua senha forte fica no cofre DPAPI do responsável, fora da entrega. Esse hash
-   é necessário para a manutenção posterior do SQLite e nunca aparece em logs.
-8. O desktop guarda a confirmação protegida, cria banco limpo em staging, aplica
-   migrations, cria proprietário técnico e usuário operacional pelo AdminService,
-   verifica integridade/FKs/schema, publica sem sobrescrita e grava a identidade
-   final no Windows local. Nenhum catálogo, cliente, Nota ou pagamento fictício é
-   criado. O usuário operacional recebe somente o papel `user`.
-9. O login oficial do ERP cria a sessão, incluindo Manter conectado se escolhido.
-   O segundo start usa banco e identidade locais, sem consultar a autorização.
+## Primeiro acesso
 
-O endpoint não emite a chave em plaintext: autoriza o segredo já gerado no
-Windows final, persistindo somente seu digest no contrato existente. Roubar o
-instalador não fornece senha, chave operacional ou autorização válida.
+1. O pacote contém um perfil público `activation-profile.json`, com
+   `schema_version: 2`, `tenant_key`, `installation_key` e `company_name`.
+   Não contém conta, senha nem credencial de instalação.
+2. A tela **Ativar este computador** recebe somente um código emitido pela
+   NexPoint. O formulário exige origem loopback exata, CSRF e corpo limitado.
+3. O desktop gera request ID e chave aleatória e grava o estado protegido por
+   DPAPI CurrentUser antes da comunicação remota.
+4. A Edge `erp-activate` recebe código transitório, escopo, request ID, key ID e
+   digest SHA-256 da chave. O código é transformado em digest antes do RPC.
+   A chamada usa HTTPS com certificado validado, sem redirects.
+5. `np_consume_installation_code` confere código, empresa, instalação, validade
+   e limites de tentativas. A transação cria instalação, credencial e recibo.
+6. A resposta contém somente associação e metadados. Não retorna hash de senha
+   humana nem capacidade administrativa do backend.
+7. O desktop registra o recibo protegido, prepara SQLite vazio com migrations e
+   uma identidade técnica não autenticável, verifica schema/integridade/FKs e
+   publica sem substituir arquivos existentes. Não cria catálogo ou dados fictícios.
+8. O ERP abre diretamente. A abertura seguinte usa banco e credencial locais,
+   inclusive offline, sem exigir código novamente.
+
+## Emissão e revogação
+
+Em `/ativacoes` no Control Center, somente `platform_admin` ativo pode emitir ou
+revogar. O formulário exige CSRF. A emissão mostra uma única vez um código de
+256 bits; a listagem posterior apresenta somente metadados e a ação de revogar.
+Respostas não podem ser armazenadas em cache.
+
+O servidor persiste apenas o digest do código. A validade padrão é 24 horas,
+com limite de sete dias. Uma nova emissão para a mesma instalação ainda não
+ativada revoga a anterior. Uma instalação já existente não é reprovisionada por
+esse caminho. Emissão e revogação deixam auditoria sem código ou digest exposto.
+
+Consumo é único. Retry remoto aceita somente o mesmo request, key ID e digest,
+por no máximo um dia após consumo. Outra chave/máquina não recebe a credencial.
+Código revogado, expirado ou associação indisponível impede autorização.
+
+O código deve chegar separadamente ao responsável pelo computador. Não deve
+entrar no pacote, Git, URL, documentação ou chamado. O perfil público sozinho
+não autoriza ativação.
 
 ## Interrupções e preservação
 
-`credentials/activation.dpapi` conserva o request e a confirmação para retomada.
-Um lock de arquivo do sistema operacional evita dois provisionamentos locais.
-Depois de uma resposta autorizada, a retomada local exige a mesma senha e pode
-ocorrer sem internet. Se o ACK se perder antes disso, o retry remoto é idempotente.
+`credentials/activation.dpapi` guarda request, chave local e recibo, sem código
+de ativação. Um lock de arquivo impede provisionamentos concorrentes.
+Se houver recibo autorizado, a finalização local pode retomar sem outra chamada
+remota. Se a resposta se perder, a repetição reutiliza request e chave originais.
 
-Banco existente precisa ter o marcador daquele request, empresa, usuário e
-proprietário esperados. Arquivos corrompidos, links, identidade diferente ou
-credencial de outro Windows causam recusa; nenhum reset automático ocorre.
-Instalações anteriores completas continuam usando seu fluxo normal offline.
+Banco existente precisa corresponder ao request e à empresa esperados. Arquivos
+corrompidos, links, escopo diferente ou DPAPI de outro Windows são recusados,
+sem reset automático. Credenciais completas anteriores continuam usando a
+abertura local; os registros históricos são preservados.
 
-## Preparação pelo responsável
+As RPCs antigas de ativação por conta/senha ficam sem EXECUTE para service_role
+nas novas migrations. O script `prepare_activation_grant.py` está desativado.
+A credencial administrativa cloud continua exclusivamente no servidor/cofre.
 
-Depois dos testes SQL/Edge e da migration aditiva, preparar uma autorização com
-`scripts/prepare_activation_grant.py`. Ele lê explicitamente o verificador de uma
-conta operacional aprovada em modo read-only, cria a senha técnica independente
-em DPAPI no PC do responsável e registra o grant por sete dias. Não replica banco
-ou credencial da instalação antiga e não cria a instalação antes do primeiro uso.
-Tentativas de reconciliar grants divergentes exigem revisão, sem rotação silenciosa.
+## Build e aceite
 
-Nenhuma senha vai em argumentos CLI: o comando usa cofres e verificadores locais.
-O arquivo protegido `activation-owner-<installation_key>.dpapi` é privado do
-responsável e não pode acompanhar o instalador. A senha operacional é entregue
-separadamente, como antes. O perfil público precisa corresponder exatamente ao
-grant; a função valida o escopo independentemente desse arquivo.
+O build oficial exige checkout limpo, testes aprovados, manifesto e inventário
+de hashes. O scanner examina bundle e instalador. O atualizador é um executável
+separado, verificado antes de integrar o pacote.
 
-## Build e validação
+Antes de entregar, validar Setup, ativação, DPAPI, segundo start, funcionamento
+offline, Empresa, Admin Lock, recuperação, sync, heartbeat e atualização em
+Windows QA limpo. Instalar em outro diretório no mesmo Windows não isola HKCU,
+Menu Iniciar ou dados do perfil e não substitui esse teste.
 
-Gerar o bundle com `scripts/build_windows_prod.ps1` a partir de commit limpo,
-passando `-ActivationProfilePath` para o perfil público da entrega. O builder
-valida o contrato, copia esse arquivo e o inclui no inventário SHA256SUMS. Gerar o Setup com
-`scripts/build_windows_installer.ps1`, informando versão e commit esperados.
-O builder verifica o compilador assinado, manifesto, hashes e secrets antes e
-depois de compilar. O instalador NexPoint ainda precisa de certificado próprio
-para assinatura Authenticode; assinatura do compilador não assina o Setup.
-
-Testes: `tests/test_installation_activation.py`,
-`supabase/functions/erp-activate/handler_test.ts` e
-`scripts/security/test_activation_database.py`. O último usa PostgreSQL novo,
-sem rede externa, e não acessa nenhum container de projeto ou banco PROD.
-
-Além dos scans do repositório, é necessário examinar o payload extraído do Setup,
-o bundle PyInstaller, textos dos PDFs e toda a entrega. Um scan superficial do
-EXE comprimido não demonstra ausência de secrets no conteúdo.
-
-## Aceite no notebook
-
-Testes locais não comprovam a execução no Windows da usuária. Após instalar,
-confirmar login, primeiro e segundo start, ausência de nova ativação, health,
-heartbeat e ACK/synced sob a instalação nova. Somente usar operações reais em
-PROD. Preparar serviços/preços reais com o responsável: conta operacional não
-pode inventar catálogo nem administrar preços. A sincronização é de eventos,
-não uma réplica do SQLite ou substituto do backup.
-
-O tenant existente permanece com seu nome global. O Control Center distingue os
-computadores pelo label e pela installation key; a empresa configurada no ERP
-nunca renomeia o tenant nem o computador principal.
+Se a versão anterior não tiver updater, esta entrega pode ser uma última
+atualização manual, sempre com backup e preservação dos dados. A validação do
+notebook real e sua associação no painel continuam sendo aceites próprios.

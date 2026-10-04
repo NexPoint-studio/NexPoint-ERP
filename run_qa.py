@@ -126,15 +126,11 @@ def validate_qa_environment(
                 raise QALaunchError("O banco ERP QA falhou no integrity_check.")
             if connection.execute("PRAGMA foreign_key_check").fetchall():
                 raise QALaunchError("O banco ERP QA possui violacoes de chave estrangeira.")
-            owner = connection.execute(
-                "SELECT 1 FROM users WHERE email=? AND active=1 LIMIT 1",
-                (QA_USERNAME,),
-            ).fetchone()
             settings = dict(connection.execute(
                 "SELECT key,value FROM settings WHERE key IN "
-                "('company.name','system.control_center_identity')"
+                "('qa.tenant_type','system.control_center_identity')"
             ).fetchall())
-        if owner is None or settings.get("company.name") != "NexPoint QA Lab":
+        if settings.get("qa.tenant_type") != "TEST":
             raise QALaunchError("O banco ERP nao possui a identidade NexPoint QA Lab.")
         identity = settings.get("system.control_center_identity", "")
         if not isinstance(identity, str) or len(identity) != 64:
@@ -158,7 +154,7 @@ def validate_qa_environment(
                 "SELECT tenant_id FROM installations WHERE id=?",
                 (installation_id,),
             ).fetchone()
-        if tenant is None or tenant[0] != "TEST" or tenant[1] != "NexPoint QA Lab":
+        if tenant is None or tenant[0] != "TEST":
             raise QALaunchError("O tenant TEST esperado nao existe no Control Center QA.")
         if installation is None or installation[0] != tenant_id:
             raise QALaunchError("A instalacao QA nao esta vinculada ao tenant TEST.")
@@ -293,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERP QA valido: {validated.erp_database}")
         print(f"Control Center QA valido: {validated.control_center_database}")
         print(f"Tenant TEST: {validated.tenant_id}")
-        print(f"Login ERP QA: {QA_USERNAME}")
+        print("ERP QA: abertura direta, sem login operacional.")
         return 0
     if args.service == "erp":
         application = build_qa_erp_application(validated)

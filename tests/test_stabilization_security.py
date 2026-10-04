@@ -20,29 +20,8 @@ from app.core.security import hash_password, verify_password
 from app.models import AuditEvent, FeatureFlag, Role, User
 from app.services.bootstrap import initialize_database
 from run_desktop import ensure_port_available, start_local_server, stop_local_server
-from tests.conftest import TEST_CREDENTIALS, login
+from tests.conftest import TEST_CREDENTIALS, login, protect_administration
 from tests.test_cash import _cash_form, _create_movement
-
-
-@pytest.mark.parametrize("email,password", [("", ""), ("admin@local", ""), ("", "wrong"),
-    ("inexistente", "wrong"), ("admin@local", "wrong"), ("  ", "   ")])
-def test_invalid_and_empty_authentication_visible(client, email, password):
-    response = client.post("/login", data={"email": email, "password": password})
-    assert response.status_code == 401
-    assert "Usuário ou senha inválidos" in response.text
-    assert client.get("/caixa/resumo", follow_redirects=False).status_code == 303
-
-
-def test_spaces_refresh_and_repeated_attempts(client, app):
-    for _ in range(12):
-        assert login(client, "admin@local", "wrong").status_code == 401
-    assert client.post("/login", data={"email": " ADMIN@LOCAL ", "password": TEST_CREDENTIALS["admin@local"]}, follow_redirects=False).status_code == 303
-    for _ in range(3):
-        assert client.get("/caixa/resumo").status_code == 200
-    with app.state.session_factory() as session:
-        events = list(session.scalars(select(AuditEvent).where(AuditEvent.action == "auth.login_failed")))
-        assert len(events) == 12
-        assert all("wrong" not in (event.details or "") for event in events)
 
 
 def signed_cookie(payload, *, expired=False):
@@ -55,12 +34,13 @@ def signed_cookie(payload, *, expired=False):
 @pytest.mark.parametrize("cookie", ["garbage", "e30=.invalid.signature", signed_cookie({"user_id": "1"}),
     signed_cookie({"user_id": -1}), signed_cookie({"user_id": 10**80}), signed_cookie({"user_id": True}),
     signed_cookie({"user_id": 1}, expired=True)])
-def test_tampered_expired_or_invalid_session_is_rejected(client, cookie):
+def test_tampered_expired_or_legacy_cookie_cannot_authorize_mutations(client, cookie):
     client.cookies.set("erp_local_session", cookie)
-    assert client.get("/caixa/resumo", follow_redirects=False).status_code == 303
+    assert client.post("/caixa/novo-lancamento", data=_cash_form()).status_code == 403
+    assert client.get("/caixa/resumo").status_code == 200
 
 
-def test_short_session_cookie_is_secure_and_logout_removes_it(app, client):
+def test_local_cookie_is_browser_scoped_and_operational_logout_is_absent(app, client):
     response = login(client, "admin@local")
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie
@@ -68,18 +48,18 @@ def test_short_session_cookie_is_secure_and_logout_removes_it(app, client):
     with TestClient(app) as reopened:
         reopened.cookies.update(client.cookies)
         assert reopened.get("/caixa/resumo").status_code == 200
-        assert reopened.post("/logout", follow_redirects=False).status_code == 303
-        assert reopened.get("/caixa/resumo", follow_redirects=False).status_code == 303
+        assert reopened.post("/logout", follow_redirects=False).status_code == 404
+        assert reopened.get("/caixa/resumo", follow_redirects=False).status_code == 200
 
 
-def test_deactivated_user_is_rejected_on_next_request(app, client):
+def test_legacy_account_deactivation_does_not_block_installation(app, client):
     login(client, "admin@local")
     with app.state.session_factory() as session:
         user = session.scalar(select(User).where(User.email == "admin@local"))
         user.active = False
         session.commit()
-    assert client.get("/caixa/resumo", follow_redirects=False).status_code == 303
-    assert login(client, "admin@local").status_code == 401
+    assert client.get("/caixa/resumo").status_code == 200
+    assert login(client, "admin@local").status_code == 303
 
 
 @pytest.mark.parametrize("origin", ["http://evil.local", "https://testserver", "null", "http://testserver.evil.local",
@@ -104,24 +84,16 @@ def test_same_origin_write_and_security_headers(client):
     assert client.get("/health", headers={"host": "evil.local"}).status_code == 400
 
 
-@pytest.mark.parametrize("method,path", [("GET", "/admin/usuarios"), ("GET", "/servicos/novo"),
+@pytest.mark.parametrize("method,path", [("GET", "/admin/empresa"), ("GET", "/servicos/novo"),
     ("POST", "/servicos/novo"), ("POST", "/servicos/1/editar"), ("POST", "/servicos/1/preco"),
-    ("POST", "/servicos/1/status"), ("POST", "/caixa/movimentos/1/cancelar"),
-    ("POST", "/caixa/movimentos/1/editar"), ("POST", "/caixa/categorias"), ("GET", "/caixa/relatorios")])
+    ("POST", "/servicos/1/status"),
+    ("POST", "/caixa/categorias")])
 def test_user_direct_permission_denials(client, method, path):
-    login(client, "usuario@local")
-    assert client.request(method, path, data={"role": "admin", "user_id": 1, "active": "1"}).status_code == 403
-
-
-def test_delivery_direct_get_post_and_role_injection(tmp_path):
-    app = create_app(database_url=f"sqlite+pysqlite:///{(tmp_path / 'delivery.db').as_posix()}", credentials={"delivery@local": "temporary-test"})
-    with TestClient(app) as client:
-        assert client.post("/login", data={"email": "delivery@local", "password": "temporary-test", "role": "admin"}, follow_redirects=False).status_code == 303
-        for module in MODULES:
-            for tab in module.tabs:
-                assert client.get(tab.path).status_code == 403
-        for path in ("/clientes/novo", "/servicos/novo", "/caixa/novo-lancamento", "/caixa/categorias"):
-            assert client.post(path, data={"role": "admin", "user_id": 1}).status_code == 403
+    protect_administration(client)
+    login(client, "usuario@local", unlock_admin=False)
+    response = client.request(method, path, data={"role": "admin", "user_id": 1, "active": "1"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/admin/cadeado/desbloquear")
 
 
 def test_bootstrap_preserves_custom_roles_hash_active_flags_and_settings(app):
@@ -166,7 +138,7 @@ def test_offline_python_runtime_blocks_all_external_sockets(tmp_path, monkeypatc
     monkeypatch.setattr(socket.socket, "connect", guarded)
     app = create_app(database_url=f"sqlite+pysqlite:///{(tmp_path / 'offline.db').as_posix()}", credentials={"adm": "adm"})
     with TestClient(app) as client:
-        assert client.post("/login", data={"email": "adm", "password": "adm"}, follow_redirects=False).status_code == 303
+        assert client.get("/", follow_redirects=False).status_code == 303
         for module in MODULES:
             for tab in module.tabs:
                 assert client.get(tab.path).status_code == 200

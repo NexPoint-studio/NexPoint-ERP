@@ -10,7 +10,7 @@ from app import create_app
 from app.models import AuditEvent, Service, ServiceCategory, ServicePrice
 from app.services.service_validation import CategoryInput, ServiceInput, parse_money
 from app.services.services import CatalogService
-from tests.conftest import TEST_CREDENTIALS, login
+from tests.conftest import TEST_CREDENTIALS, login, protect_administration
 
 
 def category_form(**changes):
@@ -243,22 +243,13 @@ def test_price_history_is_human_readable(client):
 
 
 def test_standard_user_can_view_but_not_manage_services(client):
-    login(client, "usuario@local")
+    protect_administration(client)
+    login(client, "usuario@local", unlock_admin=False)
     assert client.get("/servicos/catalogo").status_code == 200
-    assert client.get("/servicos/novo").status_code == 403
-    assert client.get("/servicos/categorias").status_code == 403
-    assert client.get("/servicos/precos").status_code == 403
-    assert client.post("/servicos/categorias", data=category_form()).status_code == 403
-    assert client.post("/servicos/1/preco", data={"amount": "10,00"}).status_code == 403
-
-
-def test_delivery_has_no_service_access(tmp_path):
-    credentials = {**TEST_CREDENTIALS, "delivery@local": "senha-entrega"}
-    app = create_app(database_url=f"sqlite+pysqlite:///{(tmp_path / 'delivery.sqlite3').as_posix()}", credentials=credentials)
-    with TestClient(app) as client:
-        login(client, "delivery@local", "senha-entrega")
-        assert client.get("/servicos/catalogo").status_code == 403
-        assert client.post("/servicos/novo", data=service_form()).status_code == 403
+    for path in ("/servicos/novo", "/servicos/categorias", "/servicos/precos"):
+        assert client.get(path, follow_redirects=False).status_code == 303
+    assert client.post("/servicos/categorias", data=category_form(), follow_redirects=False).status_code == 303
+    assert client.post("/servicos/1/preco", data={"amount": "10,00"}, follow_redirects=False).status_code == 303
 
 
 def test_no_customer_activity_is_created_by_catalog_service(client, app):

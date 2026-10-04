@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.permissions import SUPPORT_SCOPED_PERMISSIONS
+from app.core.permissions import (
+    ADMINISTRATION_PERMISSIONS, SUPPORT_SCOPED_PERMISSIONS, normal_local_user,
+    INSTALLATION_CAPABILITIES, INSTALLATION_ADMIN_CAPABILITIES,
+)
 from app.models.auth import Role, User
 from app.repositories.support import SupportRepository
 
@@ -23,10 +26,50 @@ class ActorAccess:
     user: User
     role_codes: frozenset[str]
     permissions: frozenset[str]
+    installation_actor: bool = False
 
     @property
     def is_owner(self) -> bool:
         return OWNER_ROLE_CODE in self.role_codes
+
+
+def _administrative_access(session: Session, access: ActorAccess, permission: str) -> ActorAccess:
+    """Grant normal users administrative capabilities only in a validated request.
+
+    Non-HTTP internal callers retain their existing permanent-role checks.
+    Re-read the lock and account in the operation's transaction, so a stale
+    request/cookie cannot survive a concurrent password or identity change.
+    """
+    if access.installation_actor:
+        if permission not in INSTALLATION_ADMIN_CAPABILITIES:
+            return access
+        from app.services.administration_context import administration_request
+        from app.models.admin_lock import AdminLock
+        from app.services.admin_lock import admin_unlock_valid, lock_configured
+        request = administration_request()
+        lock = session.get(AdminLock, 1, populate_existing=True)
+        if lock_configured(lock) and (request is None or not admin_unlock_valid(request, lock)):
+            raise ActorAuthorizationError("Desbloqueie a Administração para continuar.")
+        if request is not None and getattr(request.state.current_user, "id", None) != access.user.id:
+            raise ActorAuthorizationError("A identidade da instalação não confere.")
+        return access
+    if permission not in ADMINISTRATION_PERMISSIONS or not normal_local_user(access.role_codes):
+        return access
+    from app.services.administration_context import administration_request
+    from app.models.admin_lock import AdminLock
+    from app.services.admin_lock import admin_unlock_valid, lock_configured
+    request = administration_request()
+    if request is None:
+        return access
+    user = getattr(request.state, "current_user", None)
+    if user is None or user.id != access.user.id or user.auth_version != access.user.auth_version:
+        raise ActorAuthorizationError("A autorização administrativa não está disponível.")
+    lock = session.get(AdminLock, 1, populate_existing=True)
+    if lock_configured(lock) and not admin_unlock_valid(request, lock):
+        raise ActorAuthorizationError("Desbloqueie a Administração para continuar.")
+    if normal_local_user(access.role_codes):
+        return ActorAccess(access.user, access.role_codes, access.permissions | ADMINISTRATION_PERMISSIONS)
+    return access
 
 
 def active_actor_access(session: Session, actor_id: int) -> ActorAccess:
@@ -44,6 +87,9 @@ def active_actor_access(session: Session, actor_id: int) -> ActorAccess:
     )
     if actor is None:
         raise ActorAuthorizationError("O autor da operação não possui um acesso ativo.")
+    from app.services.installation_actor import is_installation_actor
+    if is_installation_actor(session, actor_id):
+        return ActorAccess(actor, frozenset(), INSTALLATION_CAPABILITIES, installation_actor=True)
     role_codes = frozenset(role.code for role in actor.roles)
     permissions = frozenset(
         permission.code
@@ -60,7 +106,7 @@ def require_active_actor_permission(
     *,
     owner_only: bool = False,
 ) -> ActorAccess:
-    access = active_actor_access(session, actor_id)
+    access = _administrative_access(session, active_actor_access(session, actor_id), permission)
     if permission not in access.permissions:
         raise ActorAuthorizationError("O autor da operação não possui a permissão necessária.")
     if owner_only and not access.is_owner:
@@ -82,7 +128,7 @@ def require_effective_actor_permission(
     destinada a consultas; toda mutação deve usar
     ``require_active_actor_permission``.
     """
-    access = active_actor_access(session, actor_id)
+    access = _administrative_access(session, active_actor_access(session, actor_id), permission)
     if access.role_codes == frozenset({"support"}):
         instant = now or datetime.now(timezone.utc)
         if instant.tzinfo is not None:

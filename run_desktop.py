@@ -3,6 +3,9 @@ from __future__ import annotations
 import socket
 import threading
 import time
+import sys
+from pathlib import Path
+from contextlib import nullcontext
 
 import uvicorn
 import webview
@@ -81,23 +84,70 @@ def start_local_server(application, host: str, port: int) -> tuple[uvicorn.Serve
     return server, thread
 
 
-def run_desktop() -> None:
+def _run_desktop(*, health_job: Path | None = None) -> None:
     settings = get_settings()
+    if settings.environment == "production":
+        from app.services.installation_handoff import InstallationHandoff
+        InstallationHandoff(Path(settings.data_directory).parent).validate_startup()
     host = "127.0.0.1"
     ensure_port_available(host, settings.port)
     from app.services.installation_activation import (
         InstallationActivation, installed_profile, needs_activation,
     )
-    if needs_activation(settings):
+    activation_required = needs_activation(settings)
+    journal = credentials = None
+    if health_job is not None or (getattr(sys, "frozen", False) and settings.environment == "production" and not activation_required):
+        if activation_required:
+            raise RuntimeError("A atualização exige uma instalação já ativada.")
+        from app.updates.desktop import validate_desktop_startup
+        journal, credentials = validate_desktop_startup(settings, Path(sys.executable).parent,
+                                                       health_job=health_job, claim_health=health_job is not None)
+    if activation_required:
         from app.activation import ActivationGateway
         application = ActivationGateway(
             InstallationActivation(settings, installed_profile()), create_app,
         )
     else:
-        application = create_app()
+        application = create_app(restore_enabled=False) if health_job is not None else create_app()
+    manager = None
+    close_for_update = threading.Event()
+    if health_job is not None:
+        application.state.sync_worker = None
+        application.state.update_manager = None
+    elif getattr(sys, "frozen", False) and settings.environment == "production" and hasattr(application, "state"):
+        from app.updates.desktop import launch_update_helper
+        from app.updates.manager import UpdateManager
+        from app.updates.remote import SupabaseUpdateRemote
+        from app.updates.contracts import UpdateValidationError
+        try:
+            manager = UpdateManager(journal, SupabaseUpdateRemote(credentials), settings.version)
+            application.state.update_manager = manager
+            # Persist the previous update outcome in the existing outbox before
+            # a new background check changes SUCCEEDED/ROLLED_BACK to CURRENT.
+            application.state.control_telemetry_adapter.maybe_publish(application, force=True)
+            handoff_lock = threading.Lock()
+            def begin_update():
+                if not handoff_lock.acquire(blocking=False):
+                    raise UpdateValidationError("A atualização já está sendo preparada.")
+                try:
+                    launch_update_helper(manager, program=Path(sys.executable).parent,
+                        database=Path(application.state.database_path),
+                        credential_file=Path(settings.installation_credentials_path), port=settings.port)
+                    close_for_update.set()
+                except Exception:
+                    handoff_lock.release()
+                    raise
+            application.state.begin_update = begin_update
+        except UpdateValidationError:
+            # A corrupt updater journal disables only updates, not operations.
+            application.state.update_manager = None
     server, thread = start_local_server(application, host, settings.port)
     try:
-        webview.create_window(
+        if health_job is not None:
+            from app.updates.desktop import write_health_result
+            write_health_result(health_job, application, settings)
+            return
+        window = webview.create_window(
             settings.app_name,
             f"http://127.0.0.1:{settings.port}",
             width=1440,
@@ -105,15 +155,37 @@ def run_desktop() -> None:
             min_size=(960, 640),
             background_color="#f5f5f5",
         )
+        def close_when_update_prepared():
+            close_for_update.wait()
+            # Allow the local HTTP response to finish before closing WebView.
+            time.sleep(.5)
+            window.destroy()
+        threading.Thread(target=close_when_update_prepared, daemon=True, name="nexpoint-update-handoff").start()
         webview.start(debug=False, private_mode=False)
     finally:
         stop_local_server(server, thread)
 
 
+def run_desktop() -> None:
+    health_job = None
+    if len(sys.argv) == 3 and sys.argv[1] == "--update-health-check":
+        if not getattr(sys, "frozen", False):
+            raise RuntimeError("A verificação de atualização exige a build instalada.")
+        from app.updates.desktop import load_job
+        health_job = Path(sys.argv[2])
+        load_job(health_job)
+    lock = nullcontext()
+    if getattr(sys, "frozen", False) and sys.platform == "win32" and health_job is None:
+        from app.updates.process_lock import installation_process_lock
+        lock = installation_process_lock(Path(sys.executable).parent)
+    with lock:
+        _run_desktop(health_job=health_job)
+
+
 if __name__ == "__main__":
     try:
         run_desktop()
-    except RuntimeError as error:
+    except (RuntimeError, ValueError) as error:
         import sys
         from app.core.installation_identity import InstallationCredentialError
         message = (

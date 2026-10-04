@@ -20,18 +20,18 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.engine import make_url
 
-from app.core.config import ROOT_DIR, Settings, development_credentials, get_settings
+from app.core.config import ROOT_DIR, Settings, get_settings
+from app.models import Setting
 from app.core.database import build_engine, build_session_factory
 from app.core.installation_identity import (
     InstallationCredentialStore,
     InstallationCredentials,
 )
-from app.repositories import AuthRepository, ConfigurationRepository
+from app.repositories import ConfigurationRepository
 from app.routes import (
     audit_router,
     admin_lock_router,
     admin_router,
-    auth_router,
     cash_router,
     customers_router,
     notes_router,
@@ -45,7 +45,7 @@ from app.routes import (
     system_router,
 )
 from app.routes.helpers import branding_context, navigation_context, templates
-from app.services.auth import AuthService
+from app.services.installation_actor import current_installation_actor
 from app.services.authorization import ActorAuthorizationError
 from app.services.bootstrap import initialize_database
 from app.services.system_maintenance import apply_pending_restore
@@ -61,7 +61,6 @@ from app.services.sync_remote import (
 from app.services.admin_recovery_remote import SupabaseAdminRecoveryRemote
 from app.services.support_tickets import ensure_control_center_repository
 from app.services.remember_sessions import (
-    RememberSessionService,
     remember_cookie_name,
 )
 from app.routes.nexa import router as nexa_router
@@ -249,10 +248,10 @@ def create_app(
         seed_credentials = credentials
     elif database_path.is_file() and database_path.stat().st_size >= 100:
         # Uma instalação existente conserva usuários e hashes como dados. A
-        # senha do ambiente serve somente para criar a primeira conta local.
+        # entrada direta usa exclusivamente a identidade tecnica da instalacao.
         seed_credentials = {}
     else:
-        seed_credentials = development_credentials()
+        seed_credentials = {}
     initialize_database(
         engine,
         factory,
@@ -264,12 +263,17 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         worker = getattr(_app.state, "sync_worker", None)
+        updater = getattr(_app.state, "update_manager", None)
         try:
             if worker is not None:
                 worker.start()
                 worker.wake()
+            if updater is not None:
+                updater.start()
             yield
         finally:
+            if updater is not None:
+                updater.stop()
             if worker is not None:
                 worker.stop()
             observability_store = getattr(_app.state, "observability_store", None)
@@ -326,6 +330,12 @@ def create_app(
         _source_identity, observability_tenant_id, observability_installation_id = (
             control_center_identity_for(persisted_settings)
         )
+    from app.services.company_identity import bind_profile_scope, enqueue_profile
+    with factory() as profile_session:
+        bind_profile_scope(profile_session, observability_tenant_id, observability_installation_id)
+        profile_session.flush()
+        enqueue_profile(profile_session)
+        profile_session.commit()
     app.state.remember_installation_id = observability_installation_id
     observability_database_path = database_path.with_name(
         f"{database_path.stem}_observability.sqlite3"
@@ -421,28 +431,13 @@ def create_app(
     )
     app.state.control_telemetry_adapter.maybe_publish(app, force=True)
 
+    # Rotated at every process start, independent of any legacy user cookie.
+    app.state.local_session_generation = secrets.token_urlsafe(32)
+
     def apply_remember_cookie(request: Request, response):
-        cookie_name = remember_cookie_name(app.state.session_cookie_name)
-        replacement = getattr(request.state, "remember_cookie_replacement", None)
-        delete = bool(getattr(request.state, "remember_cookie_delete", False))
-        if isinstance(replacement, str) and replacement:
-            response.set_cookie(
-                cookie_name,
-                replacement,
-                max_age=base_settings.remember_session_days * 24 * 60 * 60,
-                httponly=True,
-                secure=False,
-                samesite="strict",
-                path="/",
-            )
-        elif delete:
-            response.delete_cookie(
-                cookie_name,
-                httponly=True,
-                secure=False,
-                samesite="strict",
-                path="/",
-            )
+        name = remember_cookie_name(app.state.session_cookie_name)
+        if request.cookies.get(name):
+            response.delete_cookie(name, httponly=True, samesite="strict", path="/")
         return response
 
     @app.middleware("http")
@@ -453,8 +448,6 @@ def create_app(
         request.state.request_id = request_id
         request.state.correlation_id = correlation_id
         request.state.current_user = None
-        request.state.remember_cookie_replacement = None
-        request.state.remember_cookie_delete = False
         session_ref = request.session.get("observability_session")
         if not isinstance(session_ref, str) or not re.fullmatch(r"[0-9a-f]{32}", session_ref):
             session_ref = secrets.token_hex(16)
@@ -466,73 +459,28 @@ def create_app(
             session_id=session_ref,
             emitter=monitor.record,
         ):
-            user_id = request.session.get("user_id")
-            auth_version = request.session.get("auth_version")
-            session_generation = request.session.get("session_generation")
-            session_expires_at = request.session.get("session_expires_at")
-            if (
-                type(user_id) is int and 0 < user_id < 2**63
-                and type(auth_version) is int and auth_version >= 1
-                and isinstance(session_generation, str)
-                and type(session_expires_at) is int
-                and session_expires_at > int(time.time())
-            ):
-                with factory() as session:
-                    repository = AuthRepository(session)
-                    current_user = AuthService(repository).load(user_id)
-                    current_generation = repository.session_generation()
-                    valid_session = (
-                        current_user is not None
-                        and current_user.auth_version == auth_version
-                        and current_generation is not None
-                        and secrets.compare_digest(current_generation, session_generation)
-                    )
-                    if valid_session:
-                        request.state.current_user = current_user
-                    else:
-                        request.session.clear()
-            elif any(
-                key in request.session
-                for key in ("user_id", "auth_version", "session_generation")
-            ):
+            with factory() as session:
+                request.state.current_user = current_installation_actor(session)
+                database_generation = session.get(Setting, "security.session_generation").value
+            generation = request.session.get("installation_session_generation")
+            expires_at = request.session.get("installation_session_expires_at")
+            valid_local_session = (
+                isinstance(generation, str)
+                and secrets.compare_digest(generation, app.state.local_session_generation)
+                and request.session.get("installation_database_generation") == database_generation
+                and type(expires_at) is int and expires_at > int(time.time())
+            )
+            if not valid_local_session:
                 request.session.clear()
-            if request.state.current_user is None:
-                cookie_name = remember_cookie_name(app.state.session_cookie_name)
-                raw_remember = request.cookies.get(cookie_name)
-                if raw_remember:
-                    with factory() as session:
-                        repository = AuthRepository(session)
-                        current_generation = repository.session_generation()
-                        if current_generation:
-                            restored = RememberSessionService(session).restore(
-                                raw_remember,
-                                installation_id=app.state.remember_installation_id,
-                                session_generation=current_generation,
-                                rotation_days=base_settings.remember_session_rotation_days,
-                            )
-                        else:
-                            restored = None
-                    if restored is not None and restored.current_user is not None:
-                        request.session.clear()
-                        request.session["observability_session"] = session_ref
-                        request.session["user_id"] = restored.current_user.id
-                        request.session["auth_version"] = restored.current_user.auth_version
-                        request.session["session_generation"] = current_generation
-                        request.session["session_expires_at"] = int(
-                            time.time() + base_settings.session_hours * 60 * 60
-                        )
-                        request.state.current_user = restored.current_user
-                        request.state.remember_cookie_replacement = (
-                            restored.replacement_cookie
-                        )
-                    else:
-                        request.state.remember_cookie_delete = True
-            public = request.url.path in {"/login", "/health"} or request.url.path.startswith("/static/")
-            if not public and request.state.current_user is None:
-                response = RedirectResponse("/login", status_code=303)
-                response.headers["X-Request-ID"] = request_id
-                response.headers["X-Correlation-ID"] = correlation_id
-                return apply_remember_cookie(request, response)
+                # An unsafe request cannot create its own ambient authorization.
+                # Browser cookies are Strict and cross-origin requests are rejected
+                # by the outer origin guard. A local GET must establish the session.
+                if request.method in UNSAFE_HTTP_METHODS:
+                    return PlainTextResponse("Abra o ERP novamente para continuar.", status_code=403)
+                request.session["installation_session_generation"] = app.state.local_session_generation
+                request.session["installation_database_generation"] = database_generation
+                request.session["installation_session_expires_at"] = int(time.time()) + 12 * 60 * 60
+                request.session["observability_session"] = session_ref
             module_name = request.url.path.split("/")[1] or "erp"
             actor_id = getattr(request.state.current_user, "id", None)
             if request.method in UNSAFE_HTTP_METHODS:
@@ -545,7 +493,17 @@ def create_app(
                     sync_required=False,
                 )
             try:
-                response = await call_next(request)
+                from app.services.administration_context import bind_administration_request
+                from app.services.admin_lock import clear_admin_unlock
+                # Operational navigation leaves the administrative area. Do not
+                # clear the grant for administrative catalog aliases or background APIs.
+                if request.method == "GET" and (
+                    request.url.path in {"/", "/caixa/operacoes", "/caixa/novo-lancamento", "/servicos/catalogo", "/caixa/resumo", "/caixa/historico", "/caixa/relatorios"}
+                    or request.url.path.startswith(("/clientes/", "/servicos/notas", "/servicos/nova-nota", "/caixa/movimentos/"))
+                ):
+                    clear_admin_unlock(request)
+                with bind_administration_request(request):
+                    response = await call_next(request)
             except Exception as exc:
                 try:
                     monitor.record(
@@ -608,7 +566,10 @@ def create_app(
 
     @app.middleware("http")
     async def enforce_local_request_security(request: Request, call_next):
-        if request.method in UNSAFE_HTTP_METHODS and not _same_origin(request):
+        if request.method in UNSAFE_HTTP_METHODS and (
+            not _same_origin(request)
+            or request.headers.get("sec-fetch-site", "").lower() in {"cross-site", "same-site"}
+        ):
             request_id = str(uuid4())
             correlation_id = str(uuid4())
             response = PlainTextResponse("Solicitação local inválida.", status_code=403)
@@ -666,7 +627,7 @@ def create_app(
     mimetypes.add_type("text/javascript", ".js")
     mimetypes.add_type("text/css", ".css")
     app.mount("/static", StaticFiles(directory=ROOT_DIR / "static"), name="static")
-    app.include_router(auth_router)
+    # Operational authentication routes are deliberately not registered.
     app.include_router(cash_router)
     app.include_router(customers_router)
     # As rotas literais de Notas precisam preceder /servicos/{service_id}.
@@ -690,7 +651,7 @@ def create_app(
     @app.exception_handler(403)
     async def forbidden(request: Request, _exception):
         if request.state.current_user is None:
-            return RedirectResponse("/login", status_code=303)
+            return PlainTextResponse("Acesso local indisponivel.", status_code=403)
         with factory() as session:
             context = navigation_context(request, session, page_title="Acesso restrito")
             return templates.TemplateResponse(request, "errors/403.html", context, status_code=403)

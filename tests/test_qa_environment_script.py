@@ -55,6 +55,9 @@ def _create_identity_database(path: Path) -> Path:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE outbox_items (id TEXT PRIMARY KEY, event_type TEXT NOT NULL);
+            INSERT INTO outbox_items VALUES('old-profile', 'company_profile');
+            INSERT INTO outbox_items VALUES('preserved-event', 'diagnostic_event');
             """
         )
         connection.executemany(
@@ -210,6 +213,7 @@ def test_prepare_identity_uses_fictitious_profile_and_deactivates_other_users(
             "SELECT email,active FROM users WHERE id<>1 ORDER BY id"
         ).fetchall()
         settings = dict(connection.execute("SELECT key,value FROM settings"))
+        assert connection.execute("SELECT id FROM outbox_items").fetchall() == [("preserved-event",)]
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 

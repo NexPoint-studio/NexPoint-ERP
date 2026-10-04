@@ -58,6 +58,7 @@ SUPPORTED_SCHEMA_VERSIONS = (
     "0013_offline_finance_admin",
     "0014_functional_ux_recovery",
     "0015_remember_sessions",
+    "0016_installation_access",
 )
 LATEST_SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSIONS[-1]
 
@@ -1505,6 +1506,12 @@ def _apply_pending_migrations(connection: Connection, versions: Table) -> set[st
             insert(versions).values(version="0015_remember_sessions", applied_at=now())
         )
         applied.add("0015_remember_sessions")
+
+    if "0016_installation_access" not in applied:
+        # The serialized bootstrap creates the technical actor without changing
+        # any historical authorship. Versioning ensures a pre-migration PROD backup.
+        connection.execute(insert(versions).values(version="0016_installation_access", applied_at=now()))
+        applied.add("0016_installation_access")
 
     _assert_phase_two_schema(connection, applied)
     _assert_phase_three_schema(connection, applied)

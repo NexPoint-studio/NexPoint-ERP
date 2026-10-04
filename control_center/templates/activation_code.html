@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-heading"><div><p class="eyebrow">INSTALAÇÃO</p><h1>Ativar este computador</h1><p>Código temporário para uma empresa e um computador.</p></div></header>
+<section class="panel">
+{% if issued %}
+  <h2>Código emitido</h2>
+  <p>{{ issued.company_name }} · {{ issued.installation_key }}</p>
+  <p>Copie e entregue por um canal privado ao responsável. Este código é mostrado somente agora.</p>
+  <p><code>{{ issued.activation_code }}</code></p>
+  <p>Expira em {{ issued.expires_at }}. A ativação exige internet; depois o ERP abre diretamente.</p>
+  <form action="/ativacoes/{{ issued.id }}/revogar" method="post"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="button button--secondary" type="submit">Revogar este código</button></form>
+{% else %}
+  <form action="/ativacoes" method="post">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Identificador da empresa<input name="tenant_key" maxlength="80" required></label>
+    <label>Identificador do computador<input name="installation_key" maxlength="120" required></label>
+    <label>Nome do computador<input name="label" maxlength="160" required></label>
+    <label>Validade em horas<input name="hours" type="number" min="1" max="168" value="24" required></label>
+    <button type="submit" class="button">Gerar código de ativação</button>
+  </form>
+{% endif %}
+</section>
+{% if codes %}<section class="panel table-wrap"><h2>Autorizações emitidas</h2>
+<p>Os códigos não são armazenados. Revogue uma autorização pendente se ela não for mais necessária.</p>
+<table><thead><tr><th>Empresa</th><th>Computador</th><th>Expiração</th><th>Estado</th></tr></thead><tbody>
+{% for row in codes %}<tr><td>{{ row.company_name }}</td><td>{{ row.installation_label }}</td><td>{{ row.expires_at }}</td><td>
+{% if row.revoked_at %}Revogada{% elif row.consumed_at %}Utilizada{% else %}
+<form action="/ativacoes/{{ row.id }}/revogar" method="post"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button type="submit" class="button button--secondary">Revogar</button></form>
+{% endif %}</td></tr>{% endfor %}
+</tbody></table></section>{% endif %}
+{% endblock %}

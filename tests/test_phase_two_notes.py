@@ -479,18 +479,10 @@ def test_status_flow_freezes_ready_delay_and_rejects_arbitrary_transitions(clien
         ]
 
 
-def test_cancel_requires_permission_reason_and_makes_note_immutable(client, app):
+def test_cancel_requires_reason_and_makes_note_immutable(client, app):
     customer_id, services = phase_two_records(client, app)
     response = create_note(client, customer_id, services, ["1"])
     created_id = note_id(response)
-    assert login(client, "usuario@local").status_code == 303
-    denied = client.post(
-        f"/servicos/notas/{created_id}/cancelar",
-        data={"reason": "Tentativa sem permissão", "revision": "1"},
-        follow_redirects=False,
-    )
-    assert denied.status_code == 403
-    assert login(client, "admin@local").status_code == 303
     missing_reason = client.post(
         f"/servicos/notas/{created_id}/cancelar",
         data={"reason": "   ", "revision": "1"},
@@ -603,56 +595,6 @@ def test_stale_revision_returns_conflict_for_edit_status_and_cancel(client, app)
         assert note.operational_status == "EM_ANDAMENTO"
         assert note.notes == "Primeira edição"
         assert note.items[0].quantity == Decimal("1.000")
-
-
-def test_standard_user_note_permissions_and_delivery_denial(client, app, tmp_path):
-    customer_id, services = phase_two_records(client, app)
-    created = create_note(client, customer_id, services, ["1"])
-    created_id = note_id(created)
-    assert login(client, "usuario@local").status_code == 303
-    assert client.get("/servicos/notas").status_code == 200
-    assert client.get("/servicos/nova-nota").status_code == 200
-    assert client.get(f"/servicos/notas/{created_id}/editar").status_code == 200
-    assert client.post(
-        f"/servicos/notas/{created_id}/cancelar",
-        data={"reason": "Sem concessão", "revision": "1"},
-        follow_redirects=False,
-    ).status_code == 403
-
-
-def test_post_routes_enforce_each_note_permission(client, app):
-    customer_id, services = phase_two_records(client, app)
-    created = create_note(client, customer_id, services, ["1"])
-    created_id = note_id(created)
-    with app.state.session_factory() as session:
-        user = session.scalar(select(User).where(User.email == "usuario@local"))
-        role = Role(code="note_denied", name="Sem acesso a Notas", permissions=[])
-        user.roles = [role]
-        session.commit()
-    assert login(client, "usuario@local").status_code == 303
-    assert client.get("/servicos/notas").status_code == 403
-    assert client.post(
-        "/servicos/nova-nota",
-        data=note_form(customer_id, services, ["1"], number="NEGADO"),
-        follow_redirects=False,
-    ).status_code == 403
-    assert client.post(
-        f"/servicos/notas/{created_id}/editar",
-        data={"notes": "sem permissão"},
-        follow_redirects=False,
-    ).status_code == 403
-    assert client.post(
-        f"/servicos/notas/{created_id}/status",
-        data={"target_status": "EM_ANDAMENTO"},
-        follow_redirects=False,
-    ).status_code == 403
-    assert client.post(
-        f"/servicos/notas/{created_id}/cancelar",
-        data={"reason": "sem permissão"},
-        follow_redirects=False,
-    ).status_code == 403
-    with app.state.session_factory() as session:
-        assert session.get(ServiceNote, created_id).operational_status == "RECEBIDO"
 
 
 def test_note_pages_render_catalog_units_list_filters_and_detail(client, app):

@@ -77,6 +77,8 @@ def collect_system_information(
         or _safe_release_value(persisted_settings.get("app.version"))
         or installed
     )
+    if getattr(sys, "frozen", False):
+        installed = configured  # Frozen builds derive version from the approved manifest.
     build = _safe_release_value(getattr(settings, "build", ""))
     raw_environment = str(getattr(settings, "environment", "local") or "local").strip().lower()
     environment = {

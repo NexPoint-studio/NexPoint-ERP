@@ -210,7 +210,7 @@ def test_prod_admin_lock_never_falls_back_to_local_repository(monkeypatch):
         settings=SimpleNamespace(environment="production"),
         admin_recovery_remote=Remote(),
     )))
-    monkeypatch.setattr(route_module, "client_support_identity", lambda *_args: identity)
+    monkeypatch.setattr(route_module, "client_support_identity", lambda *_args, **_kwargs: identity)
     monkeypatch.setattr(
         route_module,
         "ensure_control_center_repository",

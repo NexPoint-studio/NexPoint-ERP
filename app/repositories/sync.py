@@ -15,7 +15,7 @@ from app.observability.context import current_correlation_id, emit_observability
 from control_center.sanitization import sanitize_sync_payload
 
 
-OUTBOX_EVENT_TYPES = frozenset({"support_ticket", "health", "heartbeat", "risk", "incident", "diagnostic_event"})
+OUTBOX_EVENT_TYPES = frozenset({"support_ticket", "health", "heartbeat", "risk", "incident", "diagnostic_event", "company_profile"})
 
 
 def _utc(value: datetime | None = None) -> datetime:

@@ -1,6 +1,3 @@
-import { Buffer } from "node:buffer";
-import { scrypt, timingSafeEqual } from "node:crypto";
-
 export interface ActivationEnvironmentReader {
   get(name: string): string | undefined;
 }
@@ -11,11 +8,6 @@ const runtimeEnvironment: ActivationEnvironmentReader = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const IDENTIFIER = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{7,119}$/;
 const MAX_BODY = 4096;
-// Synthetic, fixed-work verifier used for absent/unauthorized accounts. It is
-// never accepted as an authorization and never stored in a grant.
-const DUMMY_HASH = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-const SCRYPT_HASH = /^scrypt\$16384\$8\$1\$[A-Za-z0-9_-]{22}==\$[A-Za-z0-9_-]{43}=$/;
-
 class ActivationError extends Error {
   constructor(readonly code: string, readonly status: number) {
     super(code);
@@ -23,9 +15,8 @@ class ActivationError extends Error {
 }
 
 interface ActivationRequest {
-  schema_version: 1;
-  username: string;
-  password: string;
+  schema_version: 2;
+  activation_code: string;
   tenant_key: string;
   installation_key: string;
   environment: "prod";
@@ -77,16 +68,13 @@ async function readBody(request: Request): Promise<ActivationRequest> {
     throw new ActivationError("invalid_payload", 400);
   }
   const keys = [
-    "schema_version", "username", "password", "tenant_key", "installation_key",
+    "schema_version", "activation_code", "tenant_key", "installation_key",
     "environment", "request_id", "key_id", "secret_digest",
   ];
   if (
     Object.keys(value).length !== keys.length || keys.some((key) => !(key in value)) ||
-    value.schema_version !== 1 || value.environment !== "prod" ||
-    typeof value.username !== "string" ||
-    !/^[a-z0-9][a-z0-9_.@+-]{2,159}$/.test(value.username) ||
-    typeof value.password !== "string" || [...value.password].length < 8 ||
-    [...value.password].length > 256 || value.password.includes("\0") ||
+    value.schema_version !== 2 || value.environment !== "prod" ||
+    typeof value.activation_code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.activation_code) ||
     typeof value.tenant_key !== "string" || value.tenant_key.length > 80 ||
     !IDENTIFIER.test(value.tenant_key) ||
     typeof value.installation_key !== "string" || !IDENTIFIER.test(value.installation_key) ||
@@ -95,23 +83,6 @@ async function readBody(request: Request): Promise<ActivationRequest> {
     typeof value.secret_digest !== "string" || !/^[0-9a-f]{64}$/.test(value.secret_digest)
   ) throw new ActivationError("invalid_payload", 400);
   return value as unknown as ActivationRequest;
-}
-
-// Identical parameters/encoding to app/core/security.py; no caller-controlled
-// KDF cost, no downgrade, and constant-time comparison of the derived bytes.
-export async function verifyActivationPassword(password: string, encoded: string): Promise<boolean> {
-  const match = /^scrypt\$16384\$8\$1\$([A-Za-z0-9_-]{22}==)\$([A-Za-z0-9_-]{43}=)$/.exec(encoded);
-  if (!match) return false;
-  const salt = Buffer.from(match[1], "base64url");
-  const expected = Buffer.from(match[2], "base64url");
-  if (salt.length !== 16 || expected.length !== 32) return false;
-  const derived = await new Promise<Buffer>((resolve, reject) => {
-    scrypt(password, salt, 32, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }, (error, key) => {
-      if (error) reject(error);
-      else resolve(key);
-    });
-  });
-  return timingSafeEqual(derived, expected);
 }
 
 function configuredBackend(reader: ActivationEnvironmentReader): { base: URL; key: string } {
@@ -194,57 +165,33 @@ export async function handleErpActivation(
     const body = await readBody(request);
     requestId = body.request_id;
     const backend = configuredBackend(reader);
-    const scope = {
-      p_username: body.username, p_tenant_key: body.tenant_key,
-      p_installation_key: body.installation_key, p_environment: body.environment,
-    };
-    const prepared = await rpc(backend, fetcher, "np_prepare_installation_activation", scope, requestId);
-    if (prepared.ok !== true) {
-      if (prepared.code === "unauthorized") await verifyActivationPassword(body.password, DUMMY_HASH);
-      throw remoteError(prepared);
-    }
-    if (
-      typeof prepared.grant_id !== "string" || !UUID.test(prepared.grant_id) ||
-      typeof prepared.auth_version !== "string" || !UUID.test(prepared.auth_version) ||
-      typeof prepared.password_hash !== "string"
-    ) throw new ActivationError("service_unavailable", 503);
-    if (!await verifyActivationPassword(body.password, prepared.password_hash)) {
-      throw new ActivationError("unauthorized", 401);
-    }
-    const completed = await rpc(backend, fetcher, "np_complete_installation_activation", {
-      ...scope, p_grant_id: prepared.grant_id, p_auth_version: prepared.auth_version,
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body.activation_code)));
+    const completed = await rpc(backend, fetcher, "np_consume_installation_code", {
+      p_code_digest: [...digest].map((v) => v.toString(16).padStart(2, "0")).join(""),
+      p_tenant_key: body.tenant_key, p_installation_key: body.installation_key,
       p_request_id: body.request_id, p_key_id: body.key_id, p_secret_digest: body.secret_digest,
     }, requestId);
     if (completed.ok !== true) throw remoteError(completed);
     if (
-      completed.schema_version !== 1 || completed.request_id !== body.request_id ||
+      completed.schema_version !== 2 || completed.request_id !== body.request_id ||
       completed.tenant_key !== body.tenant_key || completed.installation_key !== body.installation_key ||
-      completed.username !== body.username || completed.key_id !== body.key_id ||
-      completed.environment !== "prod" || completed.role !== "user" ||
+      completed.key_id !== body.key_id || completed.environment !== "prod" ||
       !["internal", "customer"].includes(String(completed.tenant_kind)) ||
-      typeof completed.owner_username !== "string" ||
-      !/^[a-z0-9][a-z0-9_.@+-]{2,159}$/.test(completed.owner_username) ||
-      [body.username, "nexpoint-admin"].includes(completed.owner_username) ||
-      typeof completed.owner_password_hash !== "string" || !SCRYPT_HASH.test(completed.owner_password_hash) ||
-      ["company_name", "installation_label", "display_name", "owner_display_name"].some((key) =>
+      ["company_name", "installation_label"].some((key) =>
         typeof completed[key] !== "string" || (completed[key] as string).length < 1 ||
-        (completed[key] as string).length > 160 || /[\u0000-\u001f\u007f]/.test(completed[key] as string)
+        (completed[key] as string).length > (key === "company_name" ? 180 : 160) || /[\u0000-\u001f\u007f]/.test(completed[key] as string)
       )
     ) throw new ActivationError("service_unavailable", 503);
-    // Explicit projection: only the authorized local owner verifier is exported;
-    // no operator hash, plaintext password or administrative cloud key is echoed.
     return response(200, requestId, {
-      schema_version: 1, ok: true, request_id: requestId,
+      schema_version: 2, ok: true, request_id: requestId,
       tenant_key: completed.tenant_key, tenant_kind: completed.tenant_kind,
       installation_key: completed.installation_key, environment: "prod",
       company_name: completed.company_name, installation_label: completed.installation_label,
-      key_id: completed.key_id, username: completed.username, display_name: completed.display_name,
-      role: "user", owner_username: completed.owner_username,
-      owner_display_name: completed.owner_display_name, owner_password_hash: completed.owner_password_hash,
+      key_id: completed.key_id,
     });
   } catch (error) {
     const known = error instanceof ActivationError ? error : new ActivationError("internal_error", 500);
     // Never log request bodies, hashes, passwords, backend messages or headers.
-    return response(known.status, requestId, { schema_version: 1, ok: false, code: known.code });
+    return response(known.status, requestId, { schema_version: 2, ok: false, code: known.code });
   }
 }

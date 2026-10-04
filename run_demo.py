@@ -467,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
             f"Schema: {validated.snapshot.schema_version} | "
             f"SHA-256: {validated.snapshot.sha256}"
         )
-        print(f"Login demo: {DEMO_OWNER_LOGIN}")
+        print("Abertura direta do ambiente demonstrativo validada.")
         return 0
     run_demo()
     return 0

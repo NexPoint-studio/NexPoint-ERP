@@ -41,7 +41,7 @@ from app.services.cash_validation import (
     parse_money,
     resolve_period,
 )
-from tests.conftest import TEST_CREDENTIALS, login
+from tests.conftest import TEST_CREDENTIALS, login, protect_administration
 
 
 TIMEZONE = "America/Sao_Paulo"
@@ -791,45 +791,6 @@ def test_rendered_cash_pages_empty_state_and_invalid_custom_period(client):
     assert invalid.status_code == 422
 
 
-def test_anonymous_and_standard_user_cash_permissions(client, app):
-    movement_id = _create_movement(
-        app,
-        occurred_at=datetime.now(ZONE).replace(second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M"),
-    )
-    protected = (
-        "/caixa/resumo",
-        "/caixa/novo-lancamento",
-        "/caixa/historico",
-        "/caixa/relatorios",
-        f"/caixa/movimentos/{movement_id}",
-    )
-    for path in protected:
-        assert client.get(path, follow_redirects=False).status_code == 303
-
-    login(client, "usuario@local")
-    assert client.get("/caixa/operacoes").status_code == 200
-    assert client.get("/caixa/novo-lancamento").status_code == 200
-    assert client.get("/caixa/resumo").status_code == 403
-    assert client.get("/caixa/historico").status_code == 403
-    assert client.get(f"/caixa/movimentos/{movement_id}").status_code == 404
-    assert client.post("/caixa/novo-lancamento", data=_cash_form(), follow_redirects=False).status_code == 303
-    with app.state.session_factory() as session:
-        user_id = _user_id(app, "usuario@local")
-        own_movement_id = session.scalar(
-            select(CashMovement.id)
-            .where(CashMovement.created_by == user_id)
-            .order_by(CashMovement.id.desc())
-        )
-    assert client.get(f"/caixa/movimentos/{own_movement_id}").status_code == 200
-    assert client.get("/caixa/relatorios").status_code == 403
-    assert client.get(f"/caixa/movimentos/{movement_id}/editar").status_code == 403
-    assert client.post(f"/caixa/movimentos/{movement_id}/editar", data=_cash_form()).status_code == 403
-    assert client.post(f"/caixa/movimentos/{movement_id}/cancelar", data={"reason": "Negado"}).status_code == 403
-    assert client.post("/caixa/categorias", data={
-        "name": "Negada", "movement_type": "BOTH", "sort_order": "0", "is_active": "1",
-    }).status_code == 403
-
-
 def test_admin_can_edit_cancel_manage_categories_and_view_reports(client, app):
     movement_id = _create_movement(app)
     login(client, "admin@local")
@@ -896,28 +857,6 @@ def test_success_messages_are_signed_one_time_session_flashes(client, app):
     category_confirmation = client.get(created.headers["location"])
     assert "Categoria salva com sucesso" in category_confirmation.text
     assert "Categoria salva com sucesso" not in client.get(created.headers["location"]).text
-
-
-def test_delivery_is_blocked_from_every_cash_operation(tmp_path):
-    credentials = {**TEST_CREDENTIALS, "delivery@local": "senha-entrega"}
-    app = create_app(
-        database_url=f"sqlite+pysqlite:///{(tmp_path / 'delivery-cash.sqlite3').as_posix()}",
-        credentials=credentials,
-    )
-    with TestClient(app) as client:
-        login(client, "delivery@local", "senha-entrega")
-        for path in (
-            "/caixa/resumo",
-            "/caixa/novo-lancamento",
-            "/caixa/historico",
-            "/caixa/relatorios",
-        ):
-            assert client.get(path).status_code == 403
-        assert client.post("/caixa/novo-lancamento", data=_cash_form()).status_code == 403
-        assert client.post("/caixa/categorias", data={
-            "name": "Negada", "movement_type": "BOTH", "sort_order": "0", "is_active": "1",
-        }).status_code == 403
-        assert ">Caixa<" not in client.get("/clientes/lista").text
 
 
 def test_custom_user_permission_survives_database_reinitialization(tmp_path):

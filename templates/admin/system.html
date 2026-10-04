@@ -1,6 +1,6 @@
 {% extends "layout/base.html" %}
 {% block content %}
-<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › EMPRESA</p><h1>Sistema local</h1><p>Versão, banco e manutenção administrativa sem conexão externa.</p></header>
+<header class="page-header"><p class="eyebrow">ADMINISTRAÇÃO › SISTEMA</p><h1>Sistema local</h1><p>Versão, atualizações e manutenção dos dados deste computador.</p></header>
 {% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}">{{ flash.message }}</div>{% endif %}
 {% if system_error %}<div class="alert alert--error">{{ system_error }}</div>{% endif %}
 
@@ -10,7 +10,7 @@
     <div><dt>Produto</dt><dd>{{ information.product_name }}</dd></div>
     <div><dt>Aplicativo</dt><dd>{{ information.app_name }}</dd></div>
     <div><dt>Versão instalada</dt><dd>{{ information.installed_version }}</dd></div>
-    <div><dt>Canal configurado</dt><dd>{{ information.configured_version }}</dd></div>
+    <div><dt>Versão configurada</dt><dd>{{ information.configured_version }}</dd></div>
     <div><dt>Build</dt><dd>{{ information.build or 'Não informado' }}</dd></div>
     <div><dt>Ambiente</dt><dd>{{ information.environment }}</dd></div>
     <div><dt>Execução</dt><dd>{{ information.execution_mode }}</dd></div>
@@ -24,13 +24,29 @@
 <section class="panel section-block">
   <div class="section-heading"><div><span class="section-kicker">Atualização</span><h2>{{ information.update.label }}</h2><p>{{ information.update.message }}</p></div></div>
   {% if information.update.available_version %}<p>Versão disponível: <strong>{{ information.update.available_version }}</strong></p>{% endif %}
+  {% if update_details %}
+    <p>Canal de atualização: {{ update_details.update_channel or 'Aguardando consulta' }}</p>
+    {% if update_details.release %}<p class="release-notes">{{ update_details.release.release_notes }}</p>{% endif %}
+    {% if 'support' not in current_user.roles %}
+    {% if information.update.code not in ('CHECKING','DOWNLOADING','INSTALLING','RESTARTING') %}
+    <form method="post" action="/admin/sistema/atualizacoes/verificar"><button class="button button--secondary" type="submit">Verificar atualizações</button></form>
+    {% endif %}
+    {% if information.update.code == 'AVAILABLE' %}
+    <form method="post" action="/admin/sistema/atualizacoes/baixar"><button class="button button--primary" type="submit">Baixar atualização</button> <a class="button button--secondary" href="/clientes/lista">Depois</a></form>
+    {% elif information.update.code == 'READY' %}
+    <form method="post" action="/admin/sistema/atualizacoes/instalar" class="form-stack">
+      <label><input type="checkbox" name="confirmation" value="atualizar" required> Salvei meu trabalho e autorizo fechar e atualizar o ERP.</label>
+      <button class="button button--primary" type="submit">Atualizar agora</button>
+    </form>
+    {% elif information.update.code in ('CHECKING','DOWNLOADING') %}<p><a href="/admin/sistema">Conferir andamento</a></p>{% endif %}
+    {% endif %}
+  {% endif %}
 </section>
 
 {% if current_user.can('admin.backups.manage') %}
 <section class="panel section-block">
   <div class="section-heading"><div><span class="section-kicker">Cópia local consistente</span><h2>Backup e exportação</h2><p>A cópia inclui os dados operacionais e configurações persistidas no banco. Segredos do ambiente não são incluídos.</p></div></div>
   <form method="post" action="/admin/sistema/backups" class="form-stack">
-    <label class="field">Senha atual *<input type="password" name="password" maxlength="1024" autocomplete="current-password" required></label>
     <div class="form-actions"><button class="button button--primary" type="submit">Gerar backup verificado</button></div>
   </form>
   <div class="table-shell"><table><thead><tr><th>Data</th><th>Arquivo</th><th>Schema</th><th>Tamanho</th><th>Ação</th></tr></thead><tbody>
@@ -40,23 +56,21 @@
 </section>
 {% endif %}
 
-{% if current_user.can('admin.restore') and 'admin' in current_user.roles %}
+{% if current_user.can('admin.restore') %}
 <section class="panel section-block">
   {% if restore_disabled %}
   <div class="section-heading"><div><span class="section-kicker">Proteção do ambiente demo</span><h2>Restauração desativada</h2><p>O banco persistente da demonstração não pode ser substituído por esta tela. Validações de restauração devem usar uma cópia isolada.</p></div></div>
   {% else %}
-  <div class="section-heading"><div><span class="section-kicker">Operação exclusiva do Proprietário</span><h2>Restauração</h2><p>O arquivo é validado e preparado agora. A troca do banco ocorre somente no próximo início, antes de o ERP abrir conexões.</p></div></div>
+  <div class="section-heading"><div><span class="section-kicker">Recuperação de dados</span><h2>Restauração</h2><p>O arquivo é validado e preparado agora. A troca do banco ocorre somente no próximo início, antes de o ERP abrir conexões.</p></div></div>
   {% if pending_restore %}
     <div class="alert alert--success">A restauração {{ pending_restore.operation_id }} está pronta. Feche e abra o ERP para aplicá-la.</div>
     <dl class="details-list"><div><dt>Solicitada em</dt><dd>{{ pending_restore.requested_at }}</dd></div><div><dt>Schema de origem</dt><dd>{{ pending_restore.source_schema_version }}</dd></div><div><dt>Schema preparado</dt><dd>{{ pending_restore.target_schema_version }}</dd></div><div><dt>Estado</dt><dd>{{ pending_restore.status }}</dd></div></dl>
     <form method="post" action="/admin/sistema/restauracao/cancelar" class="form-stack" data-confirm="Cancelar a restauração preparada? O banco atual continuará em uso.">
-      <label class="field">Senha atual *<input type="password" name="password" maxlength="1024" autocomplete="current-password" required></label>
       <div class="form-actions"><button class="button button--danger" type="submit">Cancelar restauração pendente</button></div>
     </form>
   {% else %}
     <form method="post" action="/admin/sistema/restauracao" enctype="multipart/form-data" class="form-stack">
       <label class="field">Backup SQLite *<input type="file" name="backup_file" accept=".sqlite3,application/vnd.sqlite3" required></label>
-      <label class="field">Senha atual *<input type="password" name="password" maxlength="1024" autocomplete="current-password" required></label>
       <label class="field">Confirmação *<input name="confirmation" maxlength="10" autocomplete="off" placeholder="RESTAURAR" required><small class="form-hint">Digite RESTAURAR exatamente como exibido.</small></label>
       <div class="form-actions"><button class="button button--danger" type="submit">Validar e preparar restauração</button></div>
     </form>

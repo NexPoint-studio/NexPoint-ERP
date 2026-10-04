@@ -89,7 +89,7 @@ def _render_system(
     backups = service.list_backups(actor_id=actor.id) if actor.can(BACKUP_PERMISSION) else []
     pending = (
         service.pending_restore()
-        if not restore_disabled and actor.can(RESTORE_PERMISSION) and "admin" in actor.roles
+        if not restore_disabled and actor.can(RESTORE_PERMISSION)
         else None
     )
     with request.app.state.session_factory() as session:
@@ -101,6 +101,7 @@ def _render_system(
             persisted_settings=persisted,
             database_path=Path(request.app.state.database_path),
             schema_version=snapshot.schema_version,
+            update_provider=getattr(request.app.state, "update_manager", None),
         )
         context = navigation_context(
             request,
@@ -115,6 +116,8 @@ def _render_system(
             restore_disabled=restore_disabled,
             flash=_take_flash(request),
             system_error=error,
+            update_details=(request.app.state.update_manager.snapshot()
+                            if getattr(request.app.state, "update_manager", None) is not None else None),
         )
         return templates.TemplateResponse(
             request,
@@ -148,6 +151,32 @@ async def create_backup(request: Request):
         return _render_system(request, error=str(error), status_code=_status_for(error))
     _flash(request, "success", f"Backup {record.filename} criado e verificado.")
     return RedirectResponse("/admin/sistema", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post("/atualizacoes/{action}")
+async def update_action(request: Request, action: str):
+    require_permission(request, "admin.system.view")
+    if "support" in request.state.current_user.roles:
+        raise HTTPException(status_code=403)
+    manager = getattr(request.app.state, "update_manager", None)
+    if manager is None or action not in {"verificar", "baixar", "instalar"}:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    _require_fields(form, {"confirmation"} if action == "instalar" else set())
+    if action == "instalar":
+        if form.get("confirmation") != "atualizar":
+            raise HTTPException(status_code=422, detail="Salve seu trabalho e confirme a atualização.")
+        begin = getattr(request.app.state, "begin_update", None)
+        if begin is None:
+            raise HTTPException(status_code=409, detail="Use o aplicativo desktop para instalar a atualização.")
+        from app.updates.contracts import UpdateValidationError
+        try:
+            await run_in_threadpool(begin)
+        except UpdateValidationError as error:
+            return _render_system(request, error=str(error), status_code=409)
+    else:
+        manager.request("check" if action == "verificar" else "download")
+    return RedirectResponse("/admin/sistema", status_code=303)
 
 
 @router.get("/backups/{backup_id}/download")

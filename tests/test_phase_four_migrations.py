@@ -131,11 +131,11 @@ def _support_insert_sql(*, values: str) -> str:
     )
 
 
-def test_fresh_database_has_current_schema_and_fifteen_versions(tmp_path):
+def test_fresh_database_has_current_schema_and_sixteen_versions(tmp_path):
     engine = _initialized_engine(tmp_path / "fresh.sqlite3")
     assert PHASE_FOUR_VERSION in SUPPORTED_SCHEMA_VERSIONS
-    assert LATEST_SCHEMA_VERSION == "0015_remember_sessions"
-    assert len(SUPPORTED_SCHEMA_VERSIONS) == 15
+    assert LATEST_SCHEMA_VERSION == "0016_installation_access"
+    assert len(SUPPORTED_SCHEMA_VERSIONS) == 16
 
     with engine.connect() as connection:
         assert tuple(connection.exec_driver_sql(
@@ -174,13 +174,13 @@ def test_phase_four_upgrade_preserves_every_phase_three_row(tmp_path):
     with engine.connect() as connection:
         assert connection.exec_driver_sql(
             "select auth_version from users order by id"
-        ).all() == [(1,)]
+        ).all() == [(1,)] * len(before["users"])
         assert connection.exec_driver_sql(
             "select count(*) from support_grants"
         ).scalar_one() == 0
         assert connection.exec_driver_sql(
             "select count(*) from schema_migrations"
-        ).scalar_one() == 15
+        ).scalar_one() == 16
         assert connection.exec_driver_sql("pragma foreign_key_check").all() == []
         assert connection.exec_driver_sql("pragma integrity_check").scalar_one() == "ok"
     engine.dispose()

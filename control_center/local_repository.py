@@ -13,6 +13,9 @@ import re
 import secrets
 import sqlite3
 from typing import Iterator, Sequence
+from uuid import uuid4
+
+from control_center.releases import release_record, validate_release_metadata
 
 from control_center.security import hash_password, verify_password
 from control_center.domain import (
@@ -74,7 +77,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROL_CENTER_DATABASE = (ROOT_DIR / "data" / "control_center.sqlite3").resolve()
 OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "erp.sqlite3").resolve()
 DEMO_OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "demo_2_anos.sqlite3").resolve()
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "10"
 _DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -124,10 +127,63 @@ _CONTROL_CENTER_TABLES = frozenset({
     "sync_receipts",
     "diagnostic_events",
     "qa_test_runs",
+    "release_catalog",
+    "release_catalog_events",
+    "company_profile_sources", "company_profiles", "company_profile_receipts",
+    "installation_activation_codes",
+    "installation_activation_events",
 })
 
 
 _SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS installation_activation_events (
+        id TEXT PRIMARY KEY, code_id TEXT NOT NULL REFERENCES installation_activation_codes(id),
+        actor_id TEXT NOT NULL REFERENCES platform_users(id),
+        action TEXT NOT NULL CHECK(action IN ('issued','revoked')), created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS installation_activation_codes (
+        id TEXT PRIMARY KEY, code_digest TEXT NOT NULL UNIQUE,
+        tenant_id TEXT NOT NULL REFERENCES tenants(id), installation_key TEXT NOT NULL,
+        installation_label TEXT NOT NULL, company_name TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES platform_users(id), created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL, revoked_at TEXT, consumed_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS company_profile_sources (
+        tenant_id TEXT PRIMARY KEY REFERENCES tenants(id),
+        installation_id TEXT NOT NULL REFERENCES installations(id))""",
+    """CREATE TABLE IF NOT EXISTS company_profiles (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id),
+        installation_id TEXT PRIMARY KEY REFERENCES installations(id),
+        revision INTEGER NOT NULL, name TEXT NOT NULL, trade_name TEXT NOT NULL,
+        payload_hash TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS company_profile_receipts (
+        installation_id TEXT NOT NULL REFERENCES installations(id),
+        revision INTEGER NOT NULL, payload_hash TEXT NOT NULL,
+        PRIMARY KEY(installation_id,revision))""",
+
+    """
+    CREATE TABLE IF NOT EXISTS release_catalog (
+        id TEXT PRIMARY KEY,
+        sequence INTEGER NOT NULL UNIQUE,
+        version TEXT NOT NULL,
+        update_channel TEXT NOT NULL CHECK(update_channel IN ('stable','beta','internal')),
+        status TEXT NOT NULL CHECK(status IN ('draft','verified','published','withdrawn')),
+        metadata_json TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES platform_users(id),
+        created_at TEXT NOT NULL,
+        verified_at TEXT,
+        published_at TEXT,
+        UNIQUE(version, update_channel)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS release_catalog_events (
+        id INTEGER PRIMARY KEY,
+        release_id TEXT NOT NULL REFERENCES release_catalog(id),
+        actor_id TEXT NOT NULL REFERENCES platform_users(id),
+        action TEXT NOT NULL CHECK(action IN ('created','verified','published')),
+        occurred_at TEXT NOT NULL,
+        UNIQUE(release_id, action)
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS control_center_meta (
         key TEXT PRIMARY KEY,
@@ -816,6 +872,79 @@ class LocalControlCenterRepository:
         finally:
             connection.close()
 
+    @staticmethod
+    def _require_release_admin(connection, actor_id: str) -> None:
+        actor = connection.execute("SELECT role, active FROM platform_users WHERE id = ?", (actor_id,)).fetchone()
+        if actor is None or actor["role"] != "platform_admin" or not actor["active"]:
+            raise ControlCenterValidationError("Somente platform_admin ativo pode publicar versões.")
+
+    @staticmethod
+    def _release_from_row(row) -> dict:
+        return release_record({**dict(row), **json.loads(row["metadata_json"])})
+
+    def list_releases(self) -> tuple[dict, ...]:
+        with self._read() as connection:
+            return tuple(self._release_from_row(row) for row in connection.execute(
+                "SELECT * FROM release_catalog ORDER BY sequence DESC LIMIT 100"
+            ))
+
+    def create_release(self, actor_id: str, metadata: dict) -> dict:
+        metadata = validate_release_metadata(metadata)
+        encoded = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        with self._write() as connection:
+            self._require_release_admin(connection, actor_id)
+            row = connection.execute("SELECT * FROM release_catalog WHERE version = ? AND update_channel = ?",
+                                     (metadata["version"], metadata["update_channel"])).fetchone()
+            if row is not None:
+                if row["metadata_json"] != encoded:
+                    raise ControlCenterConflictError("Essa versão já possui outros metadados.")
+                return {"ok": True, "release_id": row["id"], "status": row["status"]}
+            identifier, instant = str(uuid4()), utc_now().isoformat()
+            sequence = connection.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM release_catalog").fetchone()[0]
+            connection.execute("INSERT INTO release_catalog(id,sequence,version,update_channel,status,metadata_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                               (identifier, sequence, metadata["version"], metadata["update_channel"], "draft", encoded, actor_id, instant))
+            connection.execute("INSERT INTO release_catalog_events(release_id,actor_id,action,occurred_at) VALUES(?,?,?,?)",
+                               (identifier, actor_id, "created", instant))
+            return {"ok": True, "release_id": identifier, "status": "draft"}
+
+    def verify_release(self, actor_id: str, release_id: str, *, sha256: str, size: int) -> None:
+        with self._write() as connection:
+            self._require_release_admin(connection, actor_id)
+            row = connection.execute("SELECT * FROM release_catalog WHERE id = ?", (release_id,)).fetchone()
+            if row is None:
+                raise ControlCenterNotFoundError("Versão não encontrada.")
+            metadata = json.loads(row["metadata_json"])
+            if (row["status"] == "withdrawn" or sha256 != metadata["artifact_sha256"]
+                    or type(size) is not int or size != metadata["artifact_size"]):
+                raise ControlCenterValidationError("O arquivo verificado difere da versão cadastrada.")
+            if row["status"] == "draft":
+                instant = utc_now().isoformat()
+                connection.execute("UPDATE release_catalog SET status='verified',verified_at=? WHERE id=?", (instant, release_id))
+                connection.execute("INSERT INTO release_catalog_events(release_id,actor_id,action,occurred_at) VALUES(?,?,?,?)",
+                                   (release_id, actor_id, "verified", instant))
+
+    def publish_release(self, actor_id: str, release_id: str) -> dict:
+        from app.updates.contracts import version_parts
+        with self._write() as connection:
+            self._require_release_admin(connection, actor_id)
+            row = connection.execute("SELECT * FROM release_catalog WHERE id = ?", (release_id,)).fetchone()
+            if row is None:
+                raise ControlCenterNotFoundError("Versão não encontrada.")
+            if row["status"] not in {"verified", "published"}:
+                raise ControlCenterValidationError("Verifique o arquivo oficial antes de publicar a versão.")
+            if row["status"] != "published":
+                previous = connection.execute("SELECT sequence,version FROM release_catalog WHERE update_channel=? AND published_at IS NOT NULL",
+                                              (row["update_channel"],)).fetchall()
+                if any(old["sequence"] >= row["sequence"] or version_parts(old["version"]) >= version_parts(row["version"]) for old in previous):
+                    raise ControlCenterConflictError("Uma versão mais recente já foi publicada nesse canal.")
+                instant = utc_now().isoformat()
+                connection.execute("UPDATE release_catalog SET status='published',published_at=? WHERE id=?", (instant, release_id))
+                connection.execute("INSERT INTO release_catalog_events(release_id,actor_id,action,occurred_at) VALUES(?,?,?,?)",
+                                   (release_id, actor_id, "published", instant))
+                row = connection.execute("SELECT * FROM release_catalog WHERE id=?", (release_id,)).fetchone()
+            return {"ok": True, "release": {**json.loads(row["metadata_json"]), "schema_version": 1,
+                    "release_id": row["id"], "sequence": row["sequence"], "published_at": row["published_at"]}}
+
     def initialize(self) -> None:
         connection = self._new_connection()
         try:
@@ -918,7 +1047,7 @@ class LocalControlCenterRepository:
         """Persist one bounded event and its ACK receipt in the same transaction."""
 
         event_type = str(getattr(envelope, "event_type", ""))
-        if event_type not in {"support_ticket", "health", "heartbeat", "risk", "incident", "diagnostic_event"}:
+        if event_type not in {"support_ticket", "health", "heartbeat", "risk", "incident", "diagnostic_event", "company_profile"}:
             raise ControlCenterValidationError("Tipo de evento de sincronizacao invalido.")
         key = _identifier(getattr(envelope, "idempotency_key", ""), field="idempotency_key")
         remote_id = _identifier(getattr(envelope, "aggregate_id", ""), field="aggregate_id")
@@ -929,10 +1058,23 @@ class LocalControlCenterRepository:
         if not isinstance(raw_payload, dict):
             raise ControlCenterValidationError("Payload de sincronizacao invalido.")
         payload = sanitize_sync_payload(raw_payload)
+        if event_type == "company_profile":
+            from app.services.company_identity import validate_profile, profile_digest
+            try:
+                validate_profile(raw_payload)
+                if raw_payload != payload:
+                    raise ValueError("Perfil alterado pela sanitizacao.")
+                profile_hash = profile_digest(payload)
+            except ValueError as exc:
+                raise ControlCenterValidationError(str(exc)) from None
         tenant_id = _identifier(payload.get("tenant_id"), field="tenant_id")
         installation_id = _identifier(payload.get("installation_id"), field="installation_id")
         now = utc_now()
         with self._write() as connection:
+            if event_type == "company_profile":
+                prior = connection.execute("SELECT payload_hash FROM company_profile_receipts WHERE installation_id=? AND revision=?", (installation_id, payload["revision"])).fetchone()
+                if prior is not None and prior["payload_hash"] != profile_hash:
+                    raise ControlCenterConflictError("Revisao de perfil reutilizada com outro conteudo.")
             receipt = connection.execute(
                 "SELECT event_type, remote_id, schema_version FROM sync_receipts WHERE source_installation_id=? AND idempotency_key=?",
                 (installation_id, key),
@@ -991,7 +1133,7 @@ class LocalControlCenterRepository:
                     )
                 is_demo = int(tenant_type == "DEMO")
                 connection.execute("""INSERT INTO tenants(id,display_name,status,created_at,updated_at,erp_version,environment,last_seen_at,health_status,is_demo,tenant_type)
-                    VALUES(?,?,'active',?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name,updated_at=excluded.updated_at,erp_version=excluded.erp_version,environment=excluded.environment,last_seen_at=excluded.last_seen_at,health_status=excluded.health_status""",
+                    VALUES(?,?,'active',?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET display_name=CASE WHEN EXISTS(SELECT 1 FROM company_profile_sources WHERE tenant_id=excluded.id) THEN tenants.display_name ELSE excluded.display_name END,updated_at=excluded.updated_at,erp_version=excluded.erp_version,environment=excluded.environment,last_seen_at=excluded.last_seen_at,health_status=excluded.health_status""",
                     (tenant_id, tenant_name, _iso(now), _iso(now), version_text, environment, seen, health, is_demo, tenant_type))
                 connection.execute("""INSERT INTO installations(id,tenant_id,installation_id,version,build,environment,last_seen_at,health,platform,metadata_json,created_at,updated_at,is_demo)
                     VALUES(?,?,?,?,?,?,?,?,?,'{}',?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,build=excluded.build,environment=excluded.environment,last_seen_at=excluded.last_seen_at,health=excluded.health,updated_at=excluded.updated_at,is_demo=excluded.is_demo""",
@@ -1003,7 +1145,20 @@ class LocalControlCenterRepository:
                 installation = connection.execute("SELECT 1 FROM installations WHERE id=? AND tenant_id=?", (installation_id, tenant_id)).fetchone()
                 if installation is None:
                     raise ControlCenterNotFoundError("Instalacao do Control Center nao encontrada.")
-                if event_type == "health":
+                if event_type == "company_profile":
+                    # Select once from provisioned installations, not arrival order.
+                    connection.execute("""INSERT OR IGNORE INTO company_profile_sources(tenant_id,installation_id)
+                        SELECT ?, id FROM installations WHERE tenant_id=? ORDER BY created_at,id LIMIT 1""", (tenant_id, tenant_id))
+                    connection.execute("INSERT OR IGNORE INTO company_profile_receipts VALUES(?,?,?)", (installation_id, payload["revision"], profile_hash))
+                    current = connection.execute("SELECT revision FROM company_profiles WHERE installation_id=?", (installation_id,)).fetchone()
+                    if current is None or payload["revision"] > current["revision"]:
+                        connection.execute("""INSERT INTO company_profiles VALUES(?,?,?,?,?,?)
+                            ON CONFLICT(installation_id) DO UPDATE SET revision=excluded.revision,name=excluded.name,trade_name=excluded.trade_name,payload_hash=excluded.payload_hash""",
+                            (tenant_id, installation_id, payload["revision"], payload["name"], payload["trade_name"], profile_hash))
+                        source = connection.execute("SELECT installation_id FROM company_profile_sources WHERE tenant_id=?", (tenant_id,)).fetchone()
+                        if source["installation_id"] == installation_id:
+                            connection.execute("UPDATE tenants SET display_name=?,updated_at=? WHERE id=?", (payload["trade_name"] or payload["name"], _iso(now), tenant_id))
+                elif event_type == "health":
                     active_raw = payload.get("active_risk_fingerprints", ())
                     if not isinstance(active_raw, (list, tuple)):
                         raise ControlCenterValidationError(

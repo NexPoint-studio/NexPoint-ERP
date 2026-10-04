@@ -6,7 +6,7 @@ import json
 import pytest
 from sqlalchemy import select
 
-from tests.conftest import login
+from tests.conftest import login, protect_administration
 from app.services.nexa_adapter import safe_public_web_query
 from app.models.auth import User
 from app.routes.nexa import _public_https_source, _response_signature_hex, _safe_sources, _send_signed
@@ -137,9 +137,8 @@ def test_nexa_transport_rejects_replayed_response_on_new_nonce(monkeypatch):
         )
 
 
-def test_nexa_context_requires_login_and_does_not_expose_other_module(client):
-    assert client.get("/nexa/context?screen=/admin/auditoria", follow_redirects=False).status_code == 303
-    login(client, "usuario@local")
+def test_nexa_context_respects_admin_lock_without_operational_login(client):
+    protect_administration(client)
     response = client.get("/nexa/context?screen=/admin/auditoria")
     assert response.status_code == 200
     assert response.json()["module"] == "erp"
@@ -187,7 +186,7 @@ def test_nexa_bridge_sends_only_server_derived_context(client, monkeypatch):
         return {"reply": "O módulo de clientes está disponível.", "sources": []}
 
     monkeypatch.setattr("app.routes.nexa._send_signed", fake_send)
-    login(client, "usuario@local")
+    protect_administration(client)
     response = client.post("/nexa/chat", json={"message": "Ajude com clientes", "screen": "/clientes/lista"})
     assert response.status_code == 200
     assert response.json()["reply"].startswith("O módulo")
@@ -271,11 +270,12 @@ def test_nexa_diagnostic_events_are_isolated(client, monkeypatch):
     )
     monitor = client.app.state.diagnostic_monitor
     with client.app.state.session_factory() as session:
-        user_id = session.scalar(select(User.id).where(User.email == "usuario@local"))
+        from app.services.installation_actor import installation_actor
+        user_id = installation_actor(session).id
         admin_id = session.scalar(select(User.id).where(User.email == "admin@local"))
     monitor.record(module="customers", operation="view", category="api", severity="ERROR", error_code="user_error", user_id=user_id)
     monitor.record(module="customers", operation="view", category="api", severity="ERROR", error_code="admin_error", user_id=admin_id)
-    login(client, "usuario@local")
+    protect_administration(client)
     user_payload = client.post("/nexa/chat", json={"message": "erro", "screen": "/clientes/lista"})
     assert user_payload.status_code == 200
     first_ref = captured[-1]["user_id"]
@@ -286,7 +286,7 @@ def test_nexa_diagnostic_events_are_isolated(client, monkeypatch):
     login(client, "admin@local")
     admin_response = client.post("/nexa/chat", json={"message": "erro", "screen": "/admin/auditoria"})
     assert admin_response.status_code == 200
-    assert captured[-1]["user_id"] != first_ref
+    assert captured[-1]["user_id"] == first_ref
     codes = [event["error_code"] for event in captured[-1]["tools"]["get_recent_diagnostic_events"]["events"]]
     assert "admin_error" in codes
     log_tool_names = {
@@ -330,13 +330,14 @@ def test_nexa_context_alerts_once_after_evidence_threshold(client):
 
 def test_normal_user_receives_coarse_risk_without_technical_fingerprint(client):
     with client.app.state.session_factory() as session:
-        actor_id = session.scalar(select(User.id).where(User.email == "usuario@local"))
+        from app.services.installation_actor import installation_actor
+        actor_id = installation_actor(session).id
     for _ in range(5):
         client.app.state.diagnostic_monitor.record(
             module="customers", operation="list", category="api", severity="ERROR",
             error_code="private_failure", user_id=actor_id,
         )
-    login(client, "usuario@local")
+    protect_administration(client)
     result = client.get("/nexa/context?screen=/clientes/lista").json()
     assert result["risks"]
     risk = result["risks"][0]

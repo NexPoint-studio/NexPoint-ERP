@@ -1927,6 +1927,19 @@ def create_control_center_app(
 
     @app.get("/versoes")
     def versions_page(request: Request):
+        scope = _tenant_scope(request.state.platform_user)
+        _tenants, tenant_names = _authorized_tenant_maps(repository, request.state.platform_user)
+        installations = (repository.list_installations(limit=500) if scope is None else tuple(
+            installation for tenant_id in scope
+            for installation in repository.list_installations(tenant_id=tenant_id, limit=500)
+        ))
+        releases = repository.list_releases()
+        from control_center.releases import installation_release_status
+        installation_rows = tuple({
+            "installation": item, "company": tenant_names.get(item.tenant_id, "Empresa"),
+            "channel": item.metadata.get("update_channel", "Não informado"),
+            "update_status": installation_release_status(item, releases),
+        } for item in installations)
         return templates.TemplateResponse(
             request,
             "versions.html",
@@ -1937,8 +1950,25 @@ def create_control_center_app(
                 versions=repository.version_summaries(
                     tenant_ids=_tenant_scope(request.state.platform_user)
                 ),
+                releases=releases if request.state.platform_user.role == "platform_admin" else (),
+                installation_rows=installation_rows,
             ),
         )
+
+    @app.post("/versoes/{release_id}/publicar")
+    def publish_version(request: Request, release_id: str,
+                        confirmation: str = Form("", max_length=20),
+                        csrf: str = Form("", alias="_csrf", max_length=128)):
+        _require_csrf(request, csrf)
+        _platform_admin_only(request)
+        if confirmation != "publicar":
+            raise HTTPException(status_code=422, detail="Confirme a publicação da versão.")
+        try:
+            repository.publish_release(request.state.platform_user.id, release_id)
+        except (ControlCenterValidationError, ControlCenterConflictError):
+            raise HTTPException(status_code=409, detail="A versão ainda não pode ser publicada. Verifique o arquivo e a sequência do canal.") from None
+        _flash(request, "success", "Versão publicada no canal autorizado.")
+        return RedirectResponse("/versoes", status_code=303)
 
     @app.get("/nexa")
     def nexa_page(request: Request, ticket: str = "", event: str = ""):
@@ -2168,4 +2198,9 @@ def create_control_center_app(
             return RedirectResponse("/login", status_code=303)
         return PlainTextResponse("O Control Center está temporariamente indisponível.", status_code=503)
 
+    from control_center.activation_codes import build_activation_router
+    app.include_router(build_activation_router(
+        repository, templates=templates, base_context=_base_context,
+        require_csrf=_require_csrf, platform_admin_only=_platform_admin_only,
+    ))
     return app

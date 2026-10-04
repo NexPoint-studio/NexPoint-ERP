@@ -181,6 +181,7 @@ $report = [ordered]@{
     channel = 'PROD'
     bundle_files = $files.Count
     scope = 'current-user'
+    updater_included = (Test-Path -LiteralPath (Join-Path $bundle 'NexPointUpdater.exe') -PathType Leaf)
     data_preserved = '%LOCALAPPDATA%\NexPoint\ERP'
     compiler_sha256 = (Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant()
     webview_bootstrap_sha256 = (Get-FileHash -LiteralPath $webViewInstaller -Algorithm SHA256).Hash.ToLowerInvariant()

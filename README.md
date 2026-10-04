@@ -17,7 +17,7 @@ Caixa, na mesma transação. O fechamento encerra a operação da Nota e cria um
 saldo devedor vinculado à sua origem somente se ainda houver valor a receber.
 Notas de total zero ficam pagas sem criar Pagamento ou movimentação.
 
-A área Administração oferece ao Proprietário:
+A área Administração oferece:
 
 - visão geral com alertas de produção e relacionamento;
 - gestão do catálogo, categorias, preços e unidades de cobrança;
@@ -27,15 +27,21 @@ A área Administração oferece ao Proprietário:
 - consulta de auditoria;
 - informações do sistema, backup e restauração local controlada.
 
-A experiência normal do cliente não expõe gestão manual de usuários nem edição
-manual da empresa. Autenticação, proprietário, papéis, permissões, dados
-institucionais já gravados, auditoria e a estrutura segura de acesso temporário
-continuam preservados internamente. Essa base permite que um onboarding futuro
-grave a identidade da empresa sem perder os dados existentes.
+Depois da ativação, o ERP abre diretamente. Não há contas operacionais nem
+permissões por funcionário. Registros históricos de autoria são preservados;
+novos registros usam uma identidade técnica local que não autentica por senha.
+Administração fica sempre visível e começa sem proteção. Uma senha opcional pode
+ser criada em **Administração → Segurança**.
 
-O Caixa operacional mostra ao operador apenas os lançamentos que ele próprio
-registrou nos últimos sete dias. Saldos, totais, relatórios e agregações globais
-ficam protegidos pelas permissões financeiras administrativas.
+**Administração → Empresa** permite editar o cadastro. O nome fantasia aparece
+na interface, com o nome cadastral como alternativa. Nome e associação são
+sincronizados com o Control Center; renomear nunca troca a empresa ou instalação.
+Endereço, documento e contatos ficam locais nesse fluxo de identificação.
+
+O Caixa operacional mostra os lançamentos recentes da empresa. Saldos,
+histórico completo e relatórios estão disponíveis no módulo Financeiro, mesmo
+com a Administração protegida. Configuração de pagamentos e taxas, catálogo,
+backups e restauração continuam sujeitos ao cadeado administrativo.
 
 Pela interface normal é possível criar uma Nota sem pagamento ou registrar um
 pagamento inicial, abrir o detalhe clicando na linha da listagem, editar enquanto
@@ -45,18 +51,18 @@ devedor** vêm do ledger; não são escolhidos manualmente. Fechar não cria Cai
 Se restar dívida, cada quitação posterior registra somente o dinheiro realmente
 recebido e preserva a Nota de origem.
 
-O cadeado da Administração possui um único fluxo de recuperação para o
-Proprietário: **Solicitar recuperação à NexPoint**. A Outbox preserva a
+O cadeado da Administração possui um único fluxo de recuperação:
+**Solicitar recuperação à NexPoint**. A Outbox preserva a
 solicitação offline e um `platform_admin` autoriza a redefinição no Control
 Center. O ERP reconhece essa autorização automaticamente e mostra apenas os
 campos da nova senha; o cliente não copia código, ID ou token. A Nexa apenas
 orienta o uso desse botão. Ela não vê senhas e não redefine credenciais. Não
 existe senha mestra NexPoint.
 
-No login normal, **Manter conectado neste dispositivo** persiste somente uma
-sessão opaca, expirável e revogável. Senhas nunca são salvas. A sessão funciona
-offline no computador vinculado, mas não desbloqueia a Administração. Consulte
-o [contrato da sessão persistente](Docs/SESSAO_PERSISTENTE.md).
+Na primeira instalação, um código aleatório autoriza o computador e gera uma
+credencial protegida pelo Windows. Nas aberturas seguintes não se pede o código
+novamente. A sessão administrativa termina ao sair da área, expirar ou reiniciar
+o ERP. Consulte o [contrato da simplificação e os gates de entrega](Docs/SIMPLIFICACAO_ENTREGA.md).
 
 ## Preparar o ambiente próprio
 
@@ -67,10 +73,10 @@ Copy-Item .env.example .env.local
 ```
 
 O projeto não distribui senhas ou segredos padrão. Antes da primeira execução,
-substitua os marcadores `SUBSTITUA` necessários em `.env.local`. A senha do ERP
-precisa ter pelo menos oito caracteres; os segredos de sessão, pelo menos 32;
-a senha interna do Control Center, pelo menos 12. Use credenciais diferentes no
-ERP e no Control Center. O arquivo `.env.local` é ignorado pelo Git.
+substitua os marcadores `SUBSTITUA` necessários em `.env.local`. Segredos de
+sessão exigem pelo menos 32 caracteres; a senha interna do Control Center,
+pelo menos 12. O ERP não exige senha operacional. O arquivo `.env.local` é
+ignorado pelo Git e não faz parte da entrega Windows.
 
 Na primeira inicialização, os valores do ambiente preenchem configurações ainda
 ausentes. Depois disso, nome da empresa, nome do aplicativo, versão e fuso salvos
@@ -83,7 +89,7 @@ exemplo de ambiente não recomenda configurá-lo.
 ## Execução
 
 O projeto de trabalho está em `D:\NexStudio\sistema ERP`. Abra essa pasta no
-VS Code para que o painel `TODO.md` acompanhe a tarefa atual. O ambiente Python
+VS Code para trabalhar no código e consultar a documentação. O ambiente Python
 existente foi preservado e ajustado; não é necessário reinstalar dependências
 para continuar usando este computador.
 
@@ -103,12 +109,12 @@ Para desenvolvimento local no navegador, sempre restrito a `127.0.0.1`:
 Em **Administração > Suporte**, o cliente pode abrir e consultar chamados. O ERP
 anexa apenas contexto técnico sanitizado, como módulo, tela, versão, ambiente,
 correlation ID, riscos e fingerprints disponíveis. O chamado continua sendo
-criado quando a Nexa está indisponível. O mecanismo anterior de acesso temporário
-permanece interno e separado do fluxo principal.
+criado quando a Nexa está indisponível. Registros antigos de acesso temporário
+são preservados como histórico, sem rotas de concessão na experiência atual.
 
 O link **Esqueci a senha** do cadeado também permite abrir um chamado
-`admin_access_recovery` sem desbloquear a Administração. A identidade de
-Proprietário ainda é obrigatória. Se o painel estiver indisponível, a solicitação
+`admin_access_recovery` sem desbloquear a Administração. A solicitação é
+vinculada à empresa e à instalação. Se o painel estiver indisponível, a solicitação
 fica na Outbox local aguardando sincronização.
 
 O **NexPoint ERP Control Center** é um aplicativo de acesso restrito à equipe
@@ -182,7 +188,7 @@ Consulte a [arquitetura](Docs/ARQUITETURA.md), a
 [instalação Windows com ativação automática](Docs/AUTOMATIC_ACTIVATION.md), a
 [evolução offline e financeira](Docs/EVOLUCAO_OFFLINE_FINANCEIRA.md), o
 [cadeado da Administração](Docs/CADEADO_ADMINISTRACAO.md), a
-[sessão persistente do login](Docs/SESSAO_PERSISTENTE.md), a
+[simplificação de acesso e identidade](Docs/SIMPLIFICACAO_ENTREGA.md), a
 [integração local com a Nexa](Docs/INTEGRACAO_NEXA.md), o
 [Control Center](Docs/CONTROL_CENTER.md), a
 [Observabilidade e QA](Docs/OBSERVABILIDADE_QA.md) e os guias de

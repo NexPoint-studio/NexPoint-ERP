@@ -180,7 +180,7 @@ def test_recovery_codes_are_deprecated_and_no_endpoint_exposes_them(app):
 
         client.post("/logout")
         login(client, "usuario@local", unlock_admin=False)
-        assert client.get("/admin/cadeado/recuperar").status_code == 403
+        assert client.get("/admin/cadeado/recuperar").status_code == 200
 
 
 def test_frontend_has_no_legacy_recovery_code_action_or_nexa_instruction():
@@ -466,14 +466,15 @@ def test_remote_authorization_requires_active_ticket_and_is_revoked_on_resolutio
     )
 
 
-def test_owner_completes_automatic_remote_reset_and_authorization_cannot_be_reused(app):
+@pytest.mark.parametrize("requester", ["admin@local", "usuario@local"])
+def test_normal_user_completes_remote_reset_and_authorization_cannot_be_reused(app, requester):
     old_password = "senha-admin-remota-antiga"
     new_password = "senha-admin-remota-nova"
     with TestClient(app) as client:
         _configure_lock(client, old_password)
         app.state.sync_worker.stop()
         client.post("/logout")
-        login(client, "admin@local", unlock_admin=False)
+        login(client, requester, unlock_admin=False)
         requested = client.post(
             "/admin/cadeado/recuperar/suporte",
             follow_redirects=False,
@@ -533,7 +534,7 @@ def test_owner_completes_automatic_remote_reset_and_authorization_cannot_be_reus
             assert "senha-admin-remota" not in audit
 
         client.post("/logout")
-        login(client, "admin@local", unlock_admin=False)
+        login(client, requester, unlock_admin=False)
         assert client.post(
             "/admin/cadeado/desbloquear",
             data={"password": old_password, "next": "/admin/visao-geral", "submit": "unlock"},

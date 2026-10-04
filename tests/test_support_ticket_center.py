@@ -39,7 +39,7 @@ def _wait_for_ticket_delivery(app, *, count: int = 1):
     return repository.list_tickets()
 
 
-def test_erp_support_is_client_ticket_center_and_hidden_admin_tabs_stay_unexposed(client):
+def test_erp_support_is_client_ticket_center_and_existing_admin_tabs_are_visible(client):
     login(client, "admin@local")
     response = client.get("/admin/suporte")
     assert response.status_code == 200
@@ -47,13 +47,13 @@ def test_erp_support_is_client_ticket_center_and_hidden_admin_tabs_stay_unexpose
     assert "Meus chamados" in response.text
     assert "Perguntar" in response.text and "Nexa" in response.text
     assert ">Usuários e permissões<" not in response.text
-    assert ">Empresa<" not in response.text
-    assert "Acesso técnico temporário" in response.text
+    assert ">Empresa<" in response.text
+    assert "Acesso técnico temporário" not in response.text
 
 
-def test_standard_erp_user_cannot_open_or_forge_support_ticket(client, app):
+def test_standard_erp_user_can_open_support_but_cannot_forge_ticket_scope(client, app):
     login(client, "usuario@local")
-    assert client.get("/admin/suporte").status_code == 403
+    assert client.get("/admin/suporte").status_code == 200
     response = client.post(
         "/admin/suporte/chamados",
         data={
@@ -63,7 +63,7 @@ def test_standard_erp_user_cannot_open_or_forge_support_ticket(client, app):
             "status": "closed",
         },
     )
-    assert response.status_code == 403
+    assert response.status_code == 422
     assert app.state.control_center_repository.list_tickets() == ()
 
 

@@ -32,7 +32,7 @@ def _configure(client, password="senha-admin-separada"):
 def test_owner_configures_separate_hash_and_unlocks_without_auditing_secret(app):
     with _client(app) as client:
         login(client, "admin@local", unlock_admin=False)
-        assert client.get("/admin/visao-geral", follow_redirects=False).headers["location"] == "/admin/cadeado/configurar"
+        assert client.get("/admin/visao-geral", follow_redirects=False).status_code == 200
         response = _configure(client)
         assert response.status_code == 303
         assert client.get("/admin/visao-geral").status_code == 200
@@ -50,12 +50,12 @@ def test_owner_configures_separate_hash_and_unlocks_without_auditing_secret(app)
             assert "senha-admin-separada" not in serialized
 
 
-def test_lock_guards_get_and_post_and_role_remains_required(app):
+def test_lock_guards_get_and_post_and_normal_users_can_unlock(app):
     with _client(app) as client:
         _configure(client)
         client.post("/logout")
         login(client, "admin@local", unlock_admin=False)
-        assert client.get("/admin/usuarios", follow_redirects=False).headers["location"].startswith(
+        assert client.get("/admin/empresa", follow_redirects=False).headers["location"].startswith(
             "/admin/cadeado/desbloquear"
         )
         with app.state.session_factory() as session:
@@ -68,11 +68,11 @@ def test_lock_guards_get_and_post_and_role_remains_required(app):
             assert session.get(Setting, "company.name").value == before
 
         client.post("/logout")
-        login(client, "usuario@local")
+        login(client, "usuario@local", unlock_admin=False)
         assert client.post(
             "/admin/cadeado/desbloquear",
-            data={"password": "senha-admin-separada", "next": "/admin/usuarios"},
-        ).status_code == 403
+            data={"password": "senha-admin-separada", "next": "/admin/empresa"},
+        ).status_code == 200
 
 
 def test_lock_guards_legacy_service_aliases_and_finance_views(app):
@@ -93,13 +93,6 @@ def test_lock_guards_legacy_service_aliases_and_finance_views(app):
             ("GET", "/servicos/1/editar"),
             ("POST", "/servicos/1/editar"),
             ("POST", "/servicos/1/status"),
-            ("GET", "/caixa/resumo"),
-            ("GET", "/caixa/historico"),
-            ("GET", "/caixa/relatorios"),
-            ("GET", "/caixa/movimentos/1"),
-            ("GET", "/caixa/movimentos/1/editar"),
-            ("POST", "/caixa/movimentos/1/editar"),
-            ("POST", "/caixa/movimentos/1/cancelar"),
         )
         for method, path in protected:
             response = client.request(method, path, follow_redirects=False)

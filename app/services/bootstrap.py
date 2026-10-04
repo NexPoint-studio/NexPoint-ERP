@@ -313,6 +313,8 @@ def initialize_database(
         for default in BILLING_UNIT_DEFAULTS:
             if session.scalar(select(BillingUnit.id).where(BillingUnit.code == default["code"])) is None:
                 session.add(BillingUnit(**default, is_active=True))
+        from app.services.installation_actor import ensure_installation_actor
+        ensure_installation_actor(session)
         session.commit()
 
 # DONE: seed contém somente metadados de infraestrutura e usuários locais genéricos.

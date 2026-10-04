@@ -151,13 +151,14 @@ def test_legacy_migration_preserves_services_prices_categories_and_status(tmp_pa
         "UNIT", "FIXED", "KG", "METER", "SQUARE_METER", "HOUR", "DAY",
         "SESSION", "PAIR", "PERSON", "KM", "LITER", "PACKAGE",
     }
-    assert snapshot["versions"][-9:] == [
+    assert snapshot["versions"][-10:] == [
         ("0007_billing_units",), ("0008_service_notes",),
         ("0009_payment_configuration",), ("0010_payments",),
         ("0011_customer_activity_sources",), ("0012_administration_security",),
         ("0013_offline_finance_admin",),
         ("0014_functional_ux_recovery",),
         ("0015_remember_sessions",),
+        ("0016_installation_access",),
     ]
     with engine.connect() as connection:
         assert {row[1] for row in connection.exec_driver_sql("pragma table_info(services)")} >= {

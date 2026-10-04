@@ -21,41 +21,10 @@ def _user_id(app, email: str) -> int:
         return user_id
 
 
-def test_logout_invalidates_a_copied_signed_session(client, app):
-    assert login(client, "admin@local").status_code == 303
-    copied_cookie = client.cookies.get("erp_local_session")
-    assert copied_cookie
-
-    assert client.post("/logout", follow_redirects=False).status_code == 303
-    with TestClient(app) as copied_client:
-        copied_client.cookies.set("erp_local_session", copied_cookie)
-        response = copied_client.get("/clientes/lista", follow_redirects=False)
-        assert response.status_code == 303
-        assert response.headers["location"] == "/login"
-
-
-def test_password_reset_invalidates_existing_target_session(client, app):
-    assert login(client, "usuario@local").status_code == 303
-    target_id = _user_id(app, "usuario@local")
-
-    with TestClient(app) as owner:
-        assert login(owner, "admin@local").status_code == 303
-        response = owner.post(
-            f"/admin/usuarios/{target_id}/senha",
-            data={"password": "nova-senha-local-segura", "submit": "1"},
-            follow_redirects=False,
-        )
-        assert response.status_code == 303
-
-    response = client.get("/clientes/lista", follow_redirects=False)
-    assert response.status_code == 303
-    assert response.headers["location"] == "/login"
-    assert login(client, "usuario@local").status_code == 401
-    assert login(client, "usuario@local", "nova-senha-local-segura").status_code == 303
-
-
 def test_rotating_database_session_generation_invalidates_all_existing_cookies(client, app):
-    assert login(client, "admin@local").status_code == 303
+    from tests.test_admin_optional_access import configure
+    client.get("/")
+    assert configure(client).status_code == 303
     with app.state.session_factory() as session:
         setting = session.get(Setting, "security.session_generation")
         assert setting is not None
@@ -64,7 +33,7 @@ def test_rotating_database_session_generation_invalidates_all_existing_cookies(c
 
     response = client.get("/admin/visao-geral", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"].startswith("/admin/cadeado/desbloquear")
 
 
 def test_audit_query_is_domain_authorized_and_redacts_structured_secrets(client, app):
@@ -97,7 +66,10 @@ def test_audit_query_is_domain_authorized_and_redacts_structured_secrets(client,
         assert safe_audit_details("password=segredo-em-texto") == "[conteúdo protegido]"
 
     assert login(client, "usuario@local").status_code == 303
-    assert client.get("/admin/auditoria").status_code == 403
+    response = client.get("/admin/auditoria")
+    assert response.status_code == 200
+    assert "valor-que-nao-pode-aparecer" not in response.text
+    assert "token-privado" not in response.text
 
 
 def test_financial_configuration_service_rejects_forged_actor_without_mutation(app):

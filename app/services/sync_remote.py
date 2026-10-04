@@ -164,7 +164,7 @@ def canonical_sync_body(items: Sequence[SyncEnvelope]) -> bytes:
     for item in items:
         if (
             item.event_type not in {
-                "heartbeat", "health", "diagnostic_event", "risk", "support_ticket"
+                "heartbeat", "health", "diagnostic_event", "risk", "support_ticket", "company_profile"
             }
             or not _SAFE_IDENTIFIER.fullmatch(item.aggregate_type)
             or not _SAFE_IDENTIFIER.fullmatch(item.aggregate_id)

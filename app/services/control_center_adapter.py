@@ -45,6 +45,25 @@ def _check_state(status: str) -> str:
     )
 
 
+def _update_telemetry(app) -> dict[str, str]:
+    from app.updates.contracts import UPDATE_CHANNELS
+    from app.updates.state import STATES
+    manager = getattr(app.state, "update_manager", None)
+    if manager is None:
+        return {}
+    try:
+        snapshot = manager.snapshot()
+        channel, state = snapshot.get("update_channel"), snapshot.get("state")
+        changed = snapshot.get("state_changed_at")
+        if (isinstance(channel, str) and channel in UPDATE_CHANNELS and isinstance(state, str) and state in STATES
+            and type(changed) is int and 0 < changed < 2**53):
+            observed = datetime.fromtimestamp(changed / 1000, tz=timezone.utc).isoformat()
+            return {"update_channel": channel, "update_state": state, "update_observed_at": observed}
+    except Exception:
+        pass  # Update diagnostics must not stop business telemetry.
+    return {}
+
+
 def control_center_database_for(erp_database_path: Path, *, operational: bool) -> Path:
     """Choose a sibling platform database while refusing the operational filename."""
 
@@ -250,7 +269,7 @@ class ControlTelemetryAdapter:
             else previous_tenant.health_status if previous_tenant is not None
             else "unknown"
         )
-        display_name = sanitize_text(settings.get("company.name") or app.state.settings.company_name, maximum=180) or "Sua Empresa"
+        display_name = sanitize_text(settings.get("company.trade_name") or settings.get("company.name") or app.state.settings.company_name, maximum=180) or "Sua Empresa"
         version = sanitize_text(settings.get("app.version") or app.state.settings.version, maximum=80) or "unknown"
         environment = sanitize_text(app.state.settings.environment, maximum=40) or "local"
         build = sanitize_text(app.state.settings.build, maximum=80) or "unknown"
@@ -260,6 +279,7 @@ class ControlTelemetryAdapter:
         channel = sanitize_text(
             getattr(app.state.settings, "channel", "LOCAL"), maximum=16
         ) or "LOCAL"
+        update = _update_telemetry(app)
         tenant = Tenant(
             id=tenant_id, display_name=display_name, status="active", created_at=now, updated_at=now,
             erp_version=version, environment=environment, last_seen_at=now, health_status=health,
@@ -272,7 +292,7 @@ class ControlTelemetryAdapter:
             build=build, environment=environment, last_seen_at=now, health=health, platform="windows-local",
             metadata=sanitize_mapping({
                 "product": "NexPoint ERP", "mode": environment,
-                "channel": channel, "commit": commit,
+                "channel": channel, "commit": commit, **update,
             }),
             created_at=now, updated_at=now, is_demo=tenant.is_demo,
         )
@@ -285,15 +305,16 @@ class ControlTelemetryAdapter:
             )
             heartbeat_id = "heartbeat_" + sha256(
                 (
-                    f"{installation_id}:{heartbeat_bucket}:{health}:{score}:"
-                    f"{heartbeat_risk_level}:{version}:{build}:{commit}:{channel}"
+                    f"{installation_id}:{heartbeat_bucket}:{health}:{score}:{sha256(display_name.encode()).hexdigest()}:"
+                    f"{heartbeat_risk_level}:{version}:{build}:{commit}:{channel}:"
+                    f"{update.get('update_channel', '')}:{update.get('update_state', '')}:{update.get('update_observed_at', '')}"
                 ).encode()
             ).hexdigest()[:24]
             outbox_payloads.append(("heartbeat", "installation", heartbeat_id, {
                 "tenant_id": tenant_id, "tenant_alias": tenant_id, "installation_id": installation_id,
                 "tenant_name": display_name, "tenant_type": tenant.tenant_type,
                 "version": version, "build": build, "commit": commit,
-                "channel": channel, "environment": environment, "health": health,
+                "channel": channel, "environment": environment, "health": health, **update,
                 "risk_summary": {"score": score, "level": heartbeat_risk_level},
                 "last_seen": heartbeat_seen.isoformat(),
             }, f"heartbeat:{heartbeat_id}"))

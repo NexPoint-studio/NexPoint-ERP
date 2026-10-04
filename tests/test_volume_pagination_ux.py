@@ -47,7 +47,7 @@ def test_customer_picker_caps_payload_and_treats_wildcards_literally(client, app
     inactive_id, literal_id = _seed_customers(app)
     assert client.get(
         "/clientes/opcoes?q=Cliente", follow_redirects=False
-    ).status_code == 303
+    ).status_code == 200
     assert login(client, "admin@local").status_code == 303
 
     response = client.get("/clientes/opcoes?q=Cliente")

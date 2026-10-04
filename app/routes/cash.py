@@ -44,8 +44,8 @@ router = APIRouter(prefix="/caixa")
 
 def _context(request: Request, session, tab_id: str, **extra):
     if tab_id in {"resumo", "historico", "relatorios", "financeiro"}:
-        module = MODULE_BY_ID["admin"]
-        tab = next(item for item in module.tabs if item.id == "financeiro")
+        module = MODULE_BY_ID["finance"]
+        tab = next(item for item in module.tabs if item.id == ("resumo" if tab_id == "financeiro" else tab_id))
     else:
         module = MODULE_BY_ID["cash"]
         tab = next(item for item in module.tabs if item.id == tab_id)
@@ -86,8 +86,6 @@ def _require_movement_scope(request: Request):
     if not (user.can("finance.overview.view") or user.can("cash.operations.view")):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     full_access = user.can("finance.overview.view")
-    if full_access:
-        require_admin_unlock(request)
     return user, full_access
 
 
@@ -159,7 +157,6 @@ def _form_context(
 @router.get("/resumo")
 def summary(request: Request):
     require_permission(request, "finance.overview.view")
-    require_admin_unlock(request)
     with request.app.state.session_factory() as session:
         service = _cash_service(request, session)
         return templates.TemplateResponse(request, "cash/summary.html", _context(
@@ -276,7 +273,6 @@ def history(
     per_page: int = 25,
 ):
     require_permission(request, "finance.overview.view")
-    require_admin_unlock(request)
     period_error = ""
     response_status = 200
     with request.app.state.session_factory() as session:
@@ -332,7 +328,6 @@ def history(
 @router.get("/relatorios")
 def reports(request: Request, period: str = "month", start: str = "", end: str = ""):
     require_permission(request, "finance.reports.view")
-    require_admin_unlock(request)
     period_error = ""
     response_status = 200
     with request.app.state.session_factory() as session:
