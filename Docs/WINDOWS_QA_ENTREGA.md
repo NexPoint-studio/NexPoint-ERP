@@ -138,3 +138,99 @@ publicar B no canal `internal` do storage QA e executar o roteiro instalado.
 O candidato atual não serve como Release A desse ensaio. Manter **NO-GO** até
 que instalação, ativação, Empresa, Admin Lock, Recovery, update A→B e
 preservação de SQLite/DPAPI passem na VM, seguidos dos testes finais verdes.
+
+## Retomada ambiental — 04/10/2026
+
+**Estado: NO-GO.** Esta retomada não criou VM, não iniciou o Supabase QA e não
+gerou Setup QA. Nenhuma build PROD foi instalada. As observações abaixo são do
+host e da configuração local, não de um Windows convidado.
+
+### Capacidade Windows e escolha
+
+| Item | Evidência | Decisão |
+| --- | --- | --- |
+| Host | Windows 10 Pro build 19045, Ryzen 5 4500, 32 GiB RAM; mais de 136 GB livres em C: e D: | Capacidade preliminar para VM completa. |
+| Virtualização | `VirtualizationFirmwareEnabled=True`; hipervisor detectado; `VirtualMachinePlatform=Enabled`, `vmcompute=Running` e adaptador `vEthernet (WSL)` presente | WSL/Docker coexistem. Com o hipervisor já ativo, os indicadores WMI de SLAT/VM Monitor retornaram `False` e não bastam para concluir incompatibilidade; a criação de uma VM ainda precisa ser comprovada. |
+| Hyper-V | `Microsoft-Hyper-V` e componentes de gerenciamento/desempenho desativados (`InstallState=2`); `Get-VM` indisponível | Escolhido para snapshot, reinícios, DPAPI, instalador e update completo. Requer UAC e possivelmente reinício. |
+| Windows Sandbox | `Containers-DisposableClientVM` desativado; `WindowsSandbox.exe` indisponível | Não escolhido. Neste Windows 10, o descarte ao fechar não dá o mesmo controle de snapshot/reinício do roteiro. |
+| Outras VMs | VirtualBox, VMware e QEMU não encontrados; nenhum ISO Windows encontrado nos locais comuns inspecionados | Não há VM/instalação convidada validada. |
+
+Foi preparado `tools/qa/enable-windows-qa.ps1`, idempotente e limitado a
+`Microsoft-Hyper-V -All -NoRestart`. Ele detecta o estado e não reinicia,
+cria VM/switch ou altera firewall. **Não foi executado.** A ação manual é abrir
+Windows PowerShell **como Administrador** e executar:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\NexStudio\sistema ERP\tools\qa\enable-windows-qa.ps1"
+```
+
+Se informar `RestartNeeded`, reiniciar manualmente depois de salvar o trabalho.
+A [documentação Microsoft](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/Install-Hyper-V)
+exige sessão elevada e prevê reinício ao habilitar Hyper-V no Windows.
+
+### Origem QA e exposição
+
+A arquitetura escolhida é **Supabase QA local separado**, acessível a uma futura
+VM Hyper-V por switch interno/rede virtual controlada e origem HTTPS exclusiva
+QA. O Kong/API é o gateway; Postgres, Studio, Auth, Storage e runtime Edge não
+devem ser publicados diretamente na LAN física. A confiança da CA de laboratório
+deverá ser instalada somente na VM. Nenhuma CA/certificado foi gerado ou
+instalado nesta etapa; a topologia ainda não existe.
+
+O projeto Docker `nexpoint-erp-handoff-qa` continua parado, com volumes QA
+separados preservados e **nenhum listener nas portas 56420–56429** nesta
+verificação. Sua configuração prevê API 56421, PostgreSQL 56422, Studio 56423,
+mail UI 56424, analytics 56427 e inspector Edge 56428; pooler desabilitado.
+Na última subida, **Kong e PostgreSQL publicaram em `0.0.0.0` e IPv6**, mesmo
+com a rede Docker de bind em loopback. Esse defeito não está resolvido pela
+parada: a origem não será reiniciada para a VM antes de restringir as portas
+internas e provar a negação de acesso pela interface física `Ethernet`
+(`192.168.1.24/24`). A interface WSL usa `172.17.64.1/20`. Os perfis do
+Windows Firewall estão habilitados, mas `Get-NetFirewallRule` retornou
+`Acesso negado` sem elevação; não há evidência de regras efetivas de restrição.
+Os demais stacks Docker preexistentes não foram alterados.
+
+### Separação de credenciais e builds
+
+O projeto QA tem identidade Docker, rede, volumes, portas e banco próprios; os
+testes prévios escreveram somente dados sintéticos nele. **Isso não prova ainda**
+que as chaves locais geradas pelo CLI sejam diferentes das de outros stacks, nem
+fornece fingerprint de banco e certificados TLS comparados. URL, anon key,
+service role backend-only, secrets de ativação/bridge/release/Edge e Control
+Center QA precisam ser conferidos sem imprimir valores; qualquer igualdade
+indevida ou rota PROD deve bloquear a execução. Não foi usada credencial PROD.
+
+O código congelado atual aceita apenas `production/PROD` e a referência do
+projeto PROD; ativação, sync, Recovery e updater também têm contratos de origem
+PROD. Portanto a separação QA **não pode ser inferida de uma troca de variável
+de ambiente**. A criação de um perfil de build QA explícito, com origem HTTPS QA,
+canal `internal`, armazenamento local distinto e bloqueio de PROD em todas as
+rotas cloud, ainda é necessária. O candidato `candidate-e50ed62` permanece
+inapto. Release A, Release B e publicação QA/internal foram deliberadamente
+retidos até que isolamento, TLS e validações de pacote estejam comprovados.
+
+### Continuação controlada
+
+Depois da habilitação/reinício Hyper-V: confirmar `Get-VM`; obter mídia Windows
+legítima; criar VM descartável e snapshot limpo; configurar switch interno,
+gateway HTTPS QA e firewall com acesso somente pela VM/host; provar por
+sondagem que a LAN física não alcança portas 56420–56429; conferir fingerprints
+e credenciais QA; implementar e validar perfil empacotado fail-closed; gerar e
+inspecionar A/B; só então instalar A e executar o roteiro acima. Nenhum item
+dependente da VM foi marcado PASS nesta retomada.
+
+### Verificação automatizada desta retomada
+
+| Verificação | Resultado |
+| --- | --- |
+| PowerShell do preparo Hyper-V | Parser sem erros; uma chamada `Enable-WindowsOptionalFeature` com `-NoRestart`, sem reinício, switch ou firewall no script. Não executado por exigir UAC. |
+| Python | PASS: 1.227 testes coletados, 100% concluídos, exit code 0 (avisos de depreciação). |
+| PostgreSQL Empresa/ativação | PASS: 29/29 checks, migrations incluídas, contêiner isolado de rede. |
+| PostgreSQL transferência/RLS | PASS: 83/83 checks, contêiner isolado de rede. |
+| PostgreSQL releases | PASS: 63/63 checks, contêiner isolado de rede. |
+| Edge | PASS: 57/57 testes com Node `--experimental-transform-types --test`. |
+| Secret scan de candidatos Git | PASS: 480 arquivos, nenhum segredo detectado. |
+| `git diff --check` | PASS; somente aviso de normalização LF/CRLF do Git no Windows. |
+
+Esses testes não autorizam a mudança de NO-GO: a origem HTTPS QA, o firewall,
+o certificado confiável na VM e os ensaios com A/B instalados ainda faltam.
