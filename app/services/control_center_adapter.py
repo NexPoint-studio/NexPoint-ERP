@@ -273,9 +273,13 @@ class ControlTelemetryAdapter:
         version = sanitize_text(settings.get("app.version") or app.state.settings.version, maximum=80) or "unknown"
         environment = sanitize_text(app.state.settings.environment, maximum=40) or "local"
         build = sanitize_text(app.state.settings.build, maximum=80) or "unknown"
-        commit = sanitize_text(
-            getattr(app.state.settings, "commit", "unknown"), maximum=40
-        ) or "unknown"
+        # A commit SHA is a public build identifier. Generic PII redaction can
+        # mistake a long run of its digits for a card number, corrupting the
+        # heartbeat contract. Accept only the exact trusted build format.
+        raw_commit = getattr(app.state.settings, "commit", "unknown")
+        commit = raw_commit if isinstance(raw_commit, str) and re.fullmatch(
+            r"[0-9a-f]{40}", raw_commit
+        ) else "unknown"
         channel = sanitize_text(
             getattr(app.state.settings, "channel", "LOCAL"), maximum=16
         ) or "LOCAL"

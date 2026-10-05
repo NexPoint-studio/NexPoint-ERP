@@ -124,6 +124,32 @@ test("authenticates status, delegates replay protection and signs the response",
   assert.equal(result.headers.get("cache-control"), "no-store");
 });
 
+test("isolated QA recovery uses only its fixed internal Kong origin", async () => {
+  const values: Record<string, string> = {
+    SUPABASE_URL: "http://kong:8000",
+    SUPABASE_SERVICE_ROLE_KEY: "CANARY_SERVICE_ROLE_TEST_ONLY",
+    NEXPOINT_QA_MODE: "isolated",
+    NEXPOINT_QA_PUBLIC_ORIGIN: "https://qa.nexpoint.test:56430",
+  };
+  let calls = 0;
+  const fetcher: typeof fetch = async (input) => {
+    calls++;
+    assert.equal(String(input), "http://kong:8000/rest/v1/rpc/np_erp_access_reset_authorization");
+    return Response.json({ ok: true, action: "status", authorization: null });
+  };
+  const qa = { get: (name: string) => values[name] };
+  assert.equal((await handleErpAdminRecovery(await recoveryRequest(), qa, fetcher, Number(timestamp))).status, 200);
+  assert.equal(calls, 1);
+  for (const changed of [{ NEXPOINT_QA_PUBLIC_ORIGIN: "https://wrong.invalid" },
+    { NEXPOINT_QA_MODE: "other" }, { SUPABASE_URL: "https://example.supabase.co" }]) {
+    const invalid = { ...values, ...changed };
+    const result = await handleErpAdminRecovery(await recoveryRequest(),
+      { get: (name: string) => invalid[name] }, fetcher, Number(timestamp));
+    assert.equal(result.status, 503);
+  }
+  assert.equal(calls, 1);
+});
+
 test("rejects bad signatures and schema versions before the RPC", async () => {
   let calls = 0;
   const fetcher: typeof fetch = () => {

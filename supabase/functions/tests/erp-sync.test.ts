@@ -90,6 +90,33 @@ test("accepts a signed bounded batch and returns only validated ACKs", async () 
   });
 });
 
+test("isolated QA sync uses only its fixed internal Kong origin", async () => {
+  const values: Record<string, string> = {
+    SUPABASE_URL: "http://kong:8000",
+    SUPABASE_SERVICE_ROLE_KEY: "CANARY_SERVICE_ROLE_TEST_ONLY",
+    NEXPOINT_QA_MODE: "isolated",
+    NEXPOINT_QA_PUBLIC_ORIGIN: "https://qa.nexpoint.test:56430",
+  };
+  const qa = { get: (name: string) => values[name] };
+  let calls = 0;
+  const fetcher: typeof fetch = async (input) => {
+    calls++;
+    assert.equal(String(input), "http://kong:8000/rest/v1/rpc/erp_ingest_sync_batch");
+    return Response.json({ ok: true, acks: [{ idempotency_key: "heartbeat:prod:001",
+      remote_id: "sync_qa_001", schema_version: 1, duplicate: false }] });
+  };
+  assert.equal((await handleErpSync(await request(), qa, fetcher, Number(timestamp))).status, 200);
+  assert.equal(calls, 1);
+  for (const changed of [{ NEXPOINT_QA_PUBLIC_ORIGIN: "https://wrong.invalid" },
+    { NEXPOINT_QA_MODE: "other" }, { SUPABASE_URL: "https://example.supabase.co" }]) {
+    const invalid = { ...values, ...changed };
+    const result = await handleErpSync(await request(), { get: (name: string) => invalid[name] },
+      fetcher, Number(timestamp));
+    assert.equal(result.status, 503);
+  }
+  assert.equal(calls, 1);
+});
+
 test("rejects a changed body before contacting the database", async () => {
   let calls = 0;
   const signed = await request();

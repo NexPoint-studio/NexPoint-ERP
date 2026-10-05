@@ -75,6 +75,14 @@ function configuredEndpoint(
   const rawUrl = reader.get("SUPABASE_URL")?.trim();
   const serviceKey = reader.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
   if (!rawUrl || !serviceKey) throw new RecoveryContractError("service_unavailable", 503);
+  const qaMode = reader.get("NEXPOINT_QA_MODE");
+  const qaPublicOrigin = reader.get("NEXPOINT_QA_PUBLIC_ORIGIN");
+  if (qaMode !== undefined || qaPublicOrigin !== undefined) {
+    if (qaMode !== "isolated" || qaPublicOrigin !== "https://qa.nexpoint.test:56430" || rawUrl !== "http://kong:8000") {
+      throw new RecoveryContractError("service_unavailable", 503);
+    }
+    return { endpoint: new URL("/rest/v1/rpc/np_erp_access_reset_authorization", rawUrl), serviceKey };
+  }
   try {
     const base = new URL(rawUrl);
     if (

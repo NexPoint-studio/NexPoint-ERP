@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from types import SimpleNamespace
@@ -38,6 +39,29 @@ def test_heartbeat_reports_allowlisted_state_idempotently_without_release_secret
         successful = [item for item in rows if json.loads(item.payload_json).get("update_state") == "SUCCEEDED"]
         assert len(successful) == 1 and successful[0].idempotency_key != ready[0].idempotency_key
         assert json.loads(successful[0].payload_json)["update_channel"] == "stable"
+
+
+def test_heartbeat_keeps_valid_build_commit_and_rejects_other_values(app):
+    app.state.settings = replace(
+        app.state.settings, commit="87e2f52caa9bc00782543753ea34f2d6ab50da5b"
+    )
+    adapter = ControlTelemetryAdapter(None, outbox_only=True)
+    adapter.publish(app)
+    with app.state.session_factory() as session:
+        heartbeats = session.scalars(select(OutboxItem).where(
+            OutboxItem.event_type == "heartbeat"
+        )).all()
+        assert any(json.loads(item.payload_json)["commit"] == app.state.settings.commit
+                   for item in heartbeats)
+
+    app.state.settings = replace(app.state.settings, commit="private-token")
+    ControlTelemetryAdapter(None, outbox_only=True).publish(app)
+    with app.state.session_factory() as session:
+        heartbeats = session.scalars(select(OutboxItem).where(
+            OutboxItem.event_type == "heartbeat"
+        )).all()
+        assert any(json.loads(item.payload_json)["commit"] == "unknown" for item in heartbeats)
+        assert all("private-token" not in item.payload_json for item in heartbeats)
 
 
 @pytest.mark.parametrize("state,label", [("RESTARTING", "Validando atualização"),

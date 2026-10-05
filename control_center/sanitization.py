@@ -216,6 +216,12 @@ def sanitize_sync_payload(value: Mapping[str, Any]) -> dict[str, JsonValue]:
     a second generic scrub can otherwise rewrite a hash containing digits.
     """
     result = sanitize_mapping(value)
+    # Git commit IDs are public build identifiers. A digit-heavy SHA may look
+    # like a card number to the generic redactor; only retain the exact form
+    # accepted by the heartbeat contract.
+    commit = value.get("commit")
+    if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
+        result["commit"] = commit
     for field in _SYNC_OPAQUE_FIELDS:
         item = value.get(field)
         if (

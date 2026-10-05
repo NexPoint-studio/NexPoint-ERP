@@ -21,6 +21,8 @@ export interface EnvironmentReader {
 const runtimeEnvironment: EnvironmentReader = {
   get: (name) => Deno.env.get(name),
 };
+const QA_INTERNAL_ORIGIN = "http://kong:8000";
+const QA_PUBLIC_ORIGIN = "https://qa.nexpoint.test:56430";
 
 function headers(requestId: string): Headers {
   return new Headers({
@@ -46,6 +48,14 @@ function configuredEndpoint(reader: EnvironmentReader): { endpoint: URL; service
   const rawUrl = reader.get("SUPABASE_URL")?.trim();
   const serviceKey = reader.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
   if (!rawUrl || !serviceKey) throw new SyncContractError("service_unavailable", 503);
+  const qaMode = reader.get("NEXPOINT_QA_MODE");
+  const qaPublicOrigin = reader.get("NEXPOINT_QA_PUBLIC_ORIGIN");
+  if (qaMode !== undefined || qaPublicOrigin !== undefined) {
+    if (qaMode !== "isolated" || qaPublicOrigin !== QA_PUBLIC_ORIGIN || rawUrl !== QA_INTERNAL_ORIGIN) {
+      throw new SyncContractError("service_unavailable", 503);
+    }
+    return { endpoint: new URL("/rest/v1/rpc/erp_ingest_sync_batch", QA_INTERNAL_ORIGIN), serviceKey };
+  }
   try {
     const base = new URL(rawUrl);
     if (
