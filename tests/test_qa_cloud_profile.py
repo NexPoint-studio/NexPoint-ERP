@@ -60,12 +60,14 @@ def test_qa_environment_override_rejected(tmp_path, monkeypatch, qa_target, key,
 
 def test_qa_identity_origin_and_channel_fail_closed(qa_target):
     assert cloud_profile.endpoint("erp-update") == QA_ORIGIN + "/functions/v1/erp-update"
-    cloud_profile.require_qa_identity("qa-nexpoint-lab", "qa-win-clean-02")
+    cloud_profile.require_qa_identity("qa-nexpoint-lab", "qa-win-clean-03")
     cloud_profile.require_qa_channel("internal")
     with pytest.raises(ValueError):
         cloud_profile.origin_for("scfncgaiovztrbgrcvkt")
     with pytest.raises(ValueError):
-        cloud_profile.require_qa_identity("other-tenant", "qa-win-clean-02")
+        cloud_profile.require_qa_identity("other-tenant", "qa-win-clean-03")
+    with pytest.raises(ValueError):
+        cloud_profile.require_qa_identity("qa-nexpoint-lab", "qa-win-clean-02")
     with pytest.raises(ValueError):
         cloud_profile.require_qa_channel("stable")
     with pytest.raises(ValueError):
@@ -88,7 +90,7 @@ def test_qa_signed_download_bound_to_origin_and_internal_channel(qa_target):
 
 
 def test_qa_desktop_update_wiring_checks_and_downloads_from_pinned_origin(tmp_path, qa_target):
-    credentials = InstallationCredentials("qa-nexpoint-lab", "qa-win-clean-02", "a" * 43)
+    credentials = InstallationCredentials("qa-nexpoint-lab", "qa-win-clean-03", "a" * 43)
     journal = UpdateJournal(tmp_path / "journal", credentials)
     settings = SimpleNamespace(version="1.1.0", supabase_project_ref=QA_REF)
     manager = _make_update_manager(journal, credentials, settings)

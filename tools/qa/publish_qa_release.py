@@ -154,7 +154,7 @@ select json_build_object(
   'tenants', (select count(*) from public.np_tenants),
   'qa_tenants', (select count(*) from public.np_tenants where tenant_key='qa-nexpoint-lab' and status='active'),
   'qa_installations', (select count(*) from public.np_installations i join public.np_tenants t on t.id=i.tenant_id
-    where t.tenant_key='qa-nexpoint-lab' and i.installation_key='qa-win-clean-02' and i.status='active'
+    where t.tenant_key='qa-nexpoint-lab' and i.installation_key='qa-win-clean-03' and i.status='active'
       and i.update_channel='internal' and i.environment='prod' and i.channel='prod'),
   'private_bucket', (select count(*) from storage.buckets where id='nexpoint-releases'
     and public=false and file_size_limit=52428800),

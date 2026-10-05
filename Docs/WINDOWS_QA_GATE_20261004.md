@@ -24,7 +24,7 @@ tem `-Restore`; o nome da regra anterior fica apenas em artefato QA ignorado
 pelo Git.
 
 O perfil de build QA fixa origem HTTPS QA, canal `internal`, instalacao
-`qa-win-clean-02` e dados em `%LOCALAPPDATA%\NexPoint\ERP-QA`. Os scripts de
+`qa-win-clean-03` e dados em `%LOCALAPPDATA%\NexPoint\ERP-QA`. Os scripts de
 build copiam somente arquivos versionados, exigem perfil publico QA, verificam
 o destino compilado e inspecionam os executaveis por referencias PROD, dados
 locais e secrets. O Setup QA usa AppId e pasta diferentes do Setup PROD. O
@@ -33,13 +33,16 @@ traduz uma copia dos eventos apenas no transporte, enquanto o SQLite local
 continua identificado como `qa/QA`.
 
 O smoke preliminar consumiu o codigo one-time de `qa-win-clean-01` e rejeitou
-reutilizacao. Essa evidencia permanece no backend QA. A VM limpa usara uma
-identidade nova `qa-win-clean-02`; um codigo novo sera emitido apenas no QA.
-Nenhum codigo de ativacao ou credencial foi colocado em Git.
+reutilizacao. A primeira instalacao Windows com `qa-win-clean-02` tambem passou
+instalacao, ativacao, Empresa e Admin Lock. A sincronizacao revelou que o
+sanitizador confundia parte do SHA do commit com um numero de cartao; o
+heartbeat era recusado. A correcao preserva somente SHA de 40 hexadecimais no
+envelope e exige uma nova Build A/B para reteste. A instalacao `-02` e sua
+evidencia permanecem no QA. A proxima instalacao limpa usara `qa-win-clean-03`
+e um novo codigo one-time emitido apenas no QA. Nenhum codigo de ativacao ou
+credencial foi colocado em Git.
 
-Validacoes nesta retomada: suite Python completa PASS; testes focados do perfil
-QA PASS; Edge 65/65 PASS; secret scan de 491 candidatos PASS; `git diff
---check` PASS; preflight da origem QA PASS. Permanecem sem evidencia de guest:
-Build A/B, instalacao, ativacao, Empresa, Admin Lock, Recovery, heartbeat/sync,
-update A para B e preservacao SQLite/DPAPI. Nenhum gate pendente vira PASS por
-ter passado teste unitario ou smoke do host.
+A evidencia antiga de `-02` nao substitui a validacao da nova Build A. Ate o
+reteste `-03`, Recovery, heartbeat/sync, update A para B e preservacao de
+SQLite/DPAPI continuam pendentes. Nenhum gate pendente vira PASS por ter
+passado teste unitario ou smoke do host.

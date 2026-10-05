@@ -63,7 +63,7 @@ def require_qa_endpoint(value: str, function: str) -> None:
 
 
 def require_qa_identity(tenant: str, installation: str) -> None:
-    if packaged_qa() and (tenant != "qa-nexpoint-lab" or installation != "qa-win-clean-02"):
+    if packaged_qa() and (tenant != "qa-nexpoint-lab" or installation != "qa-win-clean-03"):
         raise ValueError("A identidade nao pertence ao laboratorio QA.")
 
 
