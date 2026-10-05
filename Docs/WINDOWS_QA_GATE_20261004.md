@@ -1,6 +1,7 @@
 # Gate Windows QA - retomada apos Hyper-V
 
-Estado: **NO-GO** para instalar no notebook real. Este registro substitui o
+Estado atual: **GO no gate QA**, com sync completo e suite final aprovada.
+Os registros **NO-GO** seguintes descrevem as rodadas anteriores. Este registro substitui o
 estado ambiental antigo de `WINDOWS_QA_ENTREGA.md`, sem alterar a entrega Nil
 lav ou qualquer servico PROD.
 
@@ -100,7 +101,83 @@ Foi reiniciada; a sessao e o ERP voltaram, e o logon automatico temporario
 foi desativado. Essa limitacao do laboratorio precisa ser resolvida antes de
 usar a VM para um ciclo de teste prolongado.
 
-Gate final: **NO-GO**. Proximo passo: diagnosticar e corrigir a causa dos
+Gate da rodada anterior: **NO-GO**. Proximo passo registrado naquela rodada: diagnosticar e corrigir a causa dos
 `health` rejeitados, repetir A para B em uma instalacao QA limpa e confirmar
 `dead_letter=0`; depois testar adulteracao do instalador pela interface da VM.
 Nao usar o notebook real nem modificar a entrega Nil lav ate esse reteste.
+
+## Fechamento restrito do sync em 2026-10-05
+
+Esta rodada substitui o bloqueio e o plano de reteste anteriores: por instrucao
+do usuario, repete somente o ciclo necessario de sync, preservando os PASS de
+instalacao limpa, ativacao, Empresa, Admin Lock, Recovery e update A para B.
+
+Causa dos tres `dead_letter`: eventos `health`, enviados a
+`/functions/v1/erp-sync` (`erp-sync/handler.ts`), retornaram HTTP 400 com
+`invalid_payload` vindo de `public.erp_ingest_sync_batch`. O cliente usa o
+inicio de um bucket de cinco minutos em `captured_at`. A ingestao tentava
+mitigar riscos ausentes no snapshot mesmo se sua deteccao fosse posterior ao
+horario dele. Isso violava `np_risks_resolution` (`resolved_at >= detected_at`),
+revertia a persistencia/ACK e classificava o evento como payload invalido.
+Classificacao: defeito temporal no backend, nao na fixture; o schema protege
+corretamente a integridade. Replays tardios nao reproduziam porque os riscos
+ja estavam mitigados. Reabrir apenas riscos anteriores ao snapshot tambem
+nao reproduzia; incluir os riscos nascidos dentro do mesmo bucket reproduziu.
+
+A migration incremental `20261005120000_health_snapshot_risk_ordering.sql`
+acrescenta `risk.detected_at <= v_occurred_at` a mitigacao automatica. Mantem
+constraints, assinatura, escopo, nonces e ACKs. Nenhum timestamp ou payload
+foi reescrito, nenhum rebuild desktop foi necessario, e a migration foi
+aplicada e registrada somente no PostgreSQL QA isolado. PROD nao recebeu a
+migration e continua intocado.
+
+Regressao PostgreSQL: `supabase/tests/health_snapshot_ordering.sql`, com
+fixtures transacionais revertidas. Falhou antes com `invalid_payload` e
+passou depois. Confirma ACK de snapshot antigo, preservacao do risco mais
+novo e do fingerprint ativo, mitigacao do risco anterior, ACK idempotente e
+mitigacao posterior com cronologia valida. Permissoes continuam restritas:
+`anon/authenticated=false`, `service_role=true`; zero constraints publicas
+nao validadas.
+
+Os tres eventos originais de `qa-win-clean-04` foram recolocados em `pending`
+apos backup do SQLite e correcao do servidor QA. O escopo exigia exatamente
+os tres IDs/eventos `health` conhecidos e o erro original; payloads, IDs,
+chaves idempotentes e contagem anterior foram preservados. O ERP B 1.1.2
+reenviou pelo fluxo normal. Cada evento passou de uma para duas tentativas,
+recebeu ACK remoto e ficou `synced`. O servidor confirmou tres envelopes e
+tres ACKs duraveis. Comparacao SHA-256 dos payloads originais: identicos.
+
+Resultado do SQLite apos reenvio:
+
+| Estado | Quantidade |
+| --- | ---: |
+| pending | 0 |
+| sending | 0 |
+| failed | 0 |
+| dead_letter | 0 |
+| synced | 166 |
+
+`integrity_check=ok`, `foreign_key_check` vazio, credencial DPAPI com mesmo
+hash anterior, heartbeat cloud na versao 1.1.2 e sync online. A VM existente
+conseguiu completar o ciclo; nao foi necessario redesenhar/recriar o ambiente.
+O logon automatico temporario foi desativado.
+
+Hash invalido aceito como evidencia automatizada, conforme instrucao do
+usuario: `test_failed_download_removes_partial_artifact_without_execution[hash]`
+exercita `app.updates.download.download_release`, usada pelo `UpdateManager`
+real e pelo QA via `partial` com a origem fixada. Rejeita o hash, remove o
+artefato parcial e nao o executa. Nao exige reteste manual na VM para este gate.
+
+Validacao final: 46 testes focados de sync/telemetria, 47 Edge tests e os
+1.251 testes da suite Python completa passaram (exit 0). Avisos de deprecacao
+de Starlette/httpx e adaptador datetime SQLite nao bloquearam a suite.
+Regressao PostgreSQL PASS; secret scan (498 candidatos Git) e
+`git diff --check` PASS. Revisao independente do patch: sem bloqueios.
+
+Gate QA: **GO**. Os tres eventos originais receberam ACK, a fila ficou
+zerada e novos eventos/heartbeats continuaram sincronizando na Build B 1.1.2.
+Backup e preparacao do notebook podem avancar, mas o uso conectado real
+depende da aplicacao autorizada da correcao no backend PROD.
+A liberacao QA nao aplica automaticamente a migration ao PROD: sua aplicacao
+controlada no backend real deve ser autorizada antes do uso conectado do
+notebook. Nenhum push nem alteracao em `Entrega/NilLavLavanderia` nesta etapa.
