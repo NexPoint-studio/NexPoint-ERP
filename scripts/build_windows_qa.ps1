@@ -93,7 +93,7 @@ Copy-Item -LiteralPath $helper -Destination (Join-Path $bundle 'NexPointUpdater.
 if ($LASTEXITCODE -ne 0) { throw 'Updater QA nao iniciou.' }
 if ($ActivationProfilePath) {
     $profile = (Resolve-Path -LiteralPath $ActivationProfilePath).Path
-    & $pythonPath -c 'import sys; from pathlib import Path; from app.services.installation_activation import ActivationProfile; p=ActivationProfile.load(Path(sys.argv[1])); assert (p.tenant_key,p.installation_key)==("qa-nexpoint-lab","qa-win-clean-02")' $profile
+    & $pythonPath -c 'import sys; from pathlib import Path; from app.services.installation_activation import ActivationProfile; p=ActivationProfile.load(Path(sys.argv[1])); assert (p.tenant_key,p.installation_key)==tuple(sys.argv[2:4])' $profile 'qa-nexpoint-lab' 'qa-win-clean-02'
     if ($LASTEXITCODE -ne 0) { throw 'Perfil publico QA invalido.' }
     Copy-Item -LiteralPath $profile -Destination (Join-Path $bundle 'activation-profile.json')
 }

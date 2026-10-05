@@ -6,6 +6,7 @@ import time
 import sys
 from pathlib import Path
 from contextlib import nullcontext
+from functools import partial
 
 import uvicorn
 import webview
@@ -13,6 +14,23 @@ import webview
 from app import create_app
 from app.core.config import get_settings
 from app.core import cloud_profile
+
+
+def _make_update_manager(journal, credentials, settings):
+    from app.updates.download import download_release
+    from app.updates.manager import UpdateManager
+    from app.updates.remote import SupabaseUpdateRemote
+
+    if cloud_profile.packaged_qa():
+        project_ref = settings.supabase_project_ref
+        cloud_profile.origin_for(project_ref)
+        return UpdateManager(
+            journal,
+            SupabaseUpdateRemote(credentials, project_ref=project_ref),
+            settings.version,
+            downloader=partial(download_release, project_ref=project_ref),
+        )
+    return UpdateManager(journal, SupabaseUpdateRemote(credentials), settings.version)
 
 
 def ensure_port_available(host: str, port: int) -> None:
@@ -117,11 +135,9 @@ def _run_desktop(*, health_job: Path | None = None) -> None:
         application.state.update_manager = None
     elif getattr(sys, "frozen", False) and cloud_profile.cloud_installation(settings) and hasattr(application, "state"):
         from app.updates.desktop import launch_update_helper
-        from app.updates.manager import UpdateManager
-        from app.updates.remote import SupabaseUpdateRemote
         from app.updates.contracts import UpdateValidationError
         try:
-            manager = UpdateManager(journal, SupabaseUpdateRemote(credentials), settings.version)
+            manager = _make_update_manager(journal, credentials, settings)
             application.state.update_manager = manager
             # Persist the previous update outcome in the existing outbox before
             # a new background check changes SUCCEEDED/ROLLED_BACK to CURRENT.
