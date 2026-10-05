@@ -24,7 +24,7 @@ tem `-Restore`; o nome da regra anterior fica apenas em artefato QA ignorado
 pelo Git.
 
 O perfil de build QA fixa origem HTTPS QA, canal `internal`, instalacao
-`qa-win-clean-03` e dados em `%LOCALAPPDATA%\NexPoint\ERP-QA`. Os scripts de
+`qa-win-clean-04` e dados em `%LOCALAPPDATA%\NexPoint\ERP-QA`. Os scripts de
 build copiam somente arquivos versionados, exigem perfil publico QA, verificam
 o destino compilado e inspecionam os executaveis por referencias PROD, dados
 locais e secrets. O Setup QA usa AppId e pasta diferentes do Setup PROD. O
@@ -37,12 +37,21 @@ reutilizacao. A primeira instalacao Windows com `qa-win-clean-02` tambem passou
 instalacao, ativacao, Empresa e Admin Lock. A sincronizacao revelou que o
 sanitizador confundia parte do SHA do commit com um numero de cartao; o
 heartbeat era recusado. A correcao preserva somente SHA de 40 hexadecimais no
-envelope e exige uma nova Build A/B para reteste. A instalacao `-02` e sua
-evidencia permanecem no QA. A proxima instalacao limpa usara `qa-win-clean-03`
-e um novo codigo one-time emitido apenas no QA. Nenhum codigo de ativacao ou
-credencial foi colocado em Git.
+envelope. A instalacao `-02` e sua evidencia permanecem no QA.
 
-A evidencia antiga de `-02` nao substitui a validacao da nova Build A. Ate o
-reteste `-03`, Recovery, heartbeat/sync, update A para B e preservacao de
-SQLite/DPAPI continuam pendentes. Nenhum gate pendente vira PASS por ter
-passado teste unitario ou smoke do host.
+A instalacao limpa `qa-win-clean-03` passou ativacao, Empresa, ausencia de
+login operacional, Admin Lock, Recovery e heartbeat/sync na Build A 1.1.0.
+A atualizacao pelo aplicativo para a Build B 1.1.1 detectou, baixou, conferiu
+hash, instalou e reiniciou. SQLite, dados QA, Empresa, Admin Lock, credencial
+DPAPI e sync sobreviveram. Entretanto, o heartbeat ainda relatou `app_version`
+1.1.0 apos a atualizacao, embora o executavel ja fosse 1.1.1. A inicializacao
+persistia `app.version` somente no primeiro uso. A correcao sincroniza apenas
+essa configuracao de versao do pacote na reinicializacao de uma instalacao
+cloud, sem substituir configuracoes ou dados da empresa.
+
+O release QA 1.1.1 ja publicado e imutavel no catalogo local. O reteste final
+usara instalacao limpa `qa-win-clean-04`, Build A 1.1.0 e Build B 1.1.2, com
+novo codigo one-time emitido apenas no QA. A evidencia `-03` continua
+preservada; nenhum codigo ou credencial foi colocado em Git. O gate permanece
+**NO-GO** ate a verificacao da telemetria da Build B e dos cenarios de falha
+na VM limpa. Nenhum gate pendente vira PASS apenas por teste unitario.

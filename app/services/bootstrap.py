@@ -306,8 +306,13 @@ def initialize_database(
             "security.session_generation": secrets.token_urlsafe(32),
         }
         for key, value in defaults.items():
-            if session.get(Setting, key) is None:
+            existing_setting = session.get(Setting, key)
+            if existing_setting is None:
                 session.add(Setting(key=key, value=value))
+            elif key == "app.version" and production and existing_setting.value != value:
+                # This is installed-package metadata, not company data. A
+                # completed update must report the running build after restart.
+                existing_setting.value = value
         for key, enabled in FEATURE_DEFAULTS.items():
             if session.get(FeatureFlag, key) is None:
                 session.add(FeatureFlag(key=key, enabled=enabled))

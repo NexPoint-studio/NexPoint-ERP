@@ -52,7 +52,7 @@ if ($manifest.schema_version -ne 1 -or $manifest.environment -ne "qa" -or
     $manifest.build -cnotmatch '^QA-[AB]-[0-9a-f]{12}$' -or
     $manifest.build -cne ("QA-" + $manifest.build.Substring(3, 1) + "-" + $manifest.commit.Substring(0, 12)) -or
     ($manifest.build.Substring(3, 1) -eq 'A' -and $manifest.version -cne '1.1.0') -or
-    ($manifest.build.Substring(3, 1) -eq 'B' -and $manifest.version -cne '1.1.1')) {
+    ($manifest.build.Substring(3, 1) -eq 'B' -and $manifest.version -cne '1.1.2')) {
     throw "Manifesto de build QA invalido."
 }
 $version = [string]$manifest.version

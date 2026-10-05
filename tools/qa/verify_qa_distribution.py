@@ -70,7 +70,7 @@ def verify(bundle: Path) -> None:
     if not profile.is_file():
         raise ValueError("public QA activation profile missing")
     value = json.loads(profile.read_text(encoding="utf-8-sig"))
-    if value.get("tenant_key") != "qa-nexpoint-lab" or value.get("installation_key") != "qa-win-clean-03":
+    if value.get("tenant_key") != "qa-nexpoint-lab" or value.get("installation_key") != "qa-win-clean-04":
         raise ValueError("QA activation profile mismatch")
 
 

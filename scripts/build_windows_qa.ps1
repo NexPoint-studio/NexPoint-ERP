@@ -25,7 +25,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependencias do build inconsistentes.' }
 & $pythonPath -c 'import PyInstaller'
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller ausente.' }
 
-$version = if ($Build -eq 'A') { '1.1.0' } else { '1.1.1' }
+$version = if ($Build -eq 'A') { '1.1.0' } else { '1.1.2' }
 $base = Join-Path $root ('artifacts\windows-qa-build\' + $Build + '-' + $commit.Substring(0, 12))
 if (Test-Path -LiteralPath $base) { throw 'Build QA existente. Preserve a evidencia anterior.' }
 $stage = Join-Path $base 'source'
@@ -65,7 +65,7 @@ PRODUCT_DIRECTORY = "ERP-QA"
 
 $versionInfo = Join-Path $stage 'packaging\windows_version_info.txt'
 $versionText = Get-Content -LiteralPath $versionInfo -Raw
-$versionText = $versionText.Replace('1, 1, 0, 0', ('1, 1, ' + $(if ($Build -eq 'A') { '0' } else { '1' }) + ', 0'))
+$versionText = $versionText.Replace('1, 1, 0, 0', ('1, 1, ' + $(if ($Build -eq 'A') { '0' } else { '2' }) + ', 0'))
 $versionText = $versionText.Replace('1.1.0', $version).Replace('NexPoint ERP', 'NexPoint ERP QA')
 Set-Content -LiteralPath $versionInfo -Value $versionText -Encoding UTF8
 $manifestPath = Join-Path $base 'build-manifest.json'
@@ -93,7 +93,7 @@ Copy-Item -LiteralPath $helper -Destination (Join-Path $bundle 'NexPointUpdater.
 if ($LASTEXITCODE -ne 0) { throw 'Updater QA nao iniciou.' }
 if ($ActivationProfilePath) {
     $profile = (Resolve-Path -LiteralPath $ActivationProfilePath).Path
-    & $pythonPath -c 'import sys; from pathlib import Path; from app.services.installation_activation import ActivationProfile; p=ActivationProfile.load(Path(sys.argv[1])); assert (p.tenant_key,p.installation_key)==tuple(sys.argv[2:4])' $profile 'qa-nexpoint-lab' 'qa-win-clean-03'
+    & $pythonPath -c 'import sys; from pathlib import Path; from app.services.installation_activation import ActivationProfile; p=ActivationProfile.load(Path(sys.argv[1])); assert (p.tenant_key,p.installation_key)==tuple(sys.argv[2:4])' $profile 'qa-nexpoint-lab' 'qa-win-clean-04'
     if ($LASTEXITCODE -ne 0) { throw 'Perfil publico QA invalido.' }
     Copy-Item -LiteralPath $profile -Destination (Join-Path $bundle 'activation-profile.json')
 }

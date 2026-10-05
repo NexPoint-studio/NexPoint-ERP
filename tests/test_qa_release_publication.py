@@ -26,7 +26,7 @@ def qa_artifact(tmp_path, monkeypatch):
     artifact = installers / "NexPointERP-QA-Setup.exe"
     artifact.write_bytes(b"MZ" + b"synthetic-qa-installer" * 128)
     report = {"installer": str(artifact), "installer_sha256": sha256(artifact.read_bytes()).hexdigest(),
-        "environment": "qa", "channel": "QA", "version": "1.1.1", "scope": "current-user",
+        "environment": "qa", "channel": "QA", "version": "1.1.2", "scope": "current-user",
         "updater_included": True, "signing_status": "NotSigned", "commit": COMMIT,
         "build": "QA-B-" + COMMIT[:12]}
     (installers / "installer-build.json").write_text(json.dumps(report), encoding="utf-8")
@@ -42,7 +42,7 @@ def test_build_b_metadata_is_internal_and_verifies_artifact(qa_artifact, monkeyp
     checked = []
     monkeypatch.setattr(qa, "verify_installable_artifact", lambda path, manifest: checked.append((path, manifest)))
     metadata = qa.build_b_metadata(artifact)
-    assert metadata["version"] == "1.1.1"
+    assert metadata["version"] == "1.1.2"
     assert metadata["update_channel"] == "internal"
     assert metadata["artifact_size"] == artifact.stat().st_size
     assert metadata["artifact_sha256"] == sha256(artifact.read_bytes()).hexdigest()
@@ -108,7 +108,7 @@ def test_private_storage_round_trip_precedes_verify_and_publish(qa_artifact, mon
             assert payload["p_metadata"]["update_channel"] == "internal"
             return {"ok": True, "release_id": RELEASE_ID, "status": "draft"}
         if name == "np_admin_publish_release":
-            return {"ok": True, "release": {"release_id": RELEASE_ID, "version": "1.1.1",
+            return {"ok": True, "release": {"release_id": RELEASE_ID, "version": "1.1.2",
                 "update_channel": "internal", "artifact_sha256": sha256(artifact.read_bytes()).hexdigest()}}
         assert name == "np_admin_verify_release"
         return {"ok": True, "release_id": RELEASE_ID}
