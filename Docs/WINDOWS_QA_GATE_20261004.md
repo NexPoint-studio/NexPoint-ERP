@@ -55,3 +55,52 @@ novo codigo one-time emitido apenas no QA. A evidencia `-03` continua
 preservada; nenhum codigo ou credencial foi colocado em Git. O gate permanece
 **NO-GO** ate a verificacao da telemetria da Build B e dos cenarios de falha
 na VM limpa. Nenhum gate pendente vira PASS apenas por teste unitario.
+
+## Reteste da instalacao `qa-win-clean-04`
+
+Commit local `020842696c62076d975982290f907961c36c41db`, sem push.
+Build A 1.1.0 e Build B 1.1.2 passaram pelos verificadores de distribuicao e
+secret scan. A VM foi restaurada ao checkpoint anterior ao ERP; sem executavel
+ou SQLite, sem rota padrao, HTTPS QA valido. O instalador A saiu com codigo 0.
+
+- Ativacao: PASS, codigo one-time consumido; reuso via Edge QA retornou 409.
+- Empresa: PASS, nome `NexPoint QA Lab 04` gravado localmente e no QA cloud.
+- Login operacional: ausente, `/login` retornou 404.
+- Admin Lock: PASS para bloqueio, senha incorreta e desbloqueio.
+- Recovery: PASS para chamado sincronizado, autorizacao web QA com rejeicao
+  CSRF, consumo da autorizacao e rejeicao da senha anterior.
+- Heartbeat/sync A: PASS, versao 1.1.0, build e SHA completos, fila zerada.
+- Update A para B: PASS para deteccao internal, download, SHA-256 do Setup B
+  `0693882a45c6091f07343b9dae215f72d9ed3244f948eb610875b77991c07dd3`,
+  instalacao pelo ERP, reinicio e executavel 1.1.2. O heartbeat cloud passou a
+  informar 1.1.2, confirmando a correcao de `app.version`.
+- Preservacao: PASS, SQLite `integrity_check=ok`, `foreign_key_check` vazio,
+  Empresa e cliente ficticio mantidos, Admin Lock presente, credencial DPAPI
+  com SHA-256 identico antes e depois. Sync voltou a online apos reinicio.
+- Sem rede: origem QA ficou inacessivel enquanto o ERP local respondeu 200;
+  apos restaurar a interface, o QA HTTPS respondeu 200 e pendencias retornaram
+  a zero. A API de status exibiu `online` por cache durante a desconexao curta.
+- Update repetido: verificacao e tentativa de novo download mantiveram
+  `CURRENT`, sem reinstalacao.
+- Hash invalido: PASS nos testes automatizados de download/estado, ainda nao
+  exercitado por adulteracao de pacote na interface da VM.
+- UAC cancelado: nao aplicavel ao instalador QA de escopo current-user.
+
+**Bloqueio confirmado:** durante A para B, tres eventos `health` receberam
+`HTTP 400 invalid_payload` e ficaram em `dead_letter` com uma tentativa. Outros
+eventos e os heartbeats posteriores sincronizaram; o estado final observado foi
+`online`, zero `waiting`, zero `sending`, tres `dead_letter`. Os payloads
+rejeitados passaram depois pelas regras de formato e por replay transacional
+no RPC do banco QA com rollback, portanto a causa original ainda nao foi
+reproduzida. Nao houve exclusao, reenvio forcado ou alteracao manual desses
+itens. A fila de telemetria incompleta impede GO.
+
+A VM Windows Evaluation tambem desligou por `wlms.exe` (evento System 1074).
+Foi reiniciada; a sessao e o ERP voltaram, e o logon automatico temporario
+foi desativado. Essa limitacao do laboratorio precisa ser resolvida antes de
+usar a VM para um ciclo de teste prolongado.
+
+Gate final: **NO-GO**. Proximo passo: diagnosticar e corrigir a causa dos
+`health` rejeitados, repetir A para B em uma instalacao QA limpa e confirmar
+`dead_letter=0`; depois testar adulteracao do instalador pela interface da VM.
+Nao usar o notebook real nem modificar a entrega Nil lav ate esse reteste.
