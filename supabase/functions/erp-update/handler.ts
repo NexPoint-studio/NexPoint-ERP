@@ -8,6 +8,27 @@ import { canonicalUpdateBody, CHANNELS, record, UPDATE_REQUEST_DOMAIN, UPDATE_RE
 
 export interface UpdateEnvironment { get(name: string): string | undefined; }
 const environment: UpdateEnvironment = { get: (name) => Deno.env.get(name) };
+const QA_INTERNAL_ORIGIN = "http://kong:8000";
+const QA_PUBLIC_ORIGIN = "https://qa.nexpoint.test:56430";
+
+function updateOrigins(reader: UpdateEnvironment): { internal: URL; public: URL; qa: boolean } {
+  const rawBase = reader.get("SUPABASE_URL");
+  const qaMode = reader.get("NEXPOINT_QA_MODE");
+  const qaPublicOrigin = reader.get("NEXPOINT_QA_PUBLIC_ORIGIN");
+  if (!rawBase) throw new RecoveryContractError("service_unavailable", 503);
+  if (qaMode !== undefined || qaPublicOrigin !== undefined) {
+    if (qaMode !== "isolated" || qaPublicOrigin !== QA_PUBLIC_ORIGIN || rawBase !== QA_INTERNAL_ORIGIN) {
+      throw new RecoveryContractError("service_unavailable", 503);
+    }
+    return { internal: new URL(QA_INTERNAL_ORIGIN), public: new URL(QA_PUBLIC_ORIGIN), qa: true };
+  }
+  const base = new URL(rawBase);
+  if (base.username || base.password || base.search || base.hash || (base.pathname !== "/" && base.pathname !== "") ||
+      (base.protocol !== "https:" && !(base.protocol === "http:" && ["127.0.0.1", "localhost"].includes(base.hostname)))) {
+    throw new RecoveryContractError("service_unavailable", 503);
+  }
+  return { internal: base, public: base, qa: false };
+}
 
 async function boundedJson(response: Response): Promise<unknown> {
   if (!response.ok || response.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
@@ -57,16 +78,12 @@ export async function handleErpUpdate(request: Request, reader: UpdateEnvironmen
     if (!equalHex(await hmac(secret, [UPDATE_REQUEST_DOMAIN, ...context, await hash(text)].join("\n")), signature)) {
       throw new RecoveryContractError("unauthorized", 401);
     }
-    const rawBase = reader.get("SUPABASE_URL"), serviceKey = reader.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!rawBase || !serviceKey) throw new RecoveryContractError("service_unavailable", 503);
-    const base = new URL(rawBase);
-    if (base.username || base.password || base.search || base.hash || (base.pathname !== "/" && base.pathname !== "") ||
-        (base.protocol !== "https:" && !(base.protocol === "http:" && ["127.0.0.1", "localhost"].includes(base.hostname)))) {
-      throw new RecoveryContractError("service_unavailable", 503);
-    }
+    const serviceKey = reader.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!serviceKey) throw new RecoveryContractError("service_unavailable", 503);
+    const origins = updateOrigins(reader);
     const serverHeaders: Record<string, string> = { apikey: serviceKey, "content-type": "application/json" };
     if (!serviceKey.startsWith("sb_secret_")) serverHeaders.authorization = `Bearer ${serviceKey}`;
-    const rpc = await boundedJson(await fetcher(new URL("/rest/v1/rpc/np_erp_check_release", base), {
+    const rpc = await boundedJson(await fetcher(new URL("/rest/v1/rpc/np_erp_check_release", origins.internal), {
       method: "POST", redirect: "error", headers: serverHeaders, signal: AbortSignal.timeout(5000),
       body: JSON.stringify({ p_tenant_id: tenant, p_installation_id: installation, p_secret_hash: await hash(secret),
         p_nonce_hash: await hash(`${UPDATE_REQUEST_DOMAIN}:${tenant}:${installation}:${nonce}:${requestId}`),
@@ -79,7 +96,8 @@ export async function handleErpUpdate(request: Request, reader: UpdateEnvironmen
       if (code === "rate_limited") throw new RecoveryContractError("rate_limited", 429);
       throw new RecoveryContractError("invalid_remote_response", 502);
     }
-    if (typeof rpc.update_channel !== "string" || !CHANNELS.includes(rpc.update_channel)) {
+    if (typeof rpc.update_channel !== "string" || !CHANNELS.includes(rpc.update_channel) ||
+        (origins.qa && rpc.update_channel !== "internal")) {
       throw new RecoveryContractError("invalid_remote_response", 502);
     }
     const manifest = validateUpdateManifest(rpc.release, rpc.update_channel,
@@ -87,7 +105,7 @@ export async function handleErpUpdate(request: Request, reader: UpdateEnvironmen
     let download: Record<string, string> | null = null;
     if (manifest) {
       const path = `/storage/v1/object/sign/nexpoint-releases/windows/x64/${manifest.artifact_sha256}.exe`;
-      const signed = await boundedJson(await fetcher(new URL(path, base), {
+      const signed = await boundedJson(await fetcher(new URL(path, origins.internal), {
         method: "POST", redirect: "error", headers: serverHeaders, signal: AbortSignal.timeout(5000),
         body: JSON.stringify({ expiresIn: 300 }),
       }));
@@ -99,7 +117,7 @@ export async function handleErpUpdate(request: Request, reader: UpdateEnvironmen
       if (!signed.signedURL.startsWith(prefix) || !/^[A-Za-z0-9_.-]{20,7000}$/.test(signed.signedURL.slice(prefix.length))) {
         throw new RecoveryContractError("invalid_remote_response", 502);
       }
-      download = { url: new URL("/storage/v1" + signed.signedURL, base).href,
+      download = { url: new URL("/storage/v1" + signed.signedURL, origins.public).href,
         expires_at: new Date((now + 300) * 1000).toISOString() };
     }
     const encoded = JSON.stringify({ schema_version: 1, ok: true, request_id: requestId,

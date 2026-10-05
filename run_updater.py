@@ -20,6 +20,9 @@ def main():
         if arguments.verify_runtime:
             return 0
         if arguments.handoff_prepare or arguments.handoff_resume:
+            from app.core.cloud_profile import packaged_qa
+            if packaged_qa():
+                raise RuntimeError("Transferencia de instalacao indisponivel no laboratorio QA.")
             if sys.platform != "win32" or not getattr(sys, "frozen", False):
                 raise RuntimeError("A transferência exige o componente Windows instalado.")
             from app.core.installation_identity import InstallationCredentialStore

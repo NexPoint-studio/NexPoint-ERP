@@ -10,6 +10,7 @@ from urllib.request import Request
 from uuid import UUID, uuid4
 
 from app.core.config import PRODUCTION_SUPABASE_PROJECT_REF
+from app.core import cloud_profile
 from app.core.installation_identity import InstallationCredentials
 from app.services.sync_remote import _default_https_open
 
@@ -72,6 +73,8 @@ def validate_receipt(value, *, operation_id: str, installation_id: str,
 class HandoffRemote:
     def __init__(self, credentials: InstallationCredentials, *, opener=None,
                  project_ref=PRODUCTION_SUPABASE_PROJECT_REF, clock=time.time):
+        if cloud_profile.packaged_qa():
+            raise HandoffRemoteError("Transferencia de instalacao indisponivel no laboratorio QA.")
         if not isinstance(project_ref, str) or not re.fullmatch(r"[a-z0-9]{20}", project_ref):
             raise HandoffRemoteError("A origem da transferência é inválida.")
         self.endpoint = f"https://{project_ref}.supabase.co/functions/v1/erp-handoff"

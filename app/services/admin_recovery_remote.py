@@ -104,6 +104,9 @@ class SupabaseAdminRecoveryRemote:
         nonce_factory: Callable[[], str] | None = None,
         request_id_factory: Callable[[], str] | None = None,
     ):
+        from app.core import cloud_profile
+        cloud_profile.require_qa_endpoint(endpoint, "erp-admin-recovery")
+        cloud_profile.require_qa_identity(credentials.tenant_id, credentials.installation_id)
         try:
             parsed = urlsplit(endpoint)
             port = parsed.port
@@ -116,7 +119,7 @@ class SupabaseAdminRecoveryRemote:
             or parsed.password is not None
             or parsed.query
             or parsed.fragment
-            or (port is not None and port != 443)
+            or (port is not None and port != 443 and not cloud_profile.packaged_qa())
             or parsed.path != "/functions/v1/erp-admin-recovery"
         ):
             raise ValueError("Endpoint PROD de Admin Recovery deve usar HTTPS.")

@@ -113,9 +113,8 @@ async def remove_protection(request: Request):
 
 def _available_authorization(request: Request, session):
     identity = client_support_identity(request, session, recovery=True)
-    production = str(request.app.state.settings.environment).strip().casefold() in {
-        "prod", "production"
-    }
+    from app.core.cloud_profile import cloud_installation
+    production = cloud_installation(request.app.state.settings)
     repository = (
         getattr(request.app.state, "admin_recovery_remote", None)
         if production
@@ -390,9 +389,8 @@ async def complete_recovery(request: Request):
             confirmation = str(form.get("confirmation") or "")
             service.validate_authorized_reset_request(actor.id, new_password, confirmation)
             identity = client_support_identity(request, session, recovery=True)
-            production = str(request.app.state.settings.environment).strip().casefold() in {
-                "prod", "production"
-            }
+            from app.core.cloud_profile import cloud_installation
+            production = cloud_installation(request.app.state.settings)
             if production:
                 identity, repository, expected_authorization = _available_authorization(
                     request, session

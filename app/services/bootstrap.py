@@ -190,7 +190,8 @@ def initialize_database(
     infrastructure = [table for name, table in Base.metadata.tables.items() if name not in domain_tables]
     # Infraestrutura e domínio compartilham o mesmo lock SQLite de inicialização;
     # isso evita corridas check-then-create entre dois starters simultâneos.
-    production = settings.environment.strip().casefold() in {"prod", "production"}
+    from app.core.cloud_profile import cloud_installation
+    production = cloud_installation(settings)
     backup_required = production if require_migration_backup is None else bool(
         require_migration_backup
     )

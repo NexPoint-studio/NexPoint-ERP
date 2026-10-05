@@ -10,6 +10,11 @@ const nonce = "11111111-1111-4111-8111-111111111111", requestId = "22222222-2222
 const context = [tenant, installation, timestamp, nonce, requestId];
 const origin = "https://abcdefghijklmnopqrst.supabase.co";
 const env = { get: (name: string) => ({ SUPABASE_URL: origin, SUPABASE_SERVICE_ROLE_KEY: "CANARY_SERVER_ONLY_QA" })[name] };
+const qaInternalOrigin = "http://kong:8000", qaPublicOrigin = "https://qa.nexpoint.test:56430";
+const qaEnvValues: Record<string, string> = { SUPABASE_URL: qaInternalOrigin,
+  SUPABASE_SERVICE_ROLE_KEY: "CANARY_SERVER_ONLY_QA", NEXPOINT_QA_MODE: "isolated",
+  NEXPOINT_QA_PUBLIC_ORIGIN: qaPublicOrigin };
+const qaEnv = { get: (name: string) => qaEnvValues[name] };
 const body = { schema_version: 1, tenant_id: tenant, installation_id: installation, installed_version: "1.1.0" };
 const manifest = {
   schema_version: 1, release_id: "33333333-3333-4333-8333-333333333333", sequence: 2,
@@ -20,9 +25,9 @@ const manifest = {
 };
 const path = `/object/sign/nexpoint-releases/windows/x64/${manifest.artifact_sha256}.exe?token=${"synthetic-qa-download-token"}`;
 function json(value: unknown, status = 200) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } }); }
-async function request(value: Record<string, unknown> = body): Promise<Request> {
+async function request(value: Record<string, unknown> = body, requestOrigin = origin): Promise<Request> {
   const encoded = JSON.stringify(value);
-  return new Request(origin + "/functions/v1/erp-update", { method: "POST", body: encoded, headers: {
+  return new Request(requestOrigin + "/functions/v1/erp-update", { method: "POST", body: encoded, headers: {
     "content-type": "application/json", authorization: `Bearer ${secret}`,
     "x-nexpoint-tenant-id": tenant, "x-nexpoint-installation-id": installation,
     "x-nexpoint-timestamp": timestamp, "x-nexpoint-nonce": nonce, "x-request-id": requestId,
@@ -58,6 +63,51 @@ test("scopes RPC by installation credential and signs bounded manifest/download"
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(calls.length, 2);
   assert.ok(!encoded.includes("CANARY_SERVER_ONLY_QA") && !encoded.includes(secret));
+});
+
+test("isolated QA calls Kong internally and signs the fixed HTTPS download origin", async () => {
+  const calls: string[] = [];
+  const response = await handleErpUpdate(await request(body, qaPublicOrigin), qaEnv, async (input, init) => {
+    calls.push(String(input));
+    assert.equal(init?.redirect, "error");
+    assert.equal((init?.headers as Record<string, string>).apikey, "CANARY_SERVER_ONLY_QA");
+    if (calls.length === 1) return json({ ok: true, update_channel: "internal",
+      release: { ...manifest, update_channel: "internal" } });
+    return json({ signedURL: path });
+  }, now);
+  assert.equal(response.status, 200);
+  const encoded = await response.text(), result = JSON.parse(encoded);
+  assert.deepEqual(calls, [qaInternalOrigin + "/rest/v1/rpc/np_erp_check_release",
+    qaInternalOrigin + "/storage/v1" + path.split("?")[0]]);
+  assert.equal(result.download.url, qaPublicOrigin + "/storage/v1" + path);
+  assert.equal(result.update_channel, "internal");
+  assert.equal(response.headers.get("x-nexpoint-signature"),
+    `v1=${await hmac(secret, [UPDATE_RESPONSE_DOMAIN, ...context, await hash(encoded)].join("\n"))}`);
+  assert.ok(!encoded.includes(qaInternalOrigin) && !encoded.includes("CANARY_SERVER_ONLY_QA"));
+});
+
+test("isolated QA rejects a non-internal update channel before signing storage URL", async () => {
+  let calls = 0;
+  const response = await handleErpUpdate(await request(body, qaPublicOrigin), qaEnv, async () => {
+    calls++;
+    return json({ ok: true, update_channel: "stable", release: manifest });
+  }, now);
+  assert.equal(response.status, 502);
+  assert.equal(calls, 1);
+});
+
+for (const [name, values] of [
+  ["missing QA opt-in", { SUPABASE_URL: qaInternalOrigin }],
+  ["missing QA public origin", { SUPABASE_URL: qaInternalOrigin, NEXPOINT_QA_MODE: "isolated" }],
+  ["wrong QA mode", { ...qaEnvValues, NEXPOINT_QA_MODE: "true" }],
+  ["wrong QA public origin", { ...qaEnvValues, NEXPOINT_QA_PUBLIC_ORIGIN: "https://wrong.invalid" }],
+  ["wrong QA internal origin", { ...qaEnvValues, SUPABASE_URL: "http://kong:8001" }],
+  ["QA markers on production", { ...qaEnvValues, SUPABASE_URL: origin }],
+] as const) test(`${name} fails closed before remote access`, async () => {
+  const reader = { get: (key: string) => ({ SUPABASE_SERVICE_ROLE_KEY: "CANARY_SERVER_ONLY_QA", ...values })[key] };
+  const response = await handleErpUpdate(await request(body, qaPublicOrigin), reader,
+    async () => { assert.fail("unexpected remote access"); }, now);
+  assert.equal(response.status, 503);
 });
 
 test("no release performs no storage request", async () => {

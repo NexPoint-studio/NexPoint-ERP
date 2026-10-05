@@ -12,6 +12,7 @@ import subprocess
 import time
 
 from app.core.installation_identity import InstallationCredentialStore, WindowsDpapiProtector
+from app.core import cloud_profile
 from app.updates.contracts import ReleaseManifest, UpdateValidationError, version_parts
 from app.updates.installer import UpdateTransaction, file_digest, regular, schema_snapshot
 from app.updates.state import UpdateJournal
@@ -91,6 +92,7 @@ def validate_desktop_startup(settings, program: Path, *, health_job: Path | None
     database = regular(Path(make_url(settings.database_url).database))
     credential_path = regular(Path(settings.installation_credentials_path))
     credentials = InstallationCredentialStore(credential_path).load()
+    cloud_profile.require_qa_identity(credentials.tenant_id, credentials.installation_id)
     journal = UpdateJournal(Path(settings.data_directory).parent / "updates", credentials)
     state = journal.load()  # An unreadable journal cannot prove recovery is safe.
     if health_job is None:
@@ -173,8 +175,11 @@ def run_update_job(path: Path) -> str:
         raise UpdateValidationError("A instalação automática está disponível somente no Windows.")
     job = load_job(path)
     credentials = InstallationCredentialStore(Path(job["credential_file"])).load()
+    cloud_profile.require_qa_identity(credentials.tenant_id, credentials.installation_id)
     journal = UpdateJournal(Path(job["journal_dir"]), credentials)
     state = journal.load()
+    if cloud_profile.packaged_qa():
+        cloud_profile.require_qa_channel(state["update_channel"])
     manifest = ReleaseManifest.parse(state["release"])
     if manifest.release_id != job["release_id"] or not manifest.check_for_installation(
         installed_version=job["source_version"], channel=state["update_channel"],

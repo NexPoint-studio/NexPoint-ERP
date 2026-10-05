@@ -8,6 +8,8 @@ import re
 import sys
 from urllib.parse import urlsplit
 
+from app.core import cloud_profile
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 MIN_LOCAL_PORT = 1024
@@ -25,9 +27,13 @@ _BUILD_MANIFEST_KEYS = frozenset(
         "environment",
         "channel",
         "supabase_project_ref",
+        "cloud_origin",
+        "update_channel",
     }
 )
-PRODUCTION_SUPABASE_PROJECT_REF = "scfncgaiovztrbgrcvkt"
+# Compatibility export for existing PROD callers. The only literal target lives
+# in _build_target, which is replaced in full before compiling a QA distribution.
+PRODUCTION_SUPABASE_PROJECT_REF = cloud_profile.PROFILE.project_ref
 _INSTALLATION_CONFIG_KEYS = frozenset(
     {"schema_version", "company_name", "tenant_type", "supabase_project_ref"}
 )
@@ -63,7 +69,7 @@ def _production_installation_config() -> dict[str, object]:
 
 
 def _load_local_env() -> None:
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) or cloud_profile.packaged_qa():
         return
     """Carrega apenas configuração local; não consulta rede ou serviço externo."""
     path = ROOT_DIR / ".env.local"
@@ -300,9 +306,71 @@ class Settings:
     supabase_project_ref: str = ""
 
 
+def _qa_cloud_settings(manifest: dict[str, object]) -> Settings:
+    profile = cloud_profile.PROFILE
+    origin = cloud_profile.origin_for()
+    expected = {"environment": "qa", "channel": "QA",
+                "supabase_project_ref": profile.project_ref,
+                "cloud_origin": origin, "update_channel": "internal"}
+    if (any(manifest.get(key) != value for key, value in expected.items())
+            or not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("commit") or ""))):
+        raise RuntimeError("O executavel QA exige um manifesto QA correspondente ao perfil compilado.")
+    local = os.getenv("LOCALAPPDATA", "").strip()
+    if not local or not Path(local).is_absolute():
+        raise RuntimeError("LOCALAPPDATA absoluto e obrigatorio para QA.")
+    root = cloud_profile.regular_path(Path(local) / "NexPoint" / profile.product_directory)
+    data = cloud_profile.regular_path(root / "data")
+    credential = cloud_profile.regular_path(root / "credentials" / "installation.dpapi")
+    if _is_within(root, ROOT_DIR):
+        raise RuntimeError("Os dados QA devem ficar fora do programa.")
+    overrides = {"ERP_ENVIRONMENT": "qa", "ERP_CHANNEL": "QA",
+        "ERP_SUPABASE_PROJECT_REF": profile.project_ref, "ERP_SUPABASE_URL": origin,
+        "ERP_SYNC_BACKEND": "supabase", "ERP_SYNC_ENDPOINT": cloud_profile.endpoint("erp-sync"),
+        "ERP_DATA_DIR": str(data), "ERP_INSTALLATION_CREDENTIALS_FILE": str(credential),
+        "UPDATE_CHANNEL": "internal", "NEXPOINT_ENV": "qa", "CONTROL_PLANE_ENV": "qa",
+        "SUPABASE_ENV": "qa", "NEXA_ERP_BRIDGE_URL": "", "NEXA_ERP_BRIDGE_SECRET": "",
+        "ERP_SESSION_SECRET": "", "ERP_QA_MODE": "0", "ERP_HOST": "127.0.0.1"}
+    if any(os.getenv(key, value) != value for key, value in overrides.items()):
+        raise RuntimeError("Uma configuracao externa diverge do perfil QA compilado.")
+    installation = root / "installation.json"
+    config: dict[str, object] = {}
+    if installation.exists():
+        cloud_profile.regular_path(installation)
+        try:
+            if not installation.is_file() or installation.stat().st_size > 4096:
+                raise ValueError()
+            config = json.loads(installation.read_text(encoding="utf-8-sig"))
+            if (not isinstance(config, dict) or set(config) != _INSTALLATION_CONFIG_KEYS
+                    or config.get("schema_version") != 1
+                    or config.get("supabase_project_ref") != profile.project_ref
+                    or config.get("tenant_type") not in {"CUSTOMER", "INTERNAL"}
+                    or not isinstance(config.get("company_name"), str)
+                    or not 1 <= len(config["company_name"].strip()) <= 160
+                    or any(ord(c) < 32 or ord(c) == 127 for c in config["company_name"])):
+                raise ValueError()
+        except (ValueError, OSError, TypeError):
+            raise RuntimeError("A configuracao da instalacao QA e invalida.") from None
+    version = _release_value("version", manifest.get("version"), "")
+    if not re.fullmatch(r"(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})\.(?:0|[1-9][0-9]{0,5})", version):
+        raise RuntimeError("A versao QA deve ser major.minor.patch.")
+    build = _release_value("build", manifest.get("build"), "")
+    if not build.startswith("QA-"):
+        raise RuntimeError("A build deve estar identificada como QA.")
+    data.mkdir(parents=True, exist_ok=True)
+    return Settings(app_name="NexPoint ERP QA", company_name=str(config.get("company_name", "NexPoint QA Lab")),
+        version=version, build=build, commit=str(manifest["commit"]), environment="qa", channel="QA",
+        database_url=f"sqlite+pysqlite:///{(data / 'erp.sqlite3').as_posix()}",
+        tenant_type=str(config.get("tenant_type", "CUSTOMER")), qa_mode=False,
+        port=_local_port(os.getenv("ERP_PORT", "8765")), sync_backend="supabase",
+        sync_endpoint=cloud_profile.endpoint("erp-sync"), installation_credentials_path=str(credential),
+        data_directory=str(data), supabase_project_ref=profile.project_ref)
+
+
 def get_settings() -> Settings:
     _load_local_env()
     manifest = _build_manifest()
+    if cloud_profile.packaged_qa():
+        return _qa_cloud_settings(manifest)
     frozen = bool(getattr(sys, "frozen", False))
     if frozen:
         if (

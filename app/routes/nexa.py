@@ -372,6 +372,9 @@ def context(request: Request, screen: str = ""):
 
 @router.post("/chat")
 async def chat(request: Request):
+    from app.core.cloud_profile import packaged_qa
+    if packaged_qa():
+        return JSONResponse({"error": "A Nexa nao esta habilitada no laboratorio QA."}, status_code=503)
     if request.state.current_user is None:
         raise HTTPException(status_code=401)
     secret = getattr(request.app.state, "nexa_secret", "")

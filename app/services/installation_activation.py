@@ -25,6 +25,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 
 from app.core.config import PRODUCTION_SUPABASE_PROJECT_REF, Settings
+from app.core import cloud_profile
 from app.core.database import build_engine, build_session_factory
 from app.core.installation_identity import (
     InstallationCredentials, InstallationCredentialStore, WindowsDpapiProtector,
@@ -37,7 +38,7 @@ from app.services.system_maintenance import validate_database
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{7,119}$")
 _CODE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _HASH = re.compile(r"^scrypt\$16384\$8\$1\$[A-Za-z0-9_-]{22}==\$[A-Za-z0-9_-]{43}=$")
-ENDPOINT = f"https://{PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co/functions/v1/erp-activate"
+ENDPOINT = cloud_profile.endpoint("erp-activate")
 
 
 class ActivationError(RuntimeError):
@@ -81,6 +82,8 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 def request_activation(payload: dict) -> dict:
+    cloud_profile.require_qa_endpoint(ENDPOINT, "erp-activate")
+    cloud_profile.require_qa_identity(payload.get("tenant_key"), payload.get("installation_key"))
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     if len(raw) > 4096:
         raise ActivationError("Confira o codigo de ativacao informado.")
@@ -155,8 +158,9 @@ def _exclusive(path):
 
 class InstallationActivation:
     def __init__(self, settings: Settings, profile: ActivationProfile, *, protector=None, remote=None):
-        if settings.environment != "production" or settings.qa_mode or settings.supabase_project_ref != PRODUCTION_SUPABASE_PROJECT_REF:
+        if not cloud_profile.cloud_installation(settings) or settings.qa_mode or settings.supabase_project_ref != cloud_profile.PROFILE.project_ref:
             raise ActivationError("O pacote de instalação não é válido para uso oficial.")
+        cloud_profile.require_qa_identity(profile.tenant_key, profile.installation_key)
         self.settings, self.profile = settings, profile
         self.root = Path(settings.data_directory).resolve().parent
         self.database = Path(settings.data_directory) / "erp.sqlite3"
@@ -282,7 +286,7 @@ class InstallationActivation:
                 self._validate_reply(reply, state)
                 self._create_database(reply, state)
                 config = {"schema_version": 1, "company_name": reply["company_name"],
-                          "tenant_type": reply["tenant_kind"].upper(), "supabase_project_ref": PRODUCTION_SUPABASE_PROJECT_REF}
+                          "tenant_type": reply["tenant_kind"].upper(), "supabase_project_ref": cloud_profile.PROFILE.project_ref}
                 config_path = self.root / "installation.json"
                 _regular(config_path)
                 if config_path.exists():
@@ -312,7 +316,7 @@ class InstallationActivation:
 
 
 def needs_activation(settings: Settings) -> bool:
-    if settings.environment != "production":
+    if not cloud_profile.cloud_installation(settings):
         return False
     vault = Path(settings.installation_credentials_path)
     pending = vault.with_name("activation.dpapi")

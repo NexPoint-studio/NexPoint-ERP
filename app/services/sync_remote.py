@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
@@ -17,6 +17,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 from uuid import uuid4
 
 from app.core.installation_identity import InstallationCredentials
+from app.core import cloud_profile
 from app.models.sync import OutboxItem
 from control_center.domain import (
     ControlCenterConflictError, ControlCenterNotFoundError, ControlCenterValidationError,
@@ -284,6 +285,8 @@ class SupabaseSyncRemote:
         clock: Callable[[], float] = time.time,
         nonce_factory: Callable[[], str] | None = None,
     ):
+        cloud_profile.require_qa_endpoint(endpoint, "erp-sync")
+        cloud_profile.require_qa_identity(credentials.tenant_id, credentials.installation_id)
         try:
             parsed = urlsplit(endpoint)
             port = parsed.port
@@ -296,7 +299,7 @@ class SupabaseSyncRemote:
             or parsed.password is not None
             or parsed.query
             or parsed.fragment
-            or (port is not None and port != 443)
+            or (port is not None and port != 443 and not cloud_profile.packaged_qa())
             or not parsed.path.endswith("/functions/v1/erp-sync")
         ):
             raise ValueError("Endpoint PROD de sincronizacao deve usar HTTPS.")
@@ -399,6 +402,20 @@ class SupabaseSyncRemote:
         )
 
     def send_batch(self, items: Sequence[SyncEnvelope]) -> tuple[SyncAck, ...]:
+        cloud_profile.require_qa_endpoint(self.endpoint, "erp-sync")
+        if cloud_profile.packaged_qa():
+            # This isolated server uses the unchanged PROD wire schema. Preserve
+            # original qa/QA outbox records; translate a copy before signing.
+            wire_items = []
+            for item in items:
+                payload = dict(item.payload)
+                for key, source, target in (("environment", "qa", "prod"), ("channel", "QA", "PROD")):
+                    if key in payload:
+                        if payload[key] != source:
+                            raise SyncRemoteError("Ambiente do evento diverge da build QA.", retryable=False)
+                        payload[key] = target
+                wire_items.append(replace(item, payload=payload))
+            items = tuple(wire_items)
         body = canonical_sync_body(items)
         for item in items:
             if (

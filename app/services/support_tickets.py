@@ -151,9 +151,8 @@ def ensure_control_center_repository(app) -> ControlCenterRepository:
 
         with app.state.session_factory() as session:
             operational_settings = ConfigurationRepository(session).settings()
-        production = str(app.state.settings.environment).strip().casefold() in {
-            "prod", "production"
-        }
+        from app.core.cloud_profile import cloud_installation
+        production = cloud_installation(app.state.settings)
         if production:
             preferred_tenant_id = _state_id(
                 app, "control_center_tenant_id", ""

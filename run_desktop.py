@@ -12,6 +12,7 @@ import webview
 
 from app import create_app
 from app.core.config import get_settings
+from app.core import cloud_profile
 
 
 def ensure_port_available(host: str, port: int) -> None:
@@ -86,7 +87,7 @@ def start_local_server(application, host: str, port: int) -> tuple[uvicorn.Serve
 
 def _run_desktop(*, health_job: Path | None = None) -> None:
     settings = get_settings()
-    if settings.environment == "production":
+    if cloud_profile.cloud_installation(settings):
         from app.services.installation_handoff import InstallationHandoff
         InstallationHandoff(Path(settings.data_directory).parent).validate_startup()
     host = "127.0.0.1"
@@ -96,7 +97,7 @@ def _run_desktop(*, health_job: Path | None = None) -> None:
     )
     activation_required = needs_activation(settings)
     journal = credentials = None
-    if health_job is not None or (getattr(sys, "frozen", False) and settings.environment == "production" and not activation_required):
+    if health_job is not None or (getattr(sys, "frozen", False) and cloud_profile.cloud_installation(settings) and not activation_required):
         if activation_required:
             raise RuntimeError("A atualização exige uma instalação já ativada.")
         from app.updates.desktop import validate_desktop_startup
@@ -114,7 +115,7 @@ def _run_desktop(*, health_job: Path | None = None) -> None:
     if health_job is not None:
         application.state.sync_worker = None
         application.state.update_manager = None
-    elif getattr(sys, "frozen", False) and settings.environment == "production" and hasattr(application, "state"):
+    elif getattr(sys, "frozen", False) and cloud_profile.cloud_installation(settings) and hasattr(application, "state"):
         from app.updates.desktop import launch_update_helper
         from app.updates.manager import UpdateManager
         from app.updates.remote import SupabaseUpdateRemote

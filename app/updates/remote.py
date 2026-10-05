@@ -11,6 +11,7 @@ from urllib.request import Request
 from uuid import uuid4
 
 from app.core.config import PRODUCTION_SUPABASE_PROJECT_REF
+from app.core import cloud_profile
 from app.core.installation_identity import InstallationCredentials
 from app.services.sync_remote import _default_https_open
 from app.updates.contracts import (
@@ -50,7 +51,8 @@ class SupabaseUpdateRemote:
                  project_ref: str = PRODUCTION_SUPABASE_PROJECT_REF, opener=None, clock=time.time):
         if not isinstance(project_ref, str) or not re.fullmatch(r"[a-z0-9]{20}", project_ref):
             raise UpdateValidationError("A origem oficial da atualização é inválida.")
-        self.endpoint = f"https://{project_ref}.supabase.co/functions/v1/erp-update"
+        cloud_profile.require_qa_identity(credentials.tenant_id, credentials.installation_id)
+        self.endpoint = cloud_profile.endpoint("erp-update", project_ref=project_ref)
         self.project_ref = project_ref
         self._credentials = credentials
         self._opener = opener or _default_https_open
@@ -58,6 +60,11 @@ class SupabaseUpdateRemote:
 
     def check(self, installed_version: str, *, highest_sequence: int = 0,
               expected_channel: str | None = None) -> UpdateCheck:
+        cloud_profile.require_qa_endpoint(self.endpoint, "erp-update")
+        if cloud_profile.packaged_qa():
+            if expected_channel is not None:
+                cloud_profile.require_qa_channel(expected_channel)
+            expected_channel = "internal"
         version_parts(installed_version)
         if type(highest_sequence) is not int or not 0 <= highest_sequence < 2**53:
             raise UpdateValidationError("O estado da atualização é inválido.")

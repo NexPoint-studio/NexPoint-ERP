@@ -150,6 +150,8 @@ def test_no_cloud_package_or_unapproved_external_runtime_reference():
         root / "app/routes/nexa.py",
         root / "app/services/nexa_adapter.py",
         root / "app/core/config.py",
+            root / "app/core/cloud_profile.py",
+            root / "app/core/_build_target.py",
         root / "app/main.py",
         root / "app/services/sync_remote.py",
         root / "app/services/admin_recovery_remote.py",

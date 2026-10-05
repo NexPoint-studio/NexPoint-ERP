@@ -12,6 +12,7 @@ import time
 from threading import RLock
 
 from app.core.installation_identity import InstallationCredentials
+from app.core import cloud_profile
 from app.updates.contracts import ReleaseManifest, UPDATE_CHANNELS, UpdateValidationError
 from app.updates.download import _safe_directory
 
@@ -49,11 +50,15 @@ class UpdateJournal:
                 (not isinstance(value["error_code"], str) or value["error_code"] not in ERRORS))):
             raise UpdateValidationError("O estado local da atualização é inválido.")
         sequences = value["highest_sequences"]
+        if cloud_profile.packaged_qa() and value["update_channel"] not in {None, "internal"}:
+            raise UpdateValidationError("O historico QA exige o canal internal.")
         if (not isinstance(sequences, dict) or set(sequences) != UPDATE_CHANNELS
             or any(type(n) is not int or not 0 <= n < 2**53 for n in sequences.values())):
             raise UpdateValidationError("O histórico de versões é inválido.")
         if value["release"] is not None:
             manifest = ReleaseManifest.parse(value["release"])
+            if cloud_profile.packaged_qa() and manifest.update_channel != "internal":
+                raise UpdateValidationError("A versao nao pertence ao canal QA.")
             if value["update_channel"] != manifest.update_channel or sequences[manifest.update_channel] != manifest.sequence:
                 raise UpdateValidationError("O histórico diverge da versão autorizada.")
         elif value["state"] in {"AVAILABLE", "DOWNLOADING", "READY", "INSTALLING", "RESTARTING", "SUCCEEDED"}:

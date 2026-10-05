@@ -100,7 +100,8 @@ def _sqlite_database_path(database_url: str) -> Path:
 
 
 def _production_environment(settings: Settings) -> bool:
-    return settings.environment.strip().casefold() in {"prod", "production"}
+    from app.core.cloud_profile import cloud_installation
+    return cloud_installation(settings)
 
 
 def _path_within(path: Path, parent: Path) -> bool:
@@ -177,6 +178,8 @@ def create_app(
         production_credentials = InstallationCredentialStore(
             Path(base_settings.installation_credentials_path)
         ).load()
+        from app.core.cloud_profile import require_qa_identity
+        require_qa_identity(production_credentials.tenant_id, production_credentials.installation_id)
         base_settings = replace(
             base_settings,
             session_secret=production_credentials.local_session_secret(),

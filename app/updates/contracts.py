@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import re
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
+from app.core import cloud_profile
 
 
 MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
@@ -140,6 +141,11 @@ class ReleaseDownload:
     @classmethod
     def parse(cls, manifest: ReleaseManifest, raw: object, *, project_ref: str,
               now: datetime | None = None) -> ReleaseDownload:
+        try:
+            expected_origin = cloud_profile.origin_for(project_ref)
+            cloud_profile.require_qa_channel(manifest.update_channel)
+        except ValueError:
+            raise UpdateValidationError("A origem ou canal da atualizacao e invalido.") from None
         if not re.fullmatch(r"[a-z0-9]{20}", project_ref):
             raise UpdateValidationError("A origem oficial da atualização é inválida.")
         if not isinstance(raw, dict) or set(raw) != {"url", "expires_at"}:
@@ -151,8 +157,8 @@ class ReleaseDownload:
             parsed = urlsplit(url)
             query = parse_qs(parsed.query, strict_parsing=True)
             valid = (
-                parsed.scheme == "https" and parsed.netloc == f"{project_ref}.supabase.co"
-                and parsed.port is None and parsed.username is None and parsed.password is None
+                parsed.scheme == "https" and f"https://{parsed.netloc}" == expected_origin
+                and (parsed.port is None or cloud_profile.packaged_qa()) and parsed.username is None and parsed.password is None
                 and not parsed.fragment and parsed.path == f"/storage/v1/object/sign/{RELEASE_BUCKET}/{manifest.object_path}"
                 and set(query) == {"token"} and len(query["token"]) == 1
                 and re.fullmatch(r"[A-Za-z0-9_.-]{20,7000}", query["token"][0])

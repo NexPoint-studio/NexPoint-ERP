@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from app.core.config import PRODUCTION_SUPABASE_PROJECT_REF
+from app.core import cloud_profile
 from app.core.installation_identity import (
     InstallationCredentials, InstallationCredentialStore, WindowsDpapiProtector,
 )
@@ -188,6 +189,8 @@ class InstallationHandoff:
             raise HandoffError("O backup e o inventário local não correspondem ao registro.") from None
 
     def prepare(self, operation_id: str, target_tenant_id: str) -> dict:
+        if cloud_profile.packaged_qa():
+            raise HandoffError("Transferencia de instalacao indisponivel no laboratorio QA.")
         try:
             operation_id = str(UUID(operation_id))
         except (ValueError, TypeError):
@@ -314,6 +317,8 @@ class InstallationHandoff:
             temporary.unlink(missing_ok=True)
 
     def resume(self, operation_id: str) -> dict:
+        if cloud_profile.packaged_qa():
+            raise HandoffError("Transferencia de instalacao indisponivel no laboratorio QA.")
         state = self._load()
         if state["operation_id"] != operation_id:
             raise HandoffError("O registro pertence a outra transferência.")
@@ -357,6 +362,8 @@ class InstallationHandoff:
     def validate_startup(self) -> None:
         if not self.journal.exists():
             return
+        if cloud_profile.packaged_qa():
+            raise HandoffError("Um registro de transferencia nao pertence ao laboratorio QA.")
         state = self._load()
         if state["phase"] != "confirmed":
             raise HandoffError("A transferência desta instalação precisa ser retomada pela NexPoint.")
