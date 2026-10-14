@@ -6,9 +6,11 @@
 
 ## Em andamento
 
-- [ ] Preparar builds A/B QA e fechar evidência integrada antes de promoção {weight:8} {sector:SETOR_COORDENACAO}
+- [ ] Validar instaladores QA A/B de be07424 na VM; acesso ao Windows convidado pendente {weight:8} {sector:SETOR_QA_TESTES}
 
 ## Concluídas
+
+- [x] Builds e instaladores exclusivos QA A 1.1.0 / B 1.1.2 gerados; hashes, secret scan e boundary QA passaram {sector:SETOR_COORDENACAO}
 
 - [x] Suporte/conversa/anexos/Nexa e gestão de rollout implementados localmente; 1389 casos validados (1384 na suíte + 5 corrigidos reexecutados), 21 Edge e SQL isolado {sector:SETOR_COORDENACAO}
 

@@ -20,6 +20,23 @@
 
 ## Gates externos
 
+Código registrado no commit local `be0742475703651b2244c41cf7e91832aa99a0a9`.
+Builds exclusivos QA A 1.1.0 e B 1.1.2 gerados desse commit. Validação de
+boundary QA e secret scan dos bundles: PASS. Compilação dos dois instaladores:
+exit 0. Artefatos, hashes e `installer-build.json` em:
+
+- `artifacts/windows-qa-installer/1.1.0-be0742475703/`
+- `artifacts/windows-qa-installer/1.1.2-be0742475703/`
+
+Os executáveis permanecem `NotSigned` / `CODE_SIGNING_PENDING`. Não são entrega
+stable nem evidência de instalação. O launcher de build registrou exit 1 ao
+capturar stderr informativo do PyInstaller; o script chegou aos relatórios finais
+e a validação independente dos dois bundles passou. Instaladores tiveram exit 0.
+
+Ação externa pendente: abrir Gerenciador do Hyper-V → NexPoint-Windows-QA →
+Conectar e entrar na sessão QA. Não enviar senha no chat nem alterar credenciais
+PROD. A credencial salva foi rejeitada; nenhum reset de conta foi executado.
+
 Windows A→B deste código: PENDENTE. A VM inicia, porém a credencial QA salva foi
 rejeitada; acesso ao guest e validade da licença precisam ser confirmados.
 Origem HTTPS QA passou nos checks de isolamento na preparação anterior.
