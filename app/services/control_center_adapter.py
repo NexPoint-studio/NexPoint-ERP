@@ -47,7 +47,7 @@ def _check_state(status: str) -> str:
 
 def _update_telemetry(app) -> dict[str, str]:
     from app.updates.contracts import UPDATE_CHANNELS
-    from app.updates.state import STATES
+    from app.updates.state import STATES, ERRORS
     manager = getattr(app.state, "update_manager", None)
     if manager is None:
         return {}
@@ -58,7 +58,19 @@ def _update_telemetry(app) -> dict[str, str]:
         if (isinstance(channel, str) and channel in UPDATE_CHANNELS and isinstance(state, str) and state in STATES
             and type(changed) is int and 0 < changed < 2**53):
             observed = datetime.fromtimestamp(changed / 1000, tz=timezone.utc).isoformat()
-            return {"update_channel": channel, "update_state": state, "update_observed_at": observed}
+            result = {"update_channel": channel, "update_state": state, "update_observed_at": observed}
+            error = snapshot.get("error_code")
+            if isinstance(error, str) and error in ERRORS:
+                result["update_error_code"] = error
+            attempted = snapshot.get("last_attempt_at")
+            if type(attempted) is int and 0 < attempted < 2**53:
+                result["update_last_attempt_at"] = datetime.fromtimestamp(attempted / 1000, tz=timezone.utc).isoformat()
+            release = snapshot.get("release")
+            if isinstance(release, dict):
+                from app.updates.contracts import version_parts
+                version_parts(release.get("version"))
+                result["update_target_version"] = release["version"]
+            return result
     except Exception:
         pass  # Update diagnostics must not stop business telemetry.
     return {}

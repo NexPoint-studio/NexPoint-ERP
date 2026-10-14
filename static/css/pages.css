@@ -153,6 +153,15 @@
 .support-detail-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 26px; }
 .support-detail-main h3 { margin: 0 0 9px; color: var(--color-primary-dark); font-size: 15px; }
 .support-ticket-description { margin: 0; color: var(--color-text); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.support-detail-main > h3:not(:first-child) { margin-top: 28px; }
+.support-conversation { display: grid; gap: 12px; margin: 16px 0 24px; }
+.support-conversation article { min-width: 0; margin: 0; padding: 16px; border-left: 3px solid var(--color-primary); }
+.support-conversation article > small { display: block; margin: 4px 0 10px; color: var(--color-text-muted); }
+.support-detail-main > .form-stack { padding: 18px 0; border-top: 1px solid var(--color-border); }
+.support-detail-main > .form-stack .button { justify-self: start; }
+.support-attachments { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--color-border); }
+.support-attachments p, .support-attachments li { line-height: 1.6; overflow-wrap: anywhere; }
+.support-attachments input[type=file] { max-width: 100%; min-width: 0; }
 .support-diagnosis { margin-top: 20px; padding: 16px; background: var(--color-accent-faint); border-left: 3px solid var(--color-accent); border-radius: 0 var(--radius-control) var(--radius-control) 0; }
 .support-diagnosis strong { color: var(--color-primary-dark); font-size: 13px; }
 .support-diagnosis p { margin: 5px 0 0; color: var(--color-text-muted); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }

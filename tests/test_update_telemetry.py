@@ -19,6 +19,21 @@ def test_invalid_telemetry_is_omitted(snapshot):
     assert _update_telemetry(app) == {}
 
 
+def test_update_details_are_bounded_and_no_raw_error_is_exported():
+    instant = int(datetime.now(timezone.utc).timestamp() * 1000)
+    state = {"update_channel": "stable", "state": "FAILED", "state_changed_at": instant,
+             "last_attempt_at": instant, "error_code": "DOWNLOAD_FAILED", "release": {"version": "1.2.0"},
+             "exception": "private-token", "download_url": "private-url"}
+    app = SimpleNamespace(state=SimpleNamespace(update_manager=SimpleNamespace(snapshot=lambda: state)))
+    result = _update_telemetry(app)
+    assert result["update_error_code"] == "DOWNLOAD_FAILED"
+    assert result["update_target_version"] == "1.2.0"
+    assert result["update_last_attempt_at"]
+    assert "private" not in json.dumps(result)
+    state["error_code"] = "raw private transport response"
+    assert "update_error_code" not in _update_telemetry(app)
+
+
 def test_heartbeat_reports_allowlisted_state_idempotently_without_release_secrets(app):
     state = {"update_channel": "stable", "state": "READY", "state_changed_at": int(datetime.now(timezone.utc).timestamp()*1000),
              "download_url": "private-token", "secret": "never-export"}

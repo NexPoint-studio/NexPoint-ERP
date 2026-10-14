@@ -35,7 +35,7 @@ MAX_MESSAGE = 4000
 MAX_HISTORY = 4
 HISTORY_TTL = 3600
 _HISTORY: dict[tuple[int, str], tuple[float, list[dict[str, str]]]] = {}
-_DIAGNOSES: dict[tuple[int, str], tuple[float, str, str]] = {}
+_DIAGNOSES: dict[tuple[int, str, str], tuple[float, str, str]] = {}
 _SCREEN_PATH = re.compile(r"^/[a-z0-9/_-]{1,120}$")
 _AVAILABILITY_CACHE: tuple[float, str, str] = (0.0, "", "offline")
 _LOCAL_SOURCE_SUFFIXES = (
@@ -318,7 +318,7 @@ def resolve_assistant_diagnosis(
     expected_screen = str(screen or "").strip()
     if not re.fullmatch(r"[0-9a-f-]{36}", reference) or not _SCREEN_PATH.fullmatch(expected_screen):
         return None
-    key = (request.state.current_user.id, reference)
+    key = (request.state.current_user.id, str(request.session.get("nexa_thread", "")), reference)
     stored = _DIAGNOSES.get(key)
     if stored is None:
         return None
@@ -332,7 +332,7 @@ def resolve_assistant_diagnosis(
 def consume_assistant_diagnosis(request: Request, request_id: object) -> None:
     reference = str(request_id or "").strip()
     if re.fullmatch(r"[0-9a-f-]{36}", reference):
-        _DIAGNOSES.pop((request.state.current_user.id, reference), None)
+        _DIAGNOSES.pop((request.state.current_user.id, str(request.session.get("nexa_thread", "")), reference), None)
 
 
 @router.get("/context")
@@ -345,7 +345,7 @@ def context(request: Request, screen: str = ""):
     monitor = getattr(request.app.state, "diagnostic_monitor", None)
     if monitor is not None:
         try:
-            all_visible = "admin.audit.view" in safe_context["permissions"]
+            all_visible = "search_erp_logs" in tools
             new_alerts = [
                 ({"fingerprint": finding.fingerprint, "level": finding.severity}
                  if all_visible else {"level": finding.severity})
@@ -481,7 +481,7 @@ async def chat(request: Request):
     used_tools = data.get("tools_used")
     if isinstance(used_tools, list):
         for tool in used_tools[:10]:
-            if isinstance(tool, str):
+            if isinstance(tool, str) and tool in tools:
                 emit_observability_event(
                     module="nexa", component="erp_bridge",
                     event_type="nexa.tool.used", operation="tool",
@@ -501,7 +501,7 @@ async def chat(request: Request):
                 _DIAGNOSES.pop(old_key, None)
         while len(_DIAGNOSES) >= 1024:
             _DIAGNOSES.pop(next(iter(_DIAGNOSES)))
-    _DIAGNOSES[(request.state.current_user.id, request_id)] = (
+    _DIAGNOSES[(*key, request_id)] = (
         time.monotonic(), body["screen"], reply[:4000]
     )
     return {

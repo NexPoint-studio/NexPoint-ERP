@@ -14,13 +14,14 @@
     <h1>Central de Suporte</h1>
     <p>Abra e acompanhe chamados enviados à NexPoint. Você escolhe se deseja compartilhar um diagnóstico técnico.</p>
   </div>
-  <a class="button button--primary" href="#abrir-chamado">Abrir chamado</a>
+  <a class="button button--primary" href="/admin/suporte#abrir-chamado">Abrir chamado</a>
 </header>
 
 {% if flash %}<div class="alert alert--{{ 'success' if flash.kind == 'success' else 'error' }}" role="{{ 'status' if flash.kind == 'success' else 'alert' }}">{{ flash.message }}</div>{% endif %}
 {% if form_errors.form %}<div class="alert alert--error" role="alert">{{ form_errors.form }}</div>{% endif %}
 
 <div class="support-workspace">
+  {% if not selected_ticket %}
   <section class="panel form-section support-new-ticket" id="abrir-chamado" aria-labelledby="support-new-ticket-title">
     <div class="section-heading section-heading--split">
       <div>
@@ -56,6 +57,20 @@
         </label>
       </div>
 
+      <div class="form-grid">
+        <label class="field">Área afetada
+          <select name="area">
+            {% for value, label in support_areas.items() %}<option value="{{ value }}" {% if ticket_form.get('area', 'erp') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          {% if form_errors.area %}<small class="field-error">{{ form_errors.area }}</small>{% endif %}
+        </label>
+        <label class="field">Contato para retorno (opcional)
+          <input type="text" name="contact" maxlength="254" value="{{ ticket_form.get('contact', '') }}" placeholder="E-mail ou telefone" autocomplete="off">
+          <small class="form-hint">Ao preencher, você compartilha este contato com a equipe NexPoint para este atendimento. Não é enviado à Nexa.</small>
+          {% if form_errors.contact %}<small class="field-error">{{ form_errors.contact }}</small>{% endif %}
+        </label>
+      </div>
+
       <label class="field">Descrição do problema *
         <textarea name="description" rows="7" maxlength="4000" required placeholder="Descreva o que tentou fazer, o resultado esperado e o que apareceu na tela.">{{ ticket_form.get('description', '') }}</textarea>
         <small class="form-hint">Não informe senhas, tokens, chaves ou outros dados secretos.</small>
@@ -73,6 +88,7 @@
     </form>
   </section>
 
+  {% endif %}
   <section class="panel section-block support-history" aria-labelledby="support-history-title">
     <div class="section-heading section-heading--split">
       <div>
@@ -112,7 +128,16 @@
   </section>
 </div>
 
+{% if tickets_page or tickets_more %}
+<nav class="form-actions" aria-label="Páginas de chamados">
+  {% if tickets_page %}<a class="button button--secondary" href="?page={{ tickets_page - 1 }}{% if selected_ticket %}&ticket={{ selected_ticket.id }}{% endif %}">Chamados anteriores</a>{% endif %}
+  <span>Página {{ tickets_page + 1 }}</span>
+  {% if tickets_more %}<a class="button button--secondary" href="?page={{ tickets_page + 1 }}{% if selected_ticket %}&ticket={{ selected_ticket.id }}{% endif %}">Próximos chamados</a>{% endif %}
+</nav>
+{% endif %}
+
 {% if selected_ticket %}
+{% if support_offline %}<div class="alert alert--warning" role="status">Sem conexão com o suporte. Exibindo a última consulta salva.</div>{% endif %}
 <section class="panel section-block support-ticket-detail" id="detalhes-chamado" aria-labelledby="support-ticket-detail-title">
   <div class="section-heading section-heading--split">
     <div>
@@ -125,6 +150,51 @@
     <div class="support-detail-main">
       <h3>Descrição</h3>
       <p class="support-ticket-description">{{ selected_ticket.description }}</p>
+      <h3>Conversa com a NexPoint</h3>
+      {% if message_page or conversation_truncated %}
+      <nav class="form-actions" aria-label="Páginas da conversa">
+        {% if message_page %}<a class="button button--secondary" href="?page={{ tickets_page }}&message_page={{ message_page - 1 }}{% if selected_ticket %}&ticket={{ selected_ticket.id }}{% endif %}#detalhes-chamado">Mensagens anteriores</a>{% endif %}
+        <span>Página {{ message_page + 1 }}</span>
+        {% if conversation_truncated %}<a class="button button--secondary" href="?page={{ tickets_page }}&message_page={{ message_page + 1 }}{% if selected_ticket %}&ticket={{ selected_ticket.id }}{% endif %}#detalhes-chamado">Próximas mensagens</a>{% endif %}
+      </nav>
+      {% endif %}
+      <div class="support-conversation" aria-label="Mensagens do chamado">
+      {% for message in conversation %}
+        <article class="panel section-block">
+          <strong>{{ 'Você' if message.event_type == 'client_reply' else ('NexPoint' if message.event_type == 'public_reply' else 'Atualização do chamado') }}</strong>
+          <small>{{ message.created_at|datetime_br }}</small>
+          <p class="support-ticket-description">{{ message.body }}</p>
+          {% if message.status %}<small>{{ ticket_status_labels.get(message.status, message.status) }}</small>{% endif %}
+        </article>
+      {% else %}<p class="panel-note">As respostas da NexPoint aparecerão aqui após a sincronização.</p>{% endfor %}
+      {% for message in conversation_pending %}
+        <article class="alert alert--warning"><strong>{{ 'Revisão necessária — envio não concluído' if message.status == 'dead_letter' else 'Aguardando sincronização' }}</strong><p>{{ message.body or 'Alteração de estado do chamado' }}</p></article>
+      {% endfor %}
+      </div>
+      {% if selected_ticket.status not in ['closed', 'resolved'] %}
+      <form method="post" action="/admin/suporte/chamados/{{ selected_ticket.id }}/conversa" class="form-stack">
+        <input type="hidden" name="action" value="reply"><input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <label class="field">Sua resposta<textarea name="body" required maxlength="4000" placeholder="Acrescente informações para a NexPoint"></textarea></label>
+        <button class="button button--primary" type="submit">Enviar resposta</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/admin/suporte/chamados/{{ selected_ticket.id }}/conversa" class="form-stack">
+        <input type="hidden" name="action" value="status"><input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <label class="field">Atualizar chamado<select name="status">{% if selected_ticket.status in ['closed','resolved'] %}<option value="open">Reabrir chamado</option>{% else %}<option value="resolved">Confirmar resolução</option><option value="closed">Encerrar chamado</option>{% endif %}</select></label>
+        <button class="button button--secondary" type="submit">Confirmar estado</button>
+      </form>
+      <section class="support-attachments" aria-label="Anexos do chamado">
+        <h3>Imagens do problema</h3>
+        <p class="muted">Opcional: até 3 imagens PNG, JPEG ou WebP de 1 MiB cada. Confira se não há senhas ou dados pessoais na imagem.</p>
+        <ul>{% for attachment in ticket_attachments %}<li><a href="/admin/suporte/chamados/{{ selected_ticket.id }}/anexos/{{ attachment.id }}">Baixar {{ attachment.name }}</a> <small>({{ (attachment.size_bytes / 1024)|round|int }} KB)</small></li>{% endfor %}</ul>
+        {% if ticket_attachments|length < 3 %}
+        <form method="post" enctype="multipart/form-data" action="/admin/suporte/chamados/{{ selected_ticket.id }}/anexos" class="form-stack">
+          <input type="hidden" name="attachment_id" value="{{ attachment_id }}">
+          <label class="field">Imagem opcional<input type="file" name="file" accept="image/png,image/jpeg,image/webp" required><small>Use nome simples, sem acentos. A imagem será enviada à NexPoint.</small></label>
+          <button class="button button--secondary" type="submit">Adicionar imagem</button>
+        </form>
+        {% endif %}
+      </section>
       {% if selected_ticket.nexa_diagnosis %}
       <div class="support-diagnosis">
         <strong>Diagnóstico da Nexa</strong>

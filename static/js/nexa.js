@@ -63,6 +63,46 @@
     }
     messages.append(message);
     messages.scrollTop = messages.scrollHeight;
+    return message;
+  }
+
+  function offerSupportDraft(messageElement, question, reply) {
+    const ticketForm = document.querySelector('form[action="/admin/suporte/chamados"]');
+    const action = document.createElement(ticketForm ? 'button' : 'a');
+    action.className = 'button button--secondary';
+    if (!ticketForm) {
+      action.href = '/admin/suporte#abrir-chamado';
+      action.textContent = 'Abrir Suporte para preparar chamado';
+    } else {
+      action.type = 'button';
+      action.textContent = 'Usar como rascunho do chamado';
+      action.addEventListener('click', () => {
+        const subject = ticketForm.elements.namedItem('subject');
+        const description = ticketForm.elements.namedItem('description');
+        if (!description) return;
+        // A suggestion is never a command. Preserve existing human edits and
+        // require the separate native form confirmation to create the ticket.
+        if (description.value.trim()) {
+          status.textContent = 'Sua descrição foi preservada. Revise o chamado e confirme em Enviar chamado.';
+          close();
+          description.focus();
+          return;
+        }
+        if (subject && !subject.value.trim()) subject.value = question.slice(0, 160);
+        description.value = `Problema relatado:\n${question}\n\nOrientação sugerida pela Nexa (revisar antes de enviar):\n${reply}`.slice(0, 4000);
+        const consent = ticketForm.elements.namedItem('diagnostic_consent');
+        if (consent) consent.checked = false;
+        close();
+        description.focus();
+        description.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const notice = document.createElement('p');
+        notice.className = 'form-hint';
+        notice.setAttribute('role', 'status');
+        notice.textContent = 'Rascunho preparado. Revise o texto, escolha a categoria e confirme em Enviar chamado. Nada foi enviado ainda.';
+        description.parentElement.append(notice);
+      }, { once: true });
+    }
+    messageElement.append(document.createElement('br'), action);
   }
 
   function renderContext(data) {
@@ -167,7 +207,9 @@
       });
       if (!response.ok) throw new Error('chat unavailable');
       const data = await response.json();
-      addMessage(data.reply || data.answer || data.error, 'assistant', data.sources);
+      const reply = String(data.reply || data.answer || data.error || '');
+      const replyElement = addMessage(reply, 'assistant', data.sources);
+      offerSupportDraft(replyElement, message, reply);
       const diagnosisReference = document.querySelector('form[action="/admin/suporte/chamados"] input[name="nexa_request_id"]');
       if (diagnosisReference && typeof data.request_id === 'string') diagnosisReference.value = data.request_id;
       status.textContent = '';

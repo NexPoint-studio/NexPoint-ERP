@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app import create_app
 from app.core.config import Settings
-from app.knowledge import ERP_HELP_VERSION
+from app.knowledge import ERP_HELP, ERP_HELP_VERSION
 from control_center.domain import (
     ControlCenterConflictError,
     ControlCenterValidationError,
@@ -109,7 +109,7 @@ def test_control_center_schema_v1_migrates_ticket_installation_without_data_loss
         assert "installation_id" in columns
         assert connection.execute(
             "SELECT value FROM control_center_meta WHERE key = 'schema_version'"
-        ).fetchone() == ("10",)
+        ).fetchone() == ("12",)
         assert {"sync_receipts", "diagnostic_events", "platform_sessions", "release_catalog", "release_catalog_events"}.issubset({
             row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         })
@@ -242,7 +242,7 @@ def test_status_forms_offer_only_valid_ticket_and_incident_transitions(control_c
     assert resolved_ticket.status_code == 200
     assert _status_options(
         resolved_ticket.text, "/chamados/ticket_demo_alfa_001/status"
-    ) == {"in_progress", "closed"}
+    ) == {"open", "in_progress", "closed"}
 
     investigating_incident = control_client.get(
         "/incidentes?selected=incident_demo_beta_001"
@@ -607,9 +607,7 @@ def test_nexa_receives_only_the_authorized_ticket_snapshot(monkeypatch, tmp_path
     assert knowledge["query_scope"] == "official_erp_knowledge"
     assert knowledge["version"] == ERP_HELP_VERSION
     assert knowledge["results"]
-    assert {item["id"] for item in knowledge["results"]} <= {
-        "clientes", "notas", "pagamentos", "caixa", "suporte", "empresa", "seguranca"
-    }
+    assert {item["id"] for item in knowledge["results"]} <= {entry[0] for entry in ERP_HELP}
     assert payload["user_id"] != CONTROL_USERNAME
     rendered = json.dumps(payload, ensure_ascii=False).casefold()
     for forbidden in (

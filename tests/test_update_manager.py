@@ -21,6 +21,19 @@ def manager(tmp_path, *, result=None, remote=None, downloader=None, verifier=Non
                          verifier=verifier or (lambda *_: None), **options)
 
 
+def test_background_worker_downloads_but_never_installs(tmp_path):
+    worker = manager(tmp_path, startup_delay=0)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 3
+        while worker.snapshot()["state"] != "READY" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert worker.snapshot()["state"] == "READY"
+        assert worker.snapshot()["last_attempt_at"] > 0
+    finally:
+        worker.stop()
+
+
 def test_check_never_downloads_and_ready_is_idempotent_offline(tmp_path):
     calls = []
     def download(_value, path):

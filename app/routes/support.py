@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 import sqlite3
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -36,6 +37,7 @@ from app.services.support_tickets import (
     SupportTicketNotFoundError,
     SupportTicketValidationError,
     TICKET_CATEGORIES,
+    TICKET_AREAS,
     TICKET_PRIORITIES,
     TICKET_STATUS_BADGES,
     TICKET_STATUS_LABELS,
@@ -56,6 +58,8 @@ TICKET_CREATE_FIELDS = frozenset(
         "screen",
         "nexa_request_id",
         "diagnostic_consent",
+        "area",
+        "contact",
         "submit",
     }
 )
@@ -109,6 +113,12 @@ def _public_ticket_form(raw: dict[str, object]) -> dict[str, str]:
             continue
         if key in {"screen", "nexa_request_id"}:
             public[key] = str(value or "").strip()[:120]
+        elif key == "contact":
+            from control_center.support_contact import validate_contact
+            try:
+                public[key] = validate_contact(value)
+            except ControlCenterError:
+                public[key] = ""
         else:
             public[key] = sanitize_text(value, maximum=4_000)
     return public
@@ -163,6 +173,13 @@ def _ticket_response(
     status_code: int = 200,
 ):
     access = _ticket_access(session, actor_id)
+    try:
+        page = int(request.query_params.get("page", "0"))
+        message_page = int(request.query_params.get("message_page", "0"))
+        if not 0 <= page <= 1000 or not 0 <= message_page <= 500:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Página inválida.") from None
     identity = client_support_identity(request, session)
     repository = getattr(request.app.state, "control_center_repository", None)
     if repository is None:
@@ -174,8 +191,32 @@ def _ticket_response(
         repository, identity, outbox=OutboxRepository(session)
     )
     temporary_support_grants = ()
+    from app.services.support_conversation import public_snapshot, cached_ticket
+    from app.services.support_tickets import ClientSupportSnapshot
+    remote = getattr(request.app.state, "support_remote", None)
+    page_info = {}
+    cached, offline = public_snapshot(repository, remote, identity, selected_ticket_id,
+        page=page,page_info=page_info) if repository else ((), True)
     try:
-        snapshot = service.snapshot(selected_ticket_id)
+        snapshot = service.snapshot(None,page=page)
+        merged = {ticket.id: ticket for ticket in snapshot.tickets}
+        merged.update({item["ticket_id"]: cached_ticket(item, identity) for item in cached})
+        selected = merged.get(selected_ticket_id) if selected_ticket_id else None
+        if selected_ticket_id and selected is None and remote is None:
+            selected = service.snapshot(selected_ticket_id,page=page).selected_ticket
+        if selected_ticket_id and selected is None:
+            raise SupportTicketNotFoundError("Chamado não encontrado.")
+        if remote is not None:
+            ids = page_info.get("ids", [v["ticket_id"] for v in cached if v["ticket_id"] != selected_ticket_id])
+            visible = [merged[id] for id in ids if id in merged]
+            if page == 0:
+                visible = [ticket for ticket in snapshot.tickets if ticket.id not in ids and ticket.technical_context.get("sync_status")] + visible
+        else:
+            visible = sorted(merged.values(), key=lambda t: (
+                t.updated_at.replace(tzinfo=timezone.utc) if t.updated_at.tzinfo is None
+                else t.updated_at.astimezone(timezone.utc)), reverse=True)
+        tickets_more = page_info.get("has_more",len(visible) >= 100)
+        snapshot = ClientSupportSnapshot(tuple(visible), selected)
     except SupportTicketNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except (ControlCenterError, OSError, RuntimeError, sqlite3.Error):
@@ -186,6 +227,60 @@ def _ticket_response(
             status_code=503,
             detail="A central de suporte local está temporariamente indisponível.",
         ) from None
+    conversation = []
+    truncated = False
+    if selected_ticket_id and repository:
+        if remote is not None:
+            selected_cache = next((v for v in cached if v["ticket_id"] == selected_ticket_id), None)
+            if selected_cache:
+                conversation = [{**message, "created_at": datetime.fromisoformat(message["created_at"].replace("Z", "+00:00"))}
+                                for message in selected_cache["messages"]]
+                truncated = selected_cache["messages_truncated"]
+            if message_page:
+                from app.services.sync_remote import SyncRemoteError
+                try:
+                    history = remote.call("history",ticket_id=selected_ticket_id,body=str(message_page*200))
+                    ticket_history = next(v for v in history["tickets"] if v["ticket_id"] == selected_ticket_id)
+                    conversation = [{**message,"created_at":datetime.fromisoformat(message["created_at"].replace("Z","+00:00"))}
+                                    for message in ticket_history["messages"]]
+                    truncated = ticket_history["messages_truncated"]
+                except (SyncRemoteError,ControlCenterError,OSError,StopIteration):
+                    offline = True
+                    conversation = []
+                    truncated = False
+        else:
+            try:
+                conversation = [dict(id=m.id, body=m.body,
+                    event_type="client_reply" if m.direction == "customer" else "public_reply",
+                    created_at=m.created_at, status="") for m in repository.list_ticket_messages(
+                        selected_ticket_id, tenant_id=identity.tenant_id, installation_id=identity.installation_id,
+                        offset=message_page*200)]
+                truncated = bool(repository.list_ticket_messages(selected_ticket_id, tenant_id=identity.tenant_id,
+                    installation_id=identity.installation_id,limit=1,offset=(message_page+1)*200))
+            except ControlCenterError:
+                pass  # A newly queued ticket may not yet exist in the sidecar.
+    pending = []
+    ticket_attachments = {}
+    if selected_ticket_id and repository:
+        try:
+            ticket_attachments.update({item.id: item for item in repository.list_ticket_attachments(
+                selected_ticket_id, tenant_id=identity.tenant_id, installation_id=identity.installation_id)})
+        except ControlCenterError:
+            pass  # A queued ticket may still be waiting for its first sync.
+        attachment_remote = getattr(request.app.state, "support_attachment_remote", None)
+        if attachment_remote is not None:
+            from app.services.sync_remote import SyncRemoteError
+            try:
+                ticket_attachments.update({item.id: item for item in attachment_remote.transfer("list", selected_ticket_id)})
+            except (SyncRemoteError, ControlCenterError, OSError):
+                offline = True
+    for item in OutboxRepository(session).list_unsynced(event_type="support_operation", limit=100):
+        payload = json.loads(item.payload_json)
+        if (payload.get("ticket_id") == selected_ticket_id
+                and payload.get("tenant_id") == identity.tenant_id
+                and payload.get("installation_id") == identity.installation_id):
+            pending.append(dict(body=payload.get("body", ""), action=payload.get("action"),
+                                status=item.status, created_at=item.created_at))
     return templates.TemplateResponse(
         request,
         "admin/support.html",
@@ -195,7 +290,13 @@ def _ticket_response(
             page_title="Central de Suporte",
             tickets=snapshot.tickets,
             selected_ticket=snapshot.selected_ticket,
+            conversation=conversation, conversation_pending=pending,
+            conversation_truncated=truncated, support_offline=offline,
+            operation_id=str(uuid4()),
+            tickets_page=page,tickets_more=tickets_more,message_page=message_page,
+            ticket_attachments=tuple(ticket_attachments.values()), attachment_id=str(uuid4()),
             categories=TICKET_CATEGORIES,
+            support_areas=TICKET_AREAS,
             priorities=TICKET_PRIORITIES,
             status_labels=TICKET_STATUS_LABELS,
             status_badges=TICKET_STATUS_BADGES,
@@ -239,6 +340,39 @@ def support_ticket_detail(request: Request, ticket_id: str):
         return _ticket_response(
             request, session, actor.id, selected_ticket_id=ticket_id
         )
+
+
+@router.post("/chamados/{ticket_id}/conversa")
+async def support_conversation_send(request: Request, ticket_id: str):
+    actor = require_permission(request, SUPPORT_PERMISSION)
+    form = await request.form()
+    _require_fields(form, frozenset({"action", "operation_id", "body", "status", "submit"}))
+    from app.services.support_conversation import enqueue_operation, public_snapshot
+    with request.app.state.session_factory() as session:
+        _ticket_access(session, actor.id)
+        identity = client_support_identity(request, session)
+        repository = ensure_control_center_repository(request.app)
+        # Only a known, installation-owned ticket can receive a queued operation.
+        try:
+            known = ClientSupportService(repository, identity, OutboxRepository(session)).snapshot(ticket_id).selected_ticket
+        except SupportTicketNotFoundError:
+            known = None
+        if known is None:
+            if repository.get_cached_public_ticket(identity.tenant_id, identity.installation_id,ticket_id) is None:
+                raise HTTPException(status_code=404, detail="Chamado não encontrado.")
+        try:
+            enqueue_operation(OutboxRepository(session), identity, _raw(form), ticket_id)
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        AuthRepository(session).audit(actor.id, "support.operation_queued", "support_ticket",
+                                     json.dumps({"ticket_id": ticket_id}))
+        session.commit()
+    worker = getattr(request.app.state, "sync_worker", None)
+    if worker:
+        worker.wake()
+    _flash(request, "success", "Solicitação salva. Será sincronizada quando houver conexão.")
+    return RedirectResponse(f"/admin/suporte/chamados/{ticket_id}", status_code=303)
 
 
 @router.post("/chamados")

@@ -3,6 +3,21 @@
 <header class="page-heading"><div><p class="eyebrow">VERSÕES</p><h1>Distribuição de versões</h1><p>Comparação rápida de saúde e regressões entre instalações.</p></div></header>
 {% if platform_user.role == 'platform_admin' %}
 <section class="panel"><h2>Releases oficiais</h2>
+  <details><summary>Criar rascunho de versão</summary>
+    <p>Use os metadados do relatório oficial da build. O cadastro não comprova o arquivo e não publica a versão. Envie o instalador pela ferramenta oficial de preparação, que valida e verifica os bytes no armazenamento privado.</p>
+    <form method="post" action="/versoes/criar" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label>Versão <input name="version" required maxlength="20" placeholder="1.2.0"></label>
+      <label>Canal <select name="update_channel"><option value="internal">Internal · QA/NexPoint</option><option value="beta">Beta</option><option value="stable">Stable · clientes</option></select></label>
+      <label>Commit da build <input name="build_commit" required maxlength="40" pattern="[a-f0-9]{40}"></label>
+      <label>SHA-256 do instalador <input name="artifact_sha256" required maxlength="64" pattern="[a-f0-9]{64}"></label>
+      <label>Tamanho em bytes <input name="artifact_size" type="number" min="1" max="52428800" required></label>
+      <label>Versão mínima suportada <input name="minimum_supported_version" required maxlength="20" placeholder="1.1.0"></label>
+      <label>Melhorias <textarea name="release_notes" required maxlength="4000" rows="4"></textarea></label>
+      <label><input type="checkbox" name="mandatory" value="1"> Atualização necessária</label>
+      <button type="submit" class="button button--secondary">Criar rascunho</button>
+    </form>
+  </details>
   <p>O arquivo precisa ser enviado e verificado antes da publicação. Publicar torna a versão disponível somente no canal indicado.</p>
   {% for release in releases %}
   <article class="panel">
@@ -10,6 +25,17 @@
     <p>{{ {'draft':'Rascunho','verified':'Arquivo verificado','published':'Publicado','withdrawn':'Retirado'}[release.status] }} · Windows x64</p>
     <p class="release-notes">{{ release.release_notes }}</p>
     <p>{{ 'Atualização necessária' if release.mandatory else 'Atualização opcional' }} · Versão mínima {{ release.minimum_supported_version }}</p>
+    {% if release.status in ['verified', 'published'] %}
+    <p>{{ 'Pausada' if release.rollout_state == 'paused' else 'Ativa' }} · {{ release.rollout_percentage }}% das instalações elegíveis do canal.</p>
+    <form method="post" action="/versoes/{{ release.id }}/distribuicao" class="form-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <label>Distribuição <select name="state"><option value="active" {% if release.rollout_state == 'active' %}selected{% endif %}>Ativar / retomar</option><option value="paused" {% if release.rollout_state == 'paused' %}selected{% endif %}>Pausar</option><option value="withdrawn">Retirar definitivamente</option></select></label>
+      <label>Percentual <input name="percentage" type="number" min="0" max="100" required value="{{ release.rollout_percentage }}"></label>
+      <small>Pausar interrompe novas ofertas. Retirar é definitivo. Pacotes já baixados permanecem no computador do cliente.</small>
+      <label><input type="checkbox" name="confirmation" value="confirmar" required> Confirmo a alteração neste canal.</label>
+      <button type="submit" class="button button--secondary">Salvar distribuição</button>
+    </form>
+    {% endif %}
     {% if release.code_signing == 'CODE_SIGNING_PENDING' %}<p>Assinatura de código pendente. Integridade conferida pelo hash do arquivo oficial.</p>{% endif %}
     {% if release.status == 'verified' %}
     <form method="post" action="/versoes/{{ release.id }}/publicar" class="form-stack">
@@ -26,7 +52,7 @@
   <div class="table-wrap"><table><thead><tr><th>Empresa / instalação</th><th>Versão</th><th>Canal</th><th>Atualização</th><th>Última comunicação</th></tr></thead>
   <tbody>{% for row in installation_rows %}<tr>
     <td><a href="/empresas/{{ row.installation.tenant_id }}">{{ row.company }}</a><br>{{ row.installation.metadata.get('label') or row.installation.installation_id }}</td>
-    <td>{{ row.installation.version }}</td><td>{{ row.channel }}</td><td>{{ row.update_status }}</td><td>{{ row.installation.last_seen_at|datetime_br }}</td>
+    <td>{{ row.installation.version }}{% if row.installation.metadata.get('update_target_version') %}<br><small>Destino: {{ row.installation.metadata.get('update_target_version') }}</small>{% endif %}</td><td>{{ row.channel }}</td><td>{{ row.update_status }}{% if row.installation.metadata.get('update_error_code') %}<br><small>Erro: {{ row.installation.metadata.get('update_error_code') }}</small>{% endif %}{% if row.installation.metadata.get('update_last_attempt_at') %}<br><small>Última tentativa: {{ row.update_attempt_time|datetime_br }}</small>{% endif %}</td><td>{{ row.installation.last_seen_at|datetime_br }}</td>
   </tr>{% else %}<tr><td colspan="5">Nenhuma instalação nesse escopo.</td></tr>{% endfor %}</tbody></table></div>
 </section>
 <section class="version-grid">{% for item in versions %}<article class="panel version-card"><header><span>ERP</span><strong>{{ item.version }}</strong></header><dl><div><dt>Instalações</dt><dd>{{ item.installation_count }}</dd></div><div><dt>Saudáveis</dt><dd>{{ item.healthy_count }}</dd></div><div><dt>Com alerta</dt><dd>{{ item.warning_count }}</dd></div><div><dt>Risco alto</dt><dd>{{ item.high_risk_count }}</dd></div></dl></article>{% else %}<article class="empty-card"><h2>Sem versões registradas</h2></article>{% endfor %}</section>

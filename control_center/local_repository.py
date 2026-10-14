@@ -16,6 +16,7 @@ from typing import Iterator, Sequence
 from uuid import uuid4
 
 from control_center.releases import release_record, validate_release_metadata
+from control_center.support_contact import sanitize_ticket_context, dumps_ticket_context, loads_ticket_context
 
 from control_center.security import hash_password, verify_password
 from control_center.domain import (
@@ -54,6 +55,8 @@ from control_center.domain import (
     TicketFilters,
     TicketHistoryEntry,
     TicketInternalNote,
+    TicketMessage,
+    TicketAttachment,
     VersionSummary,
     SyncReceipt,
     ControlCenterConflictError,
@@ -77,7 +80,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_CONTROL_CENTER_DATABASE = (ROOT_DIR / "data" / "control_center.sqlite3").resolve()
 OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "erp.sqlite3").resolve()
 DEMO_OPERATIONAL_DATABASE = (ROOT_DIR / "data" / "demo_2_anos.sqlite3").resolve()
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "12"
 _DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -96,8 +99,8 @@ _TICKET_TRANSITIONS: dict[str, frozenset[str]] = {
     "open": frozenset({"in_progress", "waiting_customer", "resolved", "closed"}),
     "in_progress": frozenset({"waiting_customer", "resolved", "closed"}),
     "waiting_customer": frozenset({"in_progress", "resolved", "closed"}),
-    "resolved": frozenset({"in_progress", "closed"}),
-    "closed": frozenset(),
+    "resolved": frozenset({"open", "in_progress", "closed"}),
+    "closed": frozenset({"open"}),
 }
 _ACTIVE_ADMIN_RECOVERY_TICKET_STATUSES = frozenset(
     {"open", "in_progress", "waiting_customer"}
@@ -120,6 +123,10 @@ _CONTROL_CENTER_TABLES = frozenset({
     "risk_summaries",
     "tickets",
     "ticket_internal_notes",
+    "ticket_messages",
+    "ticket_attachments",
+    "ticket_public_operations",
+    "support_public_cache",
     "ticket_history",
     "admin_reset_authorizations",
     "incidents",
@@ -128,6 +135,8 @@ _CONTROL_CENTER_TABLES = frozenset({
     "diagnostic_events",
     "qa_test_runs",
     "release_catalog",
+    "release_rollouts",
+    "release_rollout_events",
     "release_catalog_events",
     "company_profile_sources", "company_profiles", "company_profile_receipts",
     "installation_activation_codes",
@@ -136,6 +145,32 @@ _CONTROL_CENTER_TABLES = frozenset({
 
 
 _SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS ticket_attachments (
+        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        name TEXT NOT NULL, content_type TEXT NOT NULL CHECK(content_type IN ('image/png','image/jpeg','image/webp')),
+        sha256 TEXT NOT NULL, size_bytes INTEGER NOT NULL CHECK(size_bytes BETWEEN 1 AND 1048576),
+        data BLOB NOT NULL CHECK(length(data)=size_bytes), created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS ticket_public_operations (
+        id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        status TEXT NOT NULL, tenant_id TEXT, installation_id TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS support_public_cache (
+        tenant_id TEXT NOT NULL, installation_id TEXT NOT NULL, ticket_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(tenant_id,installation_id,ticket_id)
+    )""",
+    """
+    CREATE TABLE IF NOT EXISTS ticket_messages (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        direction TEXT NOT NULL CHECK(direction IN ('customer','support')),
+        body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 8000),
+        author_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_ticket_messages_order ON ticket_messages(ticket_id,created_at,id)",
     """CREATE TABLE IF NOT EXISTS installation_activation_events (
         id TEXT PRIMARY KEY, code_id TEXT NOT NULL REFERENCES installation_activation_codes(id),
         actor_id TEXT NOT NULL REFERENCES platform_users(id),
@@ -885,8 +920,23 @@ class LocalControlCenterRepository:
     def list_releases(self) -> tuple[dict, ...]:
         with self._read() as connection:
             return tuple(self._release_from_row(row) for row in connection.execute(
-                "SELECT * FROM release_catalog ORDER BY sequence DESC LIMIT 100"
+                "SELECT c.*, COALESCE(r.state,'active') AS rollout_state, COALESCE(r.percentage,100) AS rollout_percentage FROM release_catalog c LEFT JOIN release_rollouts r ON r.release_id=c.id ORDER BY c.sequence DESC LIMIT 100"
             ))
+
+    def set_release_rollout(self, actor_id: str, release_id: str, *, state: str, percentage: int) -> None:
+        from control_center.releases import validate_rollout
+        state, percentage = validate_rollout(state, percentage)
+        with self._write() as connection:
+            self._require_release_admin(connection, actor_id)
+            row = connection.execute("SELECT status FROM release_catalog WHERE id=?", (release_id,)).fetchone()
+            if row is None or row["status"] not in {"verified", "published", "withdrawn"}:
+                raise ControlCenterValidationError("A distribuição exige uma versão publicada.")
+            if row["status"] == "withdrawn" and state != "withdrawn":
+                raise ControlCenterConflictError("Uma versão retirada não pode voltar à distribuição.")
+            connection.execute("INSERT INTO release_rollouts(release_id,state,percentage) VALUES(?,?,?) ON CONFLICT(release_id) DO UPDATE SET state=excluded.state,percentage=excluded.percentage", (release_id, state, percentage))
+            if state == "withdrawn":
+                connection.execute("UPDATE release_catalog SET status='withdrawn' WHERE id=?", (release_id,))
+            connection.execute("INSERT INTO release_rollout_events(release_id,actor_id,state,percentage,occurred_at) VALUES(?,?,?,?,?)", (release_id, actor_id, state, percentage, utc_now().isoformat()))
 
     def create_release(self, actor_id: str, metadata: dict) -> dict:
         metadata = validate_release_metadata(metadata)
@@ -955,6 +1005,8 @@ class LocalControlCenterRepository:
             connection.execute("BEGIN IMMEDIATE")
             for statement in _SCHEMA:
                 connection.execute(statement)
+            connection.execute("CREATE TABLE IF NOT EXISTS release_rollouts (release_id TEXT PRIMARY KEY REFERENCES release_catalog(id), state TEXT NOT NULL CHECK(state IN ('active','paused','withdrawn')), percentage INTEGER NOT NULL CHECK(typeof(percentage)='integer' AND percentage BETWEEN 0 AND 100))")
+            connection.execute("CREATE TABLE IF NOT EXISTS release_rollout_events (id INTEGER PRIMARY KEY, release_id TEXT NOT NULL REFERENCES release_catalog(id), actor_id TEXT NOT NULL REFERENCES platform_users(id), state TEXT NOT NULL, percentage INTEGER NOT NULL, occurred_at TEXT NOT NULL)")
             ticket_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(tickets)").fetchall()
@@ -1291,7 +1343,7 @@ class LocalControlCenterRepository:
                         _choice(payload.get("priority", "normal"), TICKET_PRIORITIES, field="priority"),
                         _optional_text(payload.get("created_at"), maximum=40) or _iso(now), _iso(now),
                         _optional_text(payload.get("module"), maximum=64), _optional_text(payload.get("screen"), maximum=128),
-                        _optional_text(payload.get("erp_version"), maximum=80), dumps_sanitized(payload.get("technical_context", {})),
+                        _optional_text(payload.get("erp_version"), maximum=80), dumps_ticket_context(payload.get("technical_context", {})),
                         (_identifier(payload["diagnostic_fingerprint"], field="diagnostic_fingerprint")
                          if payload.get("diagnostic_fingerprint") else None),
                         (_identifier(payload["correlation_id"], field="correlation_id")
@@ -1803,7 +1855,7 @@ class LocalControlCenterRepository:
             module=row["module"],
             screen=row["screen"],
             erp_version=row["erp_version"],
-            technical_context=loads_sanitized(row["technical_context_json"]),
+            technical_context=loads_ticket_context(row["technical_context_json"]),
             diagnostic_fingerprint=row["diagnostic_fingerprint"],
             correlation_id=row["correlation_id"],
             risk_id=row["risk_id"],
@@ -1961,7 +2013,7 @@ class LocalControlCenterRepository:
                 module=_optional_text(ticket.module, maximum=80),
                 screen=_optional_text(ticket.screen, maximum=120),
                 erp_version=_optional_text(ticket.erp_version, maximum=80),
-                technical_context=sanitize_mapping(ticket.technical_context),
+                technical_context=sanitize_ticket_context(ticket.technical_context),
                 diagnostic_fingerprint=diagnostic_fingerprint,
                 correlation_id=correlation_id,
                 risk_id=risk_id,
@@ -1999,7 +2051,7 @@ class LocalControlCenterRepository:
                         normalized.module,
                         normalized.screen,
                         normalized.erp_version,
-                        dumps_sanitized(normalized.technical_context),
+                        dumps_ticket_context(normalized.technical_context),
                         normalized.diagnostic_fingerprint,
                         normalized.correlation_id,
                         normalized.risk_id,
@@ -2075,6 +2127,20 @@ class LocalControlCenterRepository:
         if selected_tenant:
             clauses.append("tenant_id = ?")
             parameters.append(_identifier(selected_tenant, field="tenant_id"))
+        if filters.installation_id:
+            clauses.append("installation_id = ?")
+            parameters.append(_identifier(filters.installation_id, field="installation_id"))
+        for bound in (filters.opened_from, filters.opened_until):
+            if bound is not None and (not isinstance(bound, datetime) or bound.tzinfo is None or bound.utcoffset() is None):
+                raise ControlCenterValidationError("Use datas com fuso horario.")
+        if filters.opened_from and filters.opened_until and filters.opened_from >= filters.opened_until:
+            raise ControlCenterValidationError("Intervalo de datas invalido.")
+        if filters.opened_from:
+            clauses.append("created_at >= ?")
+            parameters.append(_iso(filters.opened_from))
+        if filters.opened_until:
+            clauses.append("created_at < ?")
+            parameters.append(_iso(filters.opened_until))
         if priorities:
             cleaned_priorities = tuple(
                 _choice(item, TICKET_PRIORITIES, field="ticket.priority") for item in priorities
@@ -2122,6 +2188,16 @@ class LocalControlCenterRepository:
         )
         return tuple(self._tenant_ticket_projection(ticket) for ticket in tickets)
 
+    def list_installation_tickets(self, tenant_id: str, installation_id: str, *, limit: int = 100, offset: int = 0) -> tuple[SupportTicket, ...]:
+        tenant_id = _identifier(tenant_id, field="tenant_id")
+        installation_id = _identifier(installation_id, field="installation_id")
+        if not isinstance(limit,int) or not 1 <= limit <= 200 or not isinstance(offset,int) or offset < 0:
+            raise ControlCenterValidationError("Paginacao invalida.")
+        with self._read() as connection:
+            return tuple(self._tenant_ticket_projection(self._ticket_from_row(connection,row)) for row in connection.execute(
+                "SELECT * FROM tickets WHERE tenant_id=? AND installation_id=? ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?",
+                (tenant_id,installation_id,limit,offset)).fetchall())
+
     def set_ticket_status(
         self,
         ticket_id: str,
@@ -2129,15 +2205,32 @@ class LocalControlCenterRepository:
         *,
         changed_by: str | None = None,
         changed_at: datetime | None = None,
+        tenant_id: str | None = None,
+        installation_id: str | None = None,
+        operation_id: str | None = None,
     ) -> SupportTicket:
         ticket_id = _identifier(ticket_id, field="ticket_id")
         target = _choice(status, TICKET_STATUSES, field="ticket.status")
         instant = _utc(changed_at)
         with self._write() as connection:
             row = self._ticket_row(connection, ticket_id)
+            self._check_message_scope(row, tenant_id, installation_id)
+            if tenant_id is not None and target not in {"open", "resolved", "closed"}:
+                raise ControlCenterValidationError("Estado publico invalido.")
+            if operation_id is not None:
+                operation_id = _identifier(operation_id, field="operation_id")
+                previous = connection.execute("SELECT * FROM ticket_public_operations WHERE id=?", (operation_id,)).fetchone()
+                if previous:
+                    if (previous["ticket_id"],previous["status"],previous["tenant_id"],previous["installation_id"]) != (ticket_id,target,tenant_id,installation_id):
+                        raise ControlCenterConflictError("Operacao ja utilizada com outro conteudo.")
+                    ticket = self._ticket_from_row(connection,row)
+                    return self._tenant_ticket_projection(ticket) if tenant_id is not None else ticket
+                connection.execute("INSERT INTO ticket_public_operations VALUES(?,?,?,?,?)",
+                                   (operation_id,ticket_id,target,tenant_id,installation_id))
             current = row["status"]
             if target == current:
-                return self._ticket_from_row(connection, row)
+                ticket = self._ticket_from_row(connection, row)
+                return self._tenant_ticket_projection(ticket) if tenant_id is not None else ticket
             if target not in _TICKET_TRANSITIONS[current]:
                 raise ControlCenterConflictError(
                     f"Transicao de chamado {current} -> {target} nao permitida."
@@ -2146,6 +2239,8 @@ class LocalControlCenterRepository:
             if current == "resolved" and target == "in_progress":
                 resolved_at = None
             closed_at = _iso(instant) if target == "closed" else row["closed_at"]
+            if target == "open":
+                resolved_at = closed_at = None
             connection.execute(
                 "UPDATE tickets SET status = ?, updated_at = ?, resolved_at = ?, closed_at = ? WHERE id = ?",
                 (target, _iso(instant), resolved_at, closed_at, ticket_id),
@@ -2178,7 +2273,236 @@ class LocalControlCenterRepository:
                 actor_id=changed_by,
             )
             updated = self._ticket_row(connection, ticket_id)
-            return self._ticket_from_row(connection, updated)
+            ticket = self._ticket_from_row(connection, updated)
+            return self._tenant_ticket_projection(ticket) if tenant_id is not None else ticket
+
+    @staticmethod
+    def _check_message_scope(row, tenant_id, installation_id):
+        if (tenant_id is None) != (installation_id is None):
+            raise ControlCenterValidationError("Tenant e instalacao devem ser informados juntos.")
+        if tenant_id is not None and (
+            row["tenant_id"] != _identifier(tenant_id, field="tenant_id")
+            or row["installation_id"] != _identifier(installation_id, field="installation_id")
+        ):
+            raise ControlCenterNotFoundError("Chamado nao encontrado.")
+
+    @staticmethod
+    def _message_from_row(row):
+        return TicketMessage(id=row["id"], ticket_id=row["ticket_id"],
+                             direction=row["direction"], body=row["body"],
+                             author_id=row["author_id"], created_at=_datetime(row["created_at"]))
+
+    def add_ticket_message(
+        self, ticket_id: str, body: str, author_id: str, *, message_id: str,
+        direction: str, tenant_id: str | None = None,
+        installation_id: str | None = None, created_at: datetime | None = None,
+    ) -> TicketMessage:
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        message_id = _identifier(message_id, field="message_id")
+        direction = _choice(direction, frozenset({"customer", "support"}), field="direction")
+        if not isinstance(body, str) or len(body) > 8000:
+            raise ControlCenterValidationError("Mensagem deve conter ate 8000 caracteres.")
+        clean = _required_text(body, field="message.body", maximum=8000)
+        author = _identifier(author_id, field="author_id")
+        if direction == "customer" and tenant_id is None:
+            raise ControlCenterValidationError("Mensagem do cliente exige escopo da instalacao.")
+        if direction == "support" and tenant_id is not None:
+            raise ControlCenterValidationError("Cliente nao pode enviar resposta do suporte.")
+        instant = _utc(created_at)
+        with self._write() as connection:
+            ticket = self._ticket_row(connection, ticket_id)
+            self._check_message_scope(ticket, tenant_id, installation_id)
+            existing = connection.execute("SELECT * FROM ticket_messages WHERE id=?", (message_id,)).fetchone()
+            if existing:
+                if (existing["ticket_id"], existing["direction"], existing["body"], existing["author_id"]) != (ticket_id, direction, clean, author):
+                    raise ControlCenterConflictError("Identificador de mensagem ja utilizado.")
+                return self._message_from_row(existing)
+            if ticket["status"] in {"resolved", "closed"}:
+                raise ControlCenterConflictError("Reabra o chamado antes de responder.")
+            connection.execute("INSERT INTO ticket_messages(id,ticket_id,direction,body,author_id,created_at) VALUES(?,?,?,?,?,?)",
+                               (message_id,ticket_id,direction,clean,author,_iso(instant)))
+            target = "waiting_customer" if direction == "support" else "in_progress"
+            connection.execute("UPDATE tickets SET status=?,updated_at=MAX(updated_at,?) WHERE id=?",
+                               (target,_iso(instant),ticket_id))
+            if target != ticket["status"]:
+                self._record_ticket_history(connection,ticket_id=ticket_id,event_type="status_changed",
+                    from_status=ticket["status"],to_status=target,actor_id=author,created_at=instant)
+            return TicketMessage(id=message_id,ticket_id=ticket_id,direction=direction,
+                                 body=clean,author_id=author,created_at=instant)
+
+    def list_ticket_messages(
+        self, ticket_id: str, *, tenant_id: str | None = None,
+        installation_id: str | None = None, limit: int = 200, offset: int = 0,
+    ) -> tuple[TicketMessage, ...]:
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200 or isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ControlCenterValidationError("Paginacao invalida.")
+        with self._read() as connection:
+            self._check_message_scope(self._ticket_row(connection,ticket_id),tenant_id,installation_id)
+            return tuple(self._message_from_row(row) for row in connection.execute(
+                "SELECT * FROM ticket_messages WHERE ticket_id=? ORDER BY created_at,id LIMIT ? OFFSET ?",
+                (ticket_id,limit,offset)).fetchall())
+
+    def cache_public_ticket(self, tenant_id: str, installation_id: str, ticket_id: str, payload: dict, *, preserve_messages: bool = False) -> None:
+        """Store only the public transport projection, partitioned by identity."""
+        tenant_id = _identifier(tenant_id, field="tenant_id")
+        installation_id = _identifier(installation_id, field="installation_id")
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        allowed = {"ticket_id", "protocol", "subject", "description", "category", "priority", "status",
+                   "opened_at", "updated_at", "messages", "messages_truncated"}
+        if not isinstance(payload, dict) or set(payload) - allowed or payload.get("ticket_id") != ticket_id:
+            raise ControlCenterValidationError("Projecao publica invalida.")
+        try:
+            timestamp = _datetime(payload.get("updated_at"))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ControlCenterValidationError("Data publica invalida.") from exc
+        if timestamp is None:
+            raise ControlCenterValidationError("Data publica obrigatoria.")
+        cleaned = {}
+        for key, value in payload.items():
+            if key in {"messages", "messages_truncated"}:
+                continue
+            if not isinstance(value, str) or len(value) > (8000 if key == "description" else 300):
+                raise ControlCenterValidationError("Campo publico invalido.")
+            cleaned[key] = sanitize_text(value, maximum=8000 if key == "description" else 300)
+        cleaned["status"] = _choice(payload.get("status"), TICKET_STATUSES, field="status")
+        messages = payload.get("messages", [])
+        if not isinstance(messages, list) or len(messages) > 200:
+            raise ControlCenterValidationError("Lista de mensagens invalida.")
+        cleaned["messages"] = []
+        for message in messages:
+            if not isinstance(message, dict) or set(message) - {"id", "event_type", "body", "status", "created_at"}:
+                raise ControlCenterValidationError("Mensagem publica invalida.")
+            event_type = _choice(message.get("event_type"), frozenset({"public_reply", "client_reply", "public_status"}), field="event_type")
+            item = {"id": _identifier(message.get("id"), field="message.id"), "event_type": event_type}
+            for key in ("body", "status", "created_at"):
+                value = message.get(key)
+                if value is not None and (not isinstance(value, str) or len(value) > (8000 if key == "body" else 80)):
+                    raise ControlCenterValidationError("Campo da mensagem invalido.")
+                item[key] = sanitize_text(value, maximum=8000 if key == "body" else 80) if value is not None else None
+            cleaned["messages"].append(item)
+        truncated = payload.get("messages_truncated", False)
+        if not isinstance(truncated, bool):
+            raise ControlCenterValidationError("Indicador de paginacao invalido.")
+        cleaned["messages_truncated"] = truncated
+        with self._write() as connection:
+            if preserve_messages and not cleaned["messages"]:
+                previous = connection.execute("SELECT payload_json FROM support_public_cache WHERE tenant_id=? AND installation_id=? AND ticket_id=?",
+                                              (tenant_id,installation_id,ticket_id)).fetchone()
+                if previous:
+                    cached = json.loads(previous[0])
+                    cleaned["messages"] = cached.get("messages", [])
+                    cleaned["messages_truncated"] = cached.get("messages_truncated", False)
+            encoded = json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+            connection.execute("""INSERT INTO support_public_cache VALUES(?,?,?,?,?)
+                ON CONFLICT(tenant_id,installation_id,ticket_id) DO UPDATE SET
+                payload_json=excluded.payload_json,updated_at=excluded.updated_at
+                WHERE excluded.updated_at >= support_public_cache.updated_at""",
+                (tenant_id,installation_id,ticket_id,encoded,_iso(timestamp)))
+
+    def list_cached_public_tickets(self, tenant_id: str, installation_id: str, *, limit: int = 200, offset: int = 0) -> tuple[dict, ...]:
+        tenant_id = _identifier(tenant_id, field="tenant_id")
+        installation_id = _identifier(installation_id, field="installation_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 200 or isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ControlCenterValidationError("Paginacao invalida.")
+        with self._read() as connection:
+            return tuple(json.loads(row[0]) for row in connection.execute(
+                "SELECT payload_json FROM support_public_cache WHERE tenant_id=? AND installation_id=? ORDER BY updated_at DESC,ticket_id LIMIT ? OFFSET ?",
+                (tenant_id,installation_id,limit,offset)).fetchall())
+
+    def get_cached_public_ticket(self, tenant_id: str, installation_id: str, ticket_id: str) -> dict | None:
+        tenant_id = _identifier(tenant_id, field="tenant_id")
+        installation_id = _identifier(installation_id, field="installation_id")
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        with self._read() as connection:
+            row = connection.execute("SELECT payload_json FROM support_public_cache WHERE tenant_id=? AND installation_id=? AND ticket_id=?",
+                                     (tenant_id,installation_id,ticket_id)).fetchone()
+            return json.loads(row[0]) if row else None
+
+    @staticmethod
+    def _attachment_from_row(row, *, include_data: bool = True) -> TicketAttachment:
+        return TicketAttachment(id=row["id"],ticket_id=row["ticket_id"],name=row["name"],
+            content_type=row["content_type"],sha256=row["sha256"],size_bytes=row["size_bytes"],
+            data=bytes(row["data"]) if include_data else b"",created_at=_datetime(row["created_at"]))
+
+    def add_ticket_attachment(self, ticket_id: str, *, attachment_id: str, name: str,
+                              content_type: str, data: bytes, author_id: str | None = None,
+                              tenant_id: str | None = None, installation_id: str | None = None) -> TicketAttachment:
+        from control_center.attachments import MAX_TICKET_ATTACHMENTS, validate_attachment
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        attachment_id = _identifier(attachment_id, field="attachment_id")
+        name, content_type, data, digest = validate_attachment(name,content_type,data)
+        instant = utc_now()
+        with self._write() as connection:
+            ticket = self._ticket_row(connection,ticket_id)
+            self._check_message_scope(ticket,tenant_id,installation_id)
+            previous = connection.execute("SELECT * FROM ticket_attachments WHERE id=?",(attachment_id,)).fetchone()
+            if previous:
+                if (previous["ticket_id"],previous["name"],previous["content_type"],previous["sha256"]) != (ticket_id,name,content_type,digest):
+                    raise ControlCenterConflictError("Identificador de anexo ja utilizado.")
+                return self._attachment_from_row(previous)
+            if ticket["status"] in {"resolved","closed"}:
+                raise ControlCenterConflictError("Reabra o chamado antes de anexar.")
+            count = connection.execute("SELECT COUNT(*) FROM ticket_attachments WHERE ticket_id=?",(ticket_id,)).fetchone()[0]
+            if count >= MAX_TICKET_ATTACHMENTS:
+                raise ControlCenterConflictError("Cada chamado pode ter ate 3 anexos.")
+            connection.execute("INSERT INTO ticket_attachments VALUES(?,?,?,?,?,?,?,?)",
+                               (attachment_id,ticket_id,name,content_type,digest,len(data),data,_iso(instant)))
+            connection.execute("UPDATE tickets SET updated_at=MAX(updated_at,?) WHERE id=?",(_iso(instant),ticket_id))
+            return TicketAttachment(id=attachment_id,ticket_id=ticket_id,name=name,content_type=content_type,
+                                    sha256=digest,size_bytes=len(data),data=data,created_at=instant)
+
+    def list_ticket_attachments(self, ticket_id: str, *, tenant_id: str | None = None,
+                                installation_id: str | None = None) -> tuple[TicketAttachment, ...]:
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        with self._read() as connection:
+            self._check_message_scope(self._ticket_row(connection,ticket_id),tenant_id,installation_id)
+            return tuple(self._attachment_from_row(row,include_data=False) for row in connection.execute(
+                "SELECT id,ticket_id,name,content_type,sha256,size_bytes,created_at FROM ticket_attachments WHERE ticket_id=? ORDER BY created_at,id",(ticket_id,)).fetchall())
+
+    def list_undelivered_attachment_references(self, tenant_id: str, installation_id: str, *, after_id: str = "", limit: int = 100) -> tuple[TicketAttachment, ...]:
+        tenant_id = _identifier(tenant_id, field="tenant_id")
+        installation_id = _identifier(installation_id, field="installation_id")
+        if after_id:
+            after_id = _identifier(after_id, field="after_id")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ControlCenterValidationError("Limite de anexos invalido.")
+        with self._read() as connection:
+            return tuple(self._attachment_from_row(row,include_data=False) for row in connection.execute(
+                """SELECT a.id,a.ticket_id,a.name,a.content_type,a.sha256,a.size_bytes,a.created_at
+                   FROM ticket_attachments a JOIN tickets t ON t.id=a.ticket_id
+                   WHERE t.tenant_id=? AND t.installation_id=? AND a.id>?
+                   AND NOT EXISTS(SELECT 1 FROM ticket_public_operations p
+                       WHERE p.id='attachment:'||a.id AND p.ticket_id=a.ticket_id
+                       AND p.tenant_id=t.tenant_id AND p.installation_id=t.installation_id
+                       AND p.status='attachment_delivered') ORDER BY a.id LIMIT ?""",
+                (tenant_id,installation_id,after_id,limit)).fetchall())
+
+    def mark_ticket_attachment_delivered(self, ticket_id: str, attachment_id: str, *, tenant_id: str, installation_id: str) -> None:
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        attachment_id = _identifier(attachment_id, field="attachment_id")
+        with self._write() as connection:
+            self._check_message_scope(self._ticket_row(connection,ticket_id),tenant_id,installation_id)
+            if connection.execute("SELECT 1 FROM ticket_attachments WHERE id=? AND ticket_id=?",(attachment_id,ticket_id)).fetchone() is None:
+                raise ControlCenterNotFoundError("Anexo nao encontrado.")
+            connection.execute("INSERT OR IGNORE INTO ticket_public_operations VALUES(?,?,?,?,?)",
+                               ("attachment:"+attachment_id,ticket_id,"attachment_delivered",tenant_id,installation_id))
+
+    def get_ticket_attachment(self, ticket_id: str, attachment_id: str, *, tenant_id: str | None = None,
+                              installation_id: str | None = None) -> TicketAttachment | None:
+        from control_center.attachments import validate_attachment
+        ticket_id = _identifier(ticket_id, field="ticket_id")
+        attachment_id = _identifier(attachment_id, field="attachment_id")
+        with self._read() as connection:
+            self._check_message_scope(self._ticket_row(connection,ticket_id),tenant_id,installation_id)
+            row = connection.execute("SELECT * FROM ticket_attachments WHERE id=? AND ticket_id=?",(attachment_id,ticket_id)).fetchone()
+            if row is None:
+                return None
+            result = self._attachment_from_row(row)
+            _, _, _, digest = validate_attachment(result.name,result.content_type,result.data)
+            if digest != result.sha256 or len(result.data) != result.size_bytes:
+                raise ControlCenterValidationError("Integridade do anexo invalida.")
+            return result
 
     def add_ticket_internal_note(
         self,

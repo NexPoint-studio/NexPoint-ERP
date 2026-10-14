@@ -22,6 +22,20 @@
 </section>
 <section class="ticket-detail-grid">
   <div class="stack">
+    {% if ticket.technical_context.get('contact_consent') and ticket.technical_context.get('user_contact') %}<article class="panel"><h2>Contato autorizado pelo cliente</h2><p class="long-copy">{{ ticket.technical_context.get('user_contact') }}</p><small>Informado voluntariamente para este atendimento.</small></article>{% endif %}
+    <article class="panel">
+      <header class="panel-heading"><div><h2>Conversa com o cliente</h2><p>As mensagens desta seção ficam visíveis no ERP da empresa.</p></div></header>
+      {% if ticket_attachments %}<h3>Imagens enviadas</h3><ul>{% for attachment in ticket_attachments %}<li><a href="/chamados/{{ ticket.id }}/anexos/{{ attachment.id }}">Baixar {{ attachment.name }}</a> ({{ (attachment.size_bytes / 1024)|round|int }} KB)</li>{% endfor %}</ul>{% endif %}
+      <div class="note-list">{% for message in conversation %}<article><strong>{{ 'NexPoint' if message.direction == 'support' else 'Cliente' }}</strong><p class="long-copy">{{ message.body }}</p><small>{{ message.created_at|datetime_br }}</small></article>{% else %}<p class="empty-copy">Nenhuma resposta ainda.</p>{% endfor %}</div>
+      {% if message_page or conversation|length == 200 %}<nav class="heading-actions" aria-label="Páginas da conversa">{% if message_page %}<a class="button button--secondary" href="?message_page={{ message_page - 1 }}">Anterior</a>{% endif %}<span>Página {{ message_page + 1 }}</span>{% if conversation|length == 200 and message_page < 500 %}<a class="button button--secondary" href="?message_page={{ message_page + 1 }}">Próxima</a>{% endif %}</nav>{% endif %}
+      {% if ticket.status in ('open', 'in_progress', 'waiting_customer') %}
+      <form action="/chamados/{{ ticket.id }}/responder" method="post" class="form-stack">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="message_id" value="{{ message_id }}">
+        <label>Resposta ao cliente<textarea name="body" maxlength="4000" required placeholder="Explique a solução ou solicite mais informações"></textarea></label>
+        <button class="button button--primary" type="submit">Enviar resposta ao cliente</button>
+      </form>
+      {% else %}<p class="trust-note">Reabra o chamado para continuar a conversa.</p>{% endif %}
+    </article>
     {% if ticket.category == 'admin_access_recovery' %}
     <article class="panel danger-panel">
       <header class="panel-heading"><div><p class="eyebrow">RECUPERAÇÃO ADMINISTRATIVA</p><h2>Autorizar redefinição local</h2><p>A autorização não define, transmite ou revela senha. O Proprietário ainda precisará definir a nova senha no ERP autenticado.</p></div></header>

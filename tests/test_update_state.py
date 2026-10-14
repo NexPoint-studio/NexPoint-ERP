@@ -1,10 +1,26 @@
 import json
+import hashlib
+import hmac
 import pytest
 
 from app.updates.contracts import UpdateValidationError
 from app.updates.state import UpdateJournal
 from tests.test_update_remote import CREDENTIALS
 from tests.test_update_contracts_download import manifest_dict
+
+
+def test_authenticated_legacy_journal_gains_attempt_time_without_losing_state(tmp_path):
+    journal = UpdateJournal(tmp_path, CREDENTIALS)
+    previous = journal.save(available(journal))
+    legacy = {key: value for key, value in previous.items() if key != "last_attempt_at"}
+    encoded = json.dumps(legacy, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    key = hmac.new(CREDENTIALS.secret.encode(), f"nexpoint-local-update-journal-v1\n{CREDENTIALS.installation_id}".encode(), hashlib.sha256).digest()
+    envelope = {"payload": legacy, "signature": hmac.new(key, encoded, hashlib.sha256).hexdigest()}
+    journal.path.write_text(json.dumps(envelope), encoding="utf-8")
+    assert journal.load() == previous
+    updated = journal.save({**journal.load(), "last_attempt_at": 1234})
+    assert updated["release"] == previous["release"]
+    assert journal.load()["last_attempt_at"] == 1234
 
 
 def available(journal):

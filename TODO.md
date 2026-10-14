@@ -1,14 +1,16 @@
 ﻿## A Fazer
 
-- [ ] Fase 3: updater existente e recuperação {weight:14} {sector:SETOR_BACKEND}
+- [ ] Windows QA: acesso válido à VM e instalação/update A→B com preservação de dados e DPAPI {weight:14} {sector:SETOR_QA_TESTES}
 - [ ] Fase 4: segurança, integridade, restore e promoção {weight:18} {sector:SETOR_SEGURANCA}
-- [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; deploy exige autorização {weight:3} {sector:SETOR_COORDENACAO}
+- [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; preservar identidade e dados, cumprir gates de backup/restore antes de PROD {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
 
-- [ ] Fase 2: suporte ERP/Control Center e Nexa contextual {weight:18} {sector:SETOR_BACKEND}
+- [ ] Preparar builds A/B QA e fechar evidência integrada antes de promoção {weight:8} {sector:SETOR_COORDENACAO}
 
 ## Concluídas
+
+- [x] Suporte/conversa/anexos/Nexa e gestão de rollout implementados localmente; 1389 casos validados (1384 na suíte + 5 corrigidos reexecutados), 21 Edge e SQL isolado {sector:SETOR_COORDENACAO}
 
 - [x] Fase 1 pós-piloto: catálogo e recebimentos {sector:SETOR_COORDENACAO}
   - [x] Auditar arquitetura, Git e identidade remota somente leitura {weight:4} {sector:SETOR_COORDENACAO}

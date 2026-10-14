@@ -422,14 +422,39 @@ def create_app(
         )
     else:
         sync_remote = _ReconnectingLocalSyncRemote(app)
+    from app.services.support_remote import SupabaseSupportRemote
+    from app.services.support_attachment_remote import SupabaseSupportAttachmentRemote
+    from app.services.support_conversation import SupportSyncRemote
+    app.state.support_remote = (
+        SupabaseSupportRemote(
+            base_settings.sync_endpoint.removesuffix("/erp-sync") + "/erp-support",
+            production_credentials, timeout_seconds=base_settings.sync_timeout_seconds,
+        ) if production_credentials is not None else None
+    )
+    app.state.support_attachment_remote = (
+        SupabaseSupportAttachmentRemote(
+            base_settings.sync_endpoint.removesuffix("/erp-sync") + "/erp-support-attachments",
+            production_credentials, timeout_seconds=base_settings.sync_timeout_seconds,
+        ) if production_credentials is not None else None
+    )
+    sync_remote = SupportSyncRemote(sync_remote, lambda: ensure_control_center_repository(app),
+        observability_tenant_id, observability_installation_id, app.state.support_remote,
+        attachments_remote=app.state.support_attachment_remote)
     app.state.sync_engine = OfflineSyncEngine(
         factory, sync_remote,
         connectivity=app.state.connectivity_service,
         diagnostic_monitor=app.state.diagnostic_monitor,
     )
+    from app.services.support_attachment_queue import AttachmentOutboxReconciler
+    app.state.support_attachment_reconciler = AttachmentOutboxReconciler(app)
+
+    def before_sync_run():
+        app.state.support_attachment_reconciler.run()
+        app.state.control_telemetry_adapter.maybe_publish(app)
+
     app.state.sync_worker = SyncWorker(
         app.state.sync_engine,
-        before_run=lambda: app.state.control_telemetry_adapter.maybe_publish(app),
+        before_run=before_sync_run,
         shutdown_timeout_seconds=base_settings.sync_timeout_seconds + 2,
     )
     app.state.control_telemetry_adapter.maybe_publish(app, force=True)
@@ -642,6 +667,8 @@ def create_app(
     app.include_router(admin_lock_router)
     app.include_router(admin_router)
     app.include_router(support_router)
+    from app.routes.support_attachments import router as support_attachments_router
+    app.include_router(support_attachments_router)
     app.include_router(audit_router)
     app.include_router(system_router)
     app.include_router(nexa_router)

@@ -203,6 +203,7 @@ def sanitize_mapping(value: Mapping[str, Any] | None) -> dict[str, JsonValue]:
 _SYNC_OPAQUE_FIELDS = frozenset({
     "tenant_id", "tenant_alias", "installation_id", "protocol", "created_by",
     "event_id", "correlation_id", "request_id", "session_id", "user_pseudonym",
+    "ticket_id", "operation_id", "attachment_id",
     "diagnostic_fingerprint", "fingerprint",
 })
 _SYNC_OPAQUE_LIST_FIELDS = frozenset({"fingerprints", "active_risk_fingerprints"})
@@ -216,6 +217,10 @@ def sanitize_sync_payload(value: Mapping[str, Any]) -> dict[str, JsonValue]:
     a second generic scrub can otherwise rewrite a hash containing digits.
     """
     result = sanitize_mapping(value)
+    # Preserve explicit customer contact only at the support transport boundary.
+    if isinstance(value.get("technical_context"), Mapping):
+        from control_center.support_contact import sanitize_ticket_context
+        result["technical_context"] = sanitize_ticket_context(value["technical_context"])
     # Git commit IDs are public build identifiers. A digit-heavy SHA may look
     # like a card number to the generic redactor; only retain the exact form
     # accepted by the heartbeat contract.

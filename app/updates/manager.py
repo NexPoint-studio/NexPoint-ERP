@@ -60,7 +60,9 @@ class UpdateManager:
     def _run(self):
         if self._stop.wait(self._startup_delay):
             return
-        self._execute("check")
+        # Download only in the background worker. Installation still requires
+        # the separate, explicit desktop confirmation and updater handoff.
+        self._execute("download")
         while not self._stop.is_set():
             manual = self._wake.wait(self._interval)
             self._wake.clear()
@@ -68,7 +70,7 @@ class UpdateManager:
                 return
             with self._mutex:
                 command, self._command = self._command, None
-            self._execute(command if manual and command else "check")
+            self._execute(command if manual and command else "download")
 
     def request(self, command: str) -> bool:
         if command not in {"check", "download"}:
@@ -97,7 +99,7 @@ class UpdateManager:
         if command == "check" and previous["state"] == "READY":
             return
         try:
-            self._save(state="CHECKING", error_code=None)
+            self._save(state="CHECKING", error_code=None, last_attempt_at=int(self._clock() * 1000))
             result = self.remote.check(self.installed_version)
             if self._stop.is_set():
                 self._save(state=previous["state"], error_code="CANCELLED")

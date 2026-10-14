@@ -203,7 +203,10 @@ def test_nexa_bridge_sends_only_server_derived_context(client, monkeypatch):
     assert "password" not in json.dumps(payload)
     assert "run_erp_preflight" not in payload["tools"]
     assert "search_erp_logs" not in payload["tools"]
-    assert "admin.audit.view" not in payload["context"]["permissions"]
+    assert "permissions" not in payload["context"]
+    assert "role" not in payload["context"]
+    assert "get_user_permissions_context" not in payload["tools"]
+    assert "get_current_user_context" not in payload["tools"]
     second = client.post("/nexa/chat", json={"message": "E agora?", "screen": "/clientes/lista"})
     assert second.status_code == 200
     assert captured[1]["history"][-1]["role"] == "assistant"

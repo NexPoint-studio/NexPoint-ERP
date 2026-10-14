@@ -8,7 +8,7 @@ import re
 import unicodedata
 
 from app.core.modules import MODULES
-from app.knowledge import ERP_HELP
+from app.knowledge import ERP_HELP, ERP_HELP_VERSION
 from app.services.authorization import active_actor_access, require_effective_actor_permission, ActorAuthorizationError
 from app.services.admin_lock import AdminLockService, admin_unlock_valid, lock_configured
 from app.core.permissions import INSTALLATION_ADMIN_CAPABILITIES
@@ -47,6 +47,7 @@ def screen_context(raw_screen: object, permissions: frozenset[str]) -> tuple[str
         for tab in module.tabs:
             if path == tab.path and tab.permission in permissions:
                 return module.id, tab.id, "view"
+    for module in MODULES:
         if path.startswith(module.route.rsplit("/", 1)[0] + "/") and module.permission in permissions:
             return module.id, "detail", "view"
     return "erp", "unknown", "view"
@@ -127,17 +128,15 @@ def build_nexa_snapshot(request, screen: object, *, query: str = "") -> tuple[st
             }
     module, screen_name, operation = screen_context(screen, permissions)
     settings = request.app.state.settings
-    role = "admin" if "admin" in access.role_codes else "support" if "support" in access.role_codes else "user"
-    public_permissions = sorted(permissions)[:80]
     context = {
         "module": module,
         "screen": screen_name,
         "operation": operation,
-        "role": role,
         "environment": settings.environment,
         "version": settings.version[:40],
         "build": settings.build[:40],
-        "permissions": public_permissions,
+        "usage_mode": "local_company_without_operational_login",
+        "help_version": ERP_HELP_VERSION,
     }
     monitor = getattr(request.app.state, "diagnostic_monitor", None)
     events = []
@@ -207,10 +206,10 @@ def build_nexa_snapshot(request, screen: object, *, query: str = "") -> tuple[st
             "environment": settings.environment,
             "version": settings.version[:40],
             "build": settings.build[:40],
+            "help_version": ERP_HELP_VERSION,
+            "usage": "ERP local de uma empresa, sem login operacional nem cadastro de usuários ou papéis. Administração visível, com Cadeado opcional. A Nexa orienta; o código valida e executa. Chamados exigem revisão do conteúdo e confirmação explícita em Enviar chamado; diagnóstico é opcional.",
         },
-        "get_current_user_context": {"role": role},
         "get_current_module_context": {"module": module, "screen": screen_name, "operation": operation},
-        "get_user_permissions_context": {"permissions": public_permissions},
         "get_module_health": {"module": module, "status": "degraded" if visible_risks else "normal", "risks": visible_risks},
         "get_recent_diagnostic_events": {"events": safe_events},
         "search_erp_help": {"results": public_help(query, permissions)},

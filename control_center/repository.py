@@ -28,6 +28,8 @@ from control_center.domain import (
     TicketFilters,
     TicketHistoryEntry,
     TicketInternalNote,
+    TicketMessage,
+    TicketAttachment,
     VersionSummary,
     SyncReceipt,
 )
@@ -136,7 +138,31 @@ class ControlCenterRepository(Protocol):
         *,
         changed_by: str | None = None,
         changed_at: datetime | None = None,
+        tenant_id: str | None = None,
+        installation_id: str | None = None,
+        operation_id: str | None = None,
     ) -> SupportTicket: ...
+
+    def add_ticket_message(
+        self, ticket_id: str, body: str, author_id: str, *, message_id: str,
+        direction: str, tenant_id: str | None = None,
+        installation_id: str | None = None, created_at: datetime | None = None,
+    ) -> TicketMessage: ...
+
+    def list_ticket_messages(
+        self, ticket_id: str, *, tenant_id: str | None = None,
+        installation_id: str | None = None, limit: int = 200, offset: int = 0,
+    ) -> tuple[TicketMessage, ...]: ...
+
+    def add_ticket_attachment(self, ticket_id: str, *, attachment_id: str, name: str,
+                              content_type: str, data: bytes, author_id: str | None = None,
+                              tenant_id: str | None = None, installation_id: str | None = None) -> TicketAttachment: ...
+
+    def list_ticket_attachments(self, ticket_id: str, *, tenant_id: str | None = None,
+                                installation_id: str | None = None) -> tuple[TicketAttachment, ...]: ...
+
+    def get_ticket_attachment(self, ticket_id: str, attachment_id: str, *, tenant_id: str | None = None,
+                              installation_id: str | None = None) -> TicketAttachment | None: ...
 
     def add_ticket_internal_note(
         self,
@@ -353,3 +379,5 @@ class ControlCenterRepository(Protocol):
     def verify_release(self, actor_id: str, release_id: str, *, sha256: str, size: int) -> None: ...
 
     def publish_release(self, actor_id: str, release_id: str) -> dict: ...
+
+    def set_release_rollout(self, actor_id: str, release_id: str, *, state: str, percentage: int) -> None: ...

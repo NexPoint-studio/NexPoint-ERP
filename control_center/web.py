@@ -142,8 +142,8 @@ TICKET_ACTIONS = {
     "open": ("in_progress", "waiting_customer", "resolved", "closed"),
     "in_progress": ("waiting_customer", "resolved", "closed"),
     "waiting_customer": ("in_progress", "resolved", "closed"),
-    "resolved": ("in_progress", "closed"),
-    "closed": (),
+    "resolved": ("open", "in_progress", "closed"),
+    "closed": ("open",),
 }
 PRIORITY_LABELS = {"normal": "Normal", "high": "Alta"}
 CATEGORY_LABELS = {
@@ -634,7 +634,8 @@ def _build_nexa_payload(repository: ControlCenterRepository, ticket_id: str, mes
     risks = repository.list_risk_summaries(RiskFilters(tenant_id=tenant.id))
     related_risk = next((item for item in risks if item.id == ticket.risk_id or item.fingerprint == ticket.diagnostic_fingerprint), None)
     health_item = health[0] if health else None
-    technical = sanitize_mapping(ticket.technical_context)
+    technical = sanitize_mapping({key: value for key, value in ticket.technical_context.items()
+                                  if key not in {"user_contact", "contact_consent"}})
     context = {
         "scope": "nexpoint_control_support",
         "role": user.role,
@@ -1402,24 +1403,46 @@ def create_control_center_app(
         return RedirectResponse(f"/empresas/{tenant.id}", status_code=303)
 
     @app.get("/chamados")
-    def tickets_page(request: Request, status: str = "", tenant: str = "", priority: str = "", category: str = ""):
+    def tickets_page(request: Request, status: str = "", tenant: str = "", priority: str = "", category: str = "",
+                     installation: str = "", opened_from: str = "", opened_until: str = ""):
         selected_status = _valid_choice(status, TICKET_STATUSES)
         selected_priority = _valid_choice(priority, TICKET_PRIORITIES)
         user = request.state.platform_user
         tenants, tenant_names = _authorized_tenant_maps(repository, user)
         selected_tenant = tenant if tenant in tenant_names else None
-        denied_tenant_filter = bool(
-            tenant and selected_tenant is None and _tenant_scope(user) is not None
-        )
+        denied_tenant_filter = bool(tenant and selected_tenant is None)
+        installations = tuple(item for company in tenants
+            for item in repository.list_installations(tenant_id=company.id, limit=500)
+            if not selected_tenant or item.tenant_id == selected_tenant)
+        installation_ids = {item.id for item in installations}
+        selected_installation = installation if installation in installation_ids else None
+        denied_installation_filter = bool(installation and selected_installation is None)
+        try:
+            lower_day = date.fromisoformat(opened_from) if opened_from else None
+            upper_day = date.fromisoformat(opened_until) if opened_until else None
+            if (lower_day and lower_day.isoformat() != opened_from) or (upper_day and upper_day.isoformat() != opened_until):
+                raise ValueError()
+            if lower_day and upper_day and lower_day > upper_day:
+                raise ValueError()
+            lower = datetime.combine(lower_day, datetime_time.min, tzinfo=timezone.utc) if lower_day else None
+            upper = datetime.combine(upper_day + timedelta(days=1), datetime_time.min, tzinfo=timezone.utc) if upper_day else None
+        except (ValueError, OverflowError):
+            raise HTTPException(status_code=422, detail="Informe um intervalo de datas valido (UTC).") from None
         selected_category = category if category in CATEGORY_LABELS else None
-        filters = TicketFilters(statuses=(selected_status,) if selected_status else (), tenant_id=selected_tenant, priorities=(selected_priority,) if selected_priority else (), categories=(selected_category,) if selected_category else ())
-        tickets = () if denied_tenant_filter else _authorized_tickets(
-            repository, user, filters=filters, limit=500
-        )
-        return templates.TemplateResponse(request, "tickets.html", _base_context(request, "tickets", "Chamados", tickets=tickets, tenants=tenants, tenant_names=tenant_names, selected_status=selected_status, selected_tenant=selected_tenant, selected_priority=selected_priority, selected_category=selected_category))
+        filters = TicketFilters(statuses=(selected_status,) if selected_status else (), tenant_id=selected_tenant,
+            priorities=(selected_priority,) if selected_priority else (), categories=(selected_category,) if selected_category else (),
+            installation_id=selected_installation, opened_from=lower, opened_until=upper)
+        tickets = () if denied_tenant_filter or denied_installation_filter else _authorized_tickets(repository, user, filters=filters, limit=500)
+        return templates.TemplateResponse(request, "tickets.html", _base_context(request, "tickets", "Chamados",
+            tickets=tickets, tenants=tenants, tenant_names=tenant_names, installations=installations,
+            selected_status=selected_status, selected_tenant=selected_tenant, selected_priority=selected_priority,
+            selected_category=selected_category, selected_installation=selected_installation,
+            opened_from=opened_from, opened_until=opened_until))
 
     @app.get("/chamados/{ticket_id}")
-    def ticket_detail(request: Request, ticket_id: str):
+    def ticket_detail(request: Request, ticket_id: str, message_page: int = 0):
+        if not 0 <= message_page <= 500:
+            raise HTTPException(status_code=422)
         ticket = repository.get_ticket(ticket_id)
         if ticket is None:
             raise HTTPException(status_code=404)
@@ -1441,6 +1464,10 @@ def create_control_center_app(
             ticket=ticket,
             tenant=tenant,
             reset_authorization=reset_authorization,
+            conversation=repository.list_ticket_messages(ticket.id, limit=200, offset=message_page * 200),
+            message_page=message_page,
+            ticket_attachments=repository.list_ticket_attachments(ticket.id),
+            message_id=str(uuid4()),
             ticket_action_status_labels=_action_labels(ticket.status, TICKET_ACTIONS, TICKET_LABELS),
         ))
 
@@ -1502,6 +1529,42 @@ def create_control_center_app(
             raise HTTPException(status_code=422)
         repository.set_ticket_status(ticket_id, status, changed_by=request.state.platform_user.id)
         _flash(request, "success", "Status do chamado atualizado.")
+        return RedirectResponse(f"/chamados/{ticket_id}", status_code=303)
+
+    @app.get("/chamados/{ticket_id}/anexos/{attachment_id}")
+    def ticket_attachment_download(request: Request, ticket_id: str, attachment_id: str):
+        ticket = repository.get_ticket(ticket_id)
+        if ticket is None:
+            raise HTTPException(status_code=404)
+        _require_tenant_access(repository, request.state.platform_user, ticket.tenant_id)
+        attachment = repository.get_ticket_attachment(ticket_id, attachment_id)
+        if attachment is None:
+            raise HTTPException(status_code=404)
+        from app.routes.support_attachments import download_response
+        return download_response(attachment)
+
+    @app.post("/chamados/{ticket_id}/responder")
+    def ticket_reply(request: Request, ticket_id: str,
+                     body: str = Form("", max_length=4000),
+                     message_id: str = Form("", max_length=36),
+                     csrf: str = Form("", alias="_csrf", max_length=128)):
+        _require_csrf(request, csrf)
+        ticket = repository.get_ticket(ticket_id)
+        if ticket is None:
+            raise HTTPException(status_code=404)
+        _require_tenant_access(repository, request.state.platform_user, ticket.tenant_id)
+        from uuid import UUID
+        try:
+            if str(UUID(message_id)) != message_id:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Atualize o chamado antes de responder.") from None
+        clean = sanitize_text(body, maximum=4000)
+        if not clean:
+            raise HTTPException(status_code=422)
+        repository.add_ticket_message(ticket.id, clean, request.state.platform_user.id,
+                                      message_id=message_id, direction="support")
+        _flash(request, "success", "Resposta enviada ao cliente.")
         return RedirectResponse(f"/chamados/{ticket_id}", status_code=303)
 
     @app.post("/chamados/{ticket_id}/notas")
@@ -1934,11 +1997,12 @@ def create_control_center_app(
             for installation in repository.list_installations(tenant_id=tenant_id, limit=500)
         ))
         releases = repository.list_releases()
-        from control_center.releases import installation_release_status
+        from control_center.releases import installation_release_status, update_attempt_time
         installation_rows = tuple({
             "installation": item, "company": tenant_names.get(item.tenant_id, "Empresa"),
             "channel": item.metadata.get("update_channel", "Não informado"),
             "update_status": installation_release_status(item, releases),
+            "update_attempt_time": update_attempt_time(item),
         } for item in installations)
         return templates.TemplateResponse(
             request,
@@ -1954,6 +2018,43 @@ def create_control_center_app(
                 installation_rows=installation_rows,
             ),
         )
+
+    @app.post("/versoes/criar")
+    async def create_version(request: Request):
+        _platform_admin_only(request)
+        form = await request.form()
+        _require_csrf(request, str(form.get("_csrf", "")))
+        from control_center.releases import validate_release_metadata
+        allowed = {"_csrf", "version", "update_channel", "build_commit", "artifact_sha256", "artifact_size", "release_notes", "minimum_supported_version", "mandatory"}
+        if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form):
+            raise HTTPException(status_code=422)
+        try:
+            metadata = validate_release_metadata({
+                **{key: str(form.get(key, "")) for key in ("version", "update_channel", "build_commit", "artifact_sha256", "release_notes", "minimum_supported_version")},
+                "artifact_size": int(str(form.get("artifact_size", ""))), "mandatory": form.get("mandatory") == "1",
+                "platform": "windows", "architecture": "x64", "code_signing": "CODE_SIGNING_PENDING", "signer_thumbprint": None,
+            })
+            repository.create_release(request.state.platform_user.id, metadata)
+        except (ValueError, ControlCenterValidationError, ControlCenterConflictError):
+            raise HTTPException(status_code=422, detail="Confira os metadados oficiais da build. Nenhuma versão foi publicada.") from None
+        _flash(request, "success", "Rascunho criado. Envie e verifique o instalador pela ferramenta oficial antes de publicar.")
+        return RedirectResponse("/versoes", status_code=303)
+
+    @app.post("/versoes/{release_id}/distribuicao")
+    def rollout_version(request: Request, release_id: str,
+                        state: str = Form("", max_length=20), percentage: int = Form(100),
+                        confirmation: str = Form("", max_length=20),
+                        csrf: str = Form("", alias="_csrf", max_length=128)):
+        _require_csrf(request, csrf)
+        _platform_admin_only(request)
+        if confirmation != "confirmar":
+            raise HTTPException(status_code=422, detail="Confirme a alteração da distribuição.")
+        try:
+            repository.set_release_rollout(request.state.platform_user.id, release_id, state=state, percentage=percentage)
+        except (ControlCenterValidationError, ControlCenterConflictError):
+            raise HTTPException(status_code=409, detail="A distribuição não pode ser alterada nesse estado.") from None
+        _flash(request, "success", "Distribuição atualizada. Pacotes já baixados não são removidos do computador do cliente.")
+        return RedirectResponse("/versoes", status_code=303)
 
     @app.post("/versoes/{release_id}/publicar")
     def publish_version(request: Request, release_id: str,

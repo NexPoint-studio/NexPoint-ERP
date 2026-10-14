@@ -25,7 +25,7 @@ ERRORS = frozenset({None, "OFFLINE", "INVALID_RELEASE", "DOWNLOAD_FAILED", "INST
 def initial_state(installation_id: str) -> dict:
     return {"schema_version": 1, "installation_id": installation_id, "state": "IDLE", "update_channel": None,
             "highest_sequences": {channel: 0 for channel in sorted(UPDATE_CHANNELS)},
-            "last_checked_at": 0, "state_changed_at": 0, "release": None, "error_code": None}
+            "last_checked_at": 0, "last_attempt_at": 0, "state_changed_at": 0, "release": None, "error_code": None}
 
 
 class UpdateJournal:
@@ -38,6 +38,8 @@ class UpdateJournal:
         self._lock = RLock()
 
     def _validate(self, value: object) -> dict:
+        if isinstance(value, dict) and "last_attempt_at" not in value:
+            value = {**value, "last_attempt_at": 0}  # authenticated legacy journal
         if (not isinstance(value, dict) or set(value) != set(initial_state(self._installation))
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or value["installation_id"] != self._installation
@@ -45,6 +47,7 @@ class UpdateJournal:
             or (value["update_channel"] is not None and
                 (not isinstance(value["update_channel"], str) or value["update_channel"] not in UPDATE_CHANNELS))
             or type(value["last_checked_at"]) is not int or not 0 <= value["last_checked_at"] < 2**53
+            or type(value["last_attempt_at"]) is not int or not 0 <= value["last_attempt_at"] < 2**53
             or type(value["state_changed_at"]) is not int or not 0 <= value["state_changed_at"] < 2**53
             or (value["error_code"] is not None and
                 (not isinstance(value["error_code"], str) or value["error_code"] not in ERRORS))):

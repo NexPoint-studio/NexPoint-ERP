@@ -106,6 +106,34 @@ class HealthSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class TicketAttachment:
+    id: str
+    ticket_id: str
+    name: str
+    content_type: str
+    sha256: str
+    size_bytes: int
+    data: bytes = b""
+    created_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def content(self) -> bytes:
+        return self.data
+
+
+@dataclass(frozen=True, slots=True)
+class TicketMessage:
+    """Public conversation entry; internal notes are a separate contract."""
+
+    id: str = field(default_factory=lambda: new_id("message"))
+    ticket_id: str = ""
+    direction: str = "customer"
+    body: str = ""
+    created_at: datetime = field(default_factory=utc_now)
+    author_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class TicketInternalNote:
     id: str = field(default_factory=lambda: new_id("ticket_note"))
     ticket_id: str = ""
@@ -325,6 +353,9 @@ class TicketFilters:
     priorities: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
     query: str | None = None
+    installation_id: str | None = None
+    opened_from: datetime | None = None
+    opened_until: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -52,7 +52,7 @@ def origin_for(project_ref: str | None = None) -> str:
 
 
 def endpoint(function: str, *, project_ref: str | None = None) -> str:
-    if function not in {"erp-activate", "erp-sync", "erp-admin-recovery", "erp-update", "erp-chat", "erp-handoff"}:
+    if function not in {"erp-activate", "erp-sync", "erp-admin-recovery", "erp-update", "erp-chat", "erp-handoff", "erp-support", "erp-support-attachments"}:
         raise ValueError("A operacao cloud e invalida.")
     return origin_for(project_ref) + "/functions/v1/" + function
 

@@ -44,6 +44,11 @@ TICKET_PRIORITIES = {
     "normal": "Normal",
     "high": "Alta",
 }
+TICKET_AREAS = {
+    "erp": "Geral / não sei", "clientes": "Clientes", "servicos": "Serviços e notas",
+    "caixa": "Caixa", "financeiro": "Financeiro", "admin": "Administração / Empresa",
+    "suporte": "Suporte / Nexa", "atualizacoes": "Atualizações",
+}
 TICKET_STATUS_LABELS = {
     "open": "Aberto",
     "in_progress": "Em andamento",
@@ -463,6 +468,15 @@ class ClientSupportService:
         if not isinstance(consent_value, str) or consent_value not in {"0", "1"}:
             errors["diagnostic_consent"] = "Confirme se deseja compartilhar o diagnóstico."
         diagnostic_consent = consent_value == "1"
+        from control_center.support_contact import validate_contact
+        area = str(raw.get("area") or "erp").strip()
+        if area not in TICKET_AREAS:
+            errors["area"] = "Selecione uma área válida."
+        contact = ""
+        try:
+            contact = validate_contact(raw.get("contact", ""))
+        except ControlCenterError:
+            errors["contact"] = "Informe um e-mail ou telefone válido, ou deixe em branco."
         subject = self._field(
             raw,
             "subject",
@@ -507,11 +521,12 @@ class ClientSupportService:
             priority=priority,
             created_at=now,
             updated_at=now,
-            module=technical.module,
+            module=area if raw.get("area") else technical.module,
             screen=technical.screen,
             erp_version=self.identity.version,
             technical_context={**(technical.payload if diagnostic_consent else {}),
-                               "diagnostic_consent": diagnostic_consent},
+                               "diagnostic_consent": diagnostic_consent,
+                               **({"user_contact": contact, "contact_consent": True} if contact else {})},
             diagnostic_fingerprint=technical.diagnostic_fingerprint if diagnostic_consent else None,
             correlation_id=technical.correlation_id if diagnostic_consent else None,
             nexa_diagnosis=nexa_diagnosis if diagnostic_consent else None,
@@ -546,7 +561,7 @@ class ClientSupportService:
         self.ensure_registration()
         return self.repository.create_ticket_for_tenant(self.identity.tenant_id, ticket)
 
-    def snapshot(self, selected_ticket_id: str | None = None) -> ClientSupportSnapshot:
+    def snapshot(self, selected_ticket_id: str | None = None, *, page: int = 0) -> ClientSupportSnapshot:
         local_tickets: list[SupportTicket] = []
         if self.outbox is not None:
             for item in self.outbox.list_unsynced(event_type="support_ticket", limit=100):
@@ -574,13 +589,19 @@ class ClientSupportService:
         if self.repository is not None:
             try:
                 self.ensure_registration()
-                remote_tickets = tuple(self.repository.list_tenant_tickets(
-                    self.identity.tenant_id, limit=100, offset=0))
+                if hasattr(self.repository, "list_installation_tickets"):
+                    remote_tickets = self.repository.list_installation_tickets(
+                        self.identity.tenant_id,self.identity.installation_id,limit=100,offset=page*100)
+                else:
+                    remote_tickets = tuple(ticket for ticket in self.repository.list_tenant_tickets(
+                        self.identity.tenant_id, limit=100, offset=page*100)
+                        if ticket.installation_id == self.identity.installation_id)
             except (ControlCenterError, OSError, RuntimeError, sqlite3.Error):
                 if self.outbox is None:
                     raise
         by_id = {ticket.id: ticket for ticket in remote_tickets}
-        by_id.update({ticket.id: ticket for ticket in local_tickets})
+        if page == 0:
+            by_id.update({ticket.id: ticket for ticket in local_tickets})
         tickets = tuple(sorted(by_id.values(), key=lambda ticket: (
             ticket.updated_at.replace(tzinfo=timezone.utc)
             if ticket.updated_at.tzinfo is None else ticket.updated_at.astimezone(timezone.utc)
@@ -590,6 +611,10 @@ class ClientSupportService:
             if not _OPAQUE_ID.fullmatch(selected_ticket_id):
                 raise SupportTicketNotFoundError("Chamado não encontrado.")
             selected = by_id.get(selected_ticket_id)
+            if selected is None and self.repository is not None:
+                candidate = self.repository.get_tenant_ticket(self.identity.tenant_id,selected_ticket_id)
+                if candidate is not None and candidate.installation_id == self.identity.installation_id:
+                    selected = candidate
             if selected is None:
                 raise SupportTicketNotFoundError("Chamado não encontrado.")
         return ClientSupportSnapshot(tickets=tickets, selected_ticket=selected)

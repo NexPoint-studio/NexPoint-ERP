@@ -1,6 +1,6 @@
 """Versioned, non-sensitive ERP help separate from NexPoint public knowledge."""
 
-ERP_HELP_VERSION = "3"
+ERP_HELP_VERSION = "4"
 
 ERP_HELP = (
     ("clientes", "Clientes", "Cadastre, consulte e acompanhe o histórico em Clientes.", "customers.view"),
@@ -10,7 +10,7 @@ ERP_HELP = (
     ("taxas percentual fixo operadora", "Configurar taxas", "Em Administração > Pagamentos e taxas, escolha a forma de recebimento, informe percentual e custo fixo e salve. Para cartão, informe modalidade e, quando necessário, terminal e parcelas. A taxa é custo da empresa, não acréscimo automático ao cliente. Cada recebimento parcial usa seu próprio bruto; configurações futuras não alteram taxas históricas. No pagamento da Nota, expanda o ajuste de taxa para informar uma exceção e seu motivo.", "finance.config.manage"),
     ("saldo devedor debitos fechamento", "Saldos devedores", "Fechar uma Nota com saldo gera um débito, não uma entrada fictícia no Caixa. O débito pode ser quitado diretamente pelas formas disponíveis ou vinculado a uma nova Nota do mesmo cliente. No recebimento dessa Nota, os saldos anteriores são quitados primeiro. A taxa da operadora não reduz o principal quitado.", "notes.view"),
     ("caixa", "Caixa", "Consulte os lançamentos da empresa em Caixa e os totais e relatórios em Financeiro.", "cash.operations.view"),
-    ("suporte", "Suporte", "Abra e acompanhe chamados para a NexPoint em Administração > Suporte.", "admin.support.manage"),
+    ("suporte chamado diagnostico", "Suporte", "Em Administração > Suporte, descreva o problema à Nexa e use Usar como rascunho do chamado. Revise assunto e descrição, escolha categoria e prioridade e confirme em Enviar chamado. Preparar texto não envia chamado. O diagnóstico técnico é opcional e só acompanha o chamado se você marcar Compartilhar diagnóstico técnico. Não informe senhas, tokens ou dados pessoais desnecessários. Acompanhe o protocolo e a sincronização no histórico.", "admin.support.manage"),
     ("empresa", "Empresa", "Identifique sua empresa em Administração > Empresa. O nome fantasia aparece no ERP e é sincronizado com a NexPoint.", "admin.settings"),
     ("seguranca", "Segurança", "O ERP abre diretamente. Para proteger configurações, crie uma senha em Administração > Segurança.", "admin.overview.view"),
     ("offline sincronizacao suporte internet", "Uso sem internet", "As operações locais continuam disponíveis sem internet. Sincronização, envio de chamados e respostas da Nexa dependem de conexão. Um chamado pendente de sincronização ainda não comprova recebimento pela NexPoint. Não afirme que uma ação remota foi concluída sem confirmação do sistema.", "notes.view"),

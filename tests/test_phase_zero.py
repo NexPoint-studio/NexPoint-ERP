@@ -156,6 +156,8 @@ def test_no_cloud_package_or_unapproved_external_runtime_reference():
         root / "app/main.py",
         root / "app/services/sync_remote.py",
         root / "app/services/admin_recovery_remote.py",
+        root / "app/services/support_remote.py",
+        root / "app/services/support_attachment_remote.py",
         root / "app/services/installation_activation.py",
         root / "app/services/handoff_remote.py",
         root / "app/services/installation_handoff.py",

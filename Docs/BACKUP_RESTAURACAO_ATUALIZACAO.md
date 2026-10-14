@@ -1,5 +1,29 @@
 # Backup, restauração e atualização local
 
+## Operação atual pós-piloto
+
+O produto não exige usuários operacionais nem login diário. Referências abaixo
+a ator, Proprietário e permissões descrevem contratos internos legados de
+autorização; não são instruções para cadastrar usuários. O acesso administrativo
+atual utiliza o Admin Lock opcional e as confirmações específicas da operação.
+
+O backup do SQLite operacional não equivale a uma cópia completa da instalação:
+o sidecar contém cache de suporte e screenshots locais, e a credencial DPAPI
+depende do contexto Windows. Preserve esses arquivos pelo fluxo oficial de
+atualização/entrega, sem copiar segredos para documentação ou Git. Restaurar
+dados de outra identidade requer reassociação controlada; não contorne esse gate.
+
+Backup operacional no mesmo computador não é proteção suficiente contra
+ransomware. Mantenha múltiplas versões e uma cópia externa desconectada ou
+imutável, com acesso de escrita separado e restauração periodicamente testada.
+Não há garantia de imutabilidade nas cópias locais atuais. Não apague o histórico
+da instalação para facilitar restauração ou atualização.
+
+Validação deste ciclo: os 16 testes de `test_phase_four_backup_restore.py`
+passaram em cópias isoladas, incluindo integridade, rejeição de arquivos
+inválidos e rollback após falha. Isso não substitui backup/restore de PROD nem
+confirmação física de preservação no notebook.
+
 ## Escopo
 
 O ERP mantém dados operacionais, configurações da empresa, usuários,

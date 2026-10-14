@@ -440,7 +440,14 @@ def test_prod_app_selects_remote_and_uses_provisioned_identity(tmp_path, monkeyp
         restore_enabled=False,
     )
     try:
-        assert isinstance(application.state.sync_engine.remote, SupabaseSyncRemote)
+        from app.services.support_conversation import SupportSyncRemote
+        remote = application.state.sync_engine.remote
+        assert isinstance(remote, SupportSyncRemote)
+        assert isinstance(remote.base, SupabaseSyncRemote)
+        assert remote.tenant_id == TENANT_ID
+        assert remote.installation_id == INSTALLATION_ID
+        assert remote.remote.credentials == provisioned
+        assert remote.attachments_remote.credentials == provisioned
         assert application.state.control_center_tenant_id == TENANT_ID
         assert application.state.control_center_installation_id == INSTALLATION_ID
         assert application.state.remember_installation_id == INSTALLATION_ID

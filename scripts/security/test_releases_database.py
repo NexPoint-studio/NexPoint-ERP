@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import time
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 NAME = "np-release-qa-" + secrets.token_hex(5)
 OUT = ROOT / "artifacts" / "release-qa" / NAME
 CHECKS = []
@@ -133,10 +135,26 @@ def main():
         for _ in range(12):
             limited = lookup()
         check("durable_rate_limit", limited.get("code") == "rate_limited")
+        # Disposable synthetic fixture: start an independent rollout request window.
+        sql("delete from np_request_nonces where nonce like 'update:%';")
+        def rollout(state, percent, actor=admin):
+            return json.loads(sql(f"select np_admin_set_release_rollout('{actor}','{release}',{literal(state)},{percent});"))
+        check("rollout_scoped_denied", rollout("paused", 100, scoped).get("code") == "unauthorized")
+        check("rollout_bad_percent_denied", rollout("active", 101).get("ok") is False)
+        check("rollout_paused", rollout("paused", 100).get("ok") is True and lookup()["release"] is None)
+        check("rollout_zero", rollout("active", 0).get("ok") is True and lookup()["release"] is None)
+        check("rollout_resume", rollout("active", 100).get("ok") is True and lookup()["release"]["release_id"] == release)
+        install_id = sql("select id from np_installations where installation_key='qa-update-customer';")
+        from control_center.releases import rollout_eligible
+        rollout("active", 50)
+        check("rollout_python_pg_same_cohort", (lookup()["release"] is not None) == rollout_eligible(install_id, release, 50))
+        check("rollout_manifest_v1_unchanged", "rollout_state" not in manifest and "rollout_percentage" not in manifest)
+        check("rollout_withdraw", rollout("withdrawn", 0).get("ok") is True and lookup()["release"] is None)
+        check("rollout_withdraw_terminal", rollout("active", 100).get("ok") is False)
         for role in ("anon", "authenticated"):
             check(role + "_no_catalog", sql(f"select has_table_privilege('{role}','np_erp_releases','select');") == "f")
             for signature in ("np_admin_create_release(uuid,jsonb)", "np_admin_verify_release(uuid,uuid,text,bigint)",
-                              "np_admin_publish_release(uuid,uuid)", "np_erp_check_release(text,text,text,text,timestamptz,text)"):
+                              "np_admin_publish_release(uuid,uuid)", "np_admin_set_release_rollout(uuid,uuid,text,integer)", "np_erp_check_release(text,text,text,text,timestamptz,text)"):
                 check(role + "_no_" + signature, sql(f"select has_function_privilege('{role}','{signature}','execute');") == "f")
         check("service_cannot_skip_lifecycle", sql("select has_table_privilege('service_role','np_erp_releases','update');") == "f")
         check("catalog_rls_forced", sql("select relrowsecurity and relforcerowsecurity from pg_class where relname='np_erp_releases';") == "t")
@@ -148,7 +166,9 @@ def main():
                        "channel": "PROD", "environment": "production", "health": "healthy",
                        "last_seen": (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()}
             if state is not None:
-                payload.update(update_state=state, update_channel=channel, update_observed_at=payload["last_seen"])
+                payload.update(update_state=state, update_channel=channel, update_observed_at=payload["last_seen"],
+                               update_error_code="DOWNLOAD_FAILED" if state == "FAILED" else None,
+                               update_target_version="1.2.0", update_last_attempt_at=payload["last_seen"])
             item = {"event_type": "heartbeat", "aggregate_type": "installation", "aggregate_id": key,
                     "payload": payload, "schema_version": 1, "idempotency_key": key}
             return json.loads(sql("select public.erp_ingest_sync_batch('qa-update-customer','" + "a" * 64 +
@@ -170,6 +190,7 @@ def main():
         check("cross_tenant_update_state_denied", update_state() == "AVAILABLE")
         heartbeat("SUCCEEDED")
         check("successful_update_reported", update_state() == "SUCCEEDED")
+        check("update_details_persisted", sql("select update_target_version='1.2.0' and update_last_attempt_at is not null and update_error_code is null from np_installations where installation_key='qa-update-customer';") == "t")
         check("other_installation_unchanged", sql("select update_state is null from np_installations where installation_key='qa-update-internal';") == "t")
         check("update_trigger_not_callable", sql("select has_function_privilege('service_role','np_capture_update_heartbeat()','execute');") == "f")
         report["passed"] = True

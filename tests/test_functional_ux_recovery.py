@@ -262,8 +262,9 @@ def test_locked_owner_can_queue_recovery_support_without_unlocking_admin(app):
             assert payload["screen"] == "admin_lock_recovery"
             serialized = ticket_item.payload_json.casefold()
             assert "password_hash" not in serialized
-            assert "recovery_codes_remaining" not in payload["technical_context"]["admin_lock"]
-            assert "recovery_lockout_until" not in payload["technical_context"]["admin_lock"]
+            assert payload["technical_context"] == {"diagnostic_consent": False}
+            assert "recovery_codes_remaining" not in serialized
+            assert "recovery_lockout_until" not in serialized
             assert "reset_token" not in serialized
         status_page = client.get(response.headers["location"])
         assert "Solicitação salva" in status_page.text

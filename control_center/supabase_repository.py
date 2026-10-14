@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
+import base64
 import json
 import re
 import secrets
@@ -49,11 +50,14 @@ from control_center.domain import (
     TicketFilters,
     TicketHistoryEntry,
     TicketInternalNote,
+    TicketMessage,
+    TicketAttachment,
     VersionSummary,
     new_id,
     utc_now,
 )
 from control_center.sanitization import sanitize_mapping, sanitize_text
+from control_center.support_contact import sanitize_ticket_context
 from control_center.security import hash_password, verify_password
 from control_center.releases import METADATA_FIELDS, release_record, validate_release_metadata
 
@@ -288,7 +292,7 @@ class SupabaseControlCenterRepository:
         return result
 
     def list_releases(self) -> tuple[dict, ...]:
-        columns = sorted(METADATA_FIELDS | {"id", "sequence", "status", "created_at", "verified_at", "published_at"})
+        columns = sorted(METADATA_FIELDS | {"id", "sequence", "status", "created_at", "verified_at", "published_at", "rollout_state", "rollout_percentage"})
         return tuple(release_record(row) for row in self._select(
             "np_erp_releases", select=",".join(columns), order="sequence.desc", limit=100,
         ))
@@ -297,6 +301,14 @@ class SupabaseControlCenterRepository:
         return self._rpc_success(self._rpc("np_admin_create_release", {
             "p_actor_id": _identifier(actor_id, "actor_id"), "p_metadata": validate_release_metadata(metadata),
         }), "criar versão")
+
+    def set_release_rollout(self, actor_id: str, release_id: str, *, state: str, percentage: int) -> None:
+        from control_center.releases import validate_rollout
+        state, percentage = validate_rollout(state, percentage)
+        self._rpc_success(self._rpc("np_admin_set_release_rollout", {
+            "p_actor_id": _identifier(actor_id, "actor_id"), "p_release_id": _identifier(release_id, "release_id"),
+            "p_state": state, "p_percentage": percentage,
+        }), "alterar distribuição")
 
     def verify_release(self, actor_id: str, release_id: str, *, sha256: str, size: int) -> None:
         if not re.fullmatch(r"[a-f0-9]{64}", sha256) or type(size) is not int or not 1 <= size <= 536870912:
@@ -465,7 +477,10 @@ class SupabaseControlCenterRepository:
             metadata={"label": sanitize_text(row.get("label"), maximum=160),
                       "update_channel": str(row.get("update_channel") or "unknown"),
                       "update_state": str(row.get("update_state") or "unknown"),
-                      "update_reported_at": str(row.get("update_reported_at") or "")},
+                      "update_reported_at": str(row.get("update_reported_at") or ""),
+                      "update_error_code": str(row.get("update_error_code") or ""),
+                      "update_target_version": str(row.get("update_target_version") or ""),
+                      "update_last_attempt_at": str(row.get("update_last_attempt_at") or "")},
             created_at=_dt(row.get("created_at")) or utc_now(),
             updated_at=_dt(row.get("updated_at")) or utc_now(),
         )
@@ -540,6 +555,13 @@ class SupabaseControlCenterRepository:
     @classmethod
     def _ticket(cls, row: Mapping[str, Any], events: Sequence[Mapping[str, Any]] = ()) -> SupportTicket:
         metadata = _mapping(row.get("metadata"))
+        try:
+            technical_context = sanitize_ticket_context(metadata.get("technical_context"))
+        except ControlCenterValidationError:
+            # Legacy/malformed upstream contact must not break the support list.
+            technical_context = sanitize_mapping(metadata.get("technical_context") if isinstance(metadata.get("technical_context"), Mapping) else {})
+            technical_context.pop("user_contact", None)
+            technical_context.pop("contact_consent", None)
         ticket_id = str(row.get("id", ""))
         status = {"cancelled": "closed"}.get(str(row.get("status")), str(row.get("status") or "open"))
         return SupportTicket(
@@ -558,7 +580,7 @@ class SupabaseControlCenterRepository:
             module=sanitize_text(metadata.get("module"), maximum=64) or None,
             screen=sanitize_text(metadata.get("screen"), maximum=128) or None,
             erp_version=sanitize_text(metadata.get("erp_version"), maximum=80) or None,
-            technical_context=sanitize_mapping(metadata.get("technical_context") if isinstance(metadata.get("technical_context"), Mapping) else {}),
+            technical_context=technical_context,
             diagnostic_fingerprint=str(metadata.get("diagnostic_fingerprint")) if metadata.get("diagnostic_fingerprint") else None,
             correlation_id=str(row.get("correlation_id")) if row.get("correlation_id") else None,
             risk_id=str(metadata.get("risk_id")) if metadata.get("risk_id") else None,
@@ -738,26 +760,45 @@ class SupabaseControlCenterRepository:
                      tenant_id: str | None = None, priority: str | None = None,
                      category: str | None = None, limit: int = 200,
                      offset: int = 0) -> tuple[SupportTicket, ...]:
-        selected = filters or TicketFilters(
-            statuses=(status,) if status else (), tenant_id=tenant_id,
-            priorities=(priority,) if priority else (), categories=(category,) if category else (),
-        )
+        from control_center.domain import TICKET_STATUSES, TICKET_PRIORITIES
+        selected = filters or TicketFilters()
         clauses = []
-        if selected.tenant_id:
-            clauses.append(("tenant_id", f"eq.{_identifier(selected.tenant_id, 'tenant_id')}"))
-        rows = self._select("np_support_tickets", filters=tuple(clauses), order="updated_at.desc", limit=_limit(limit), offset=_offset(offset))
-        events = self._ticket_events() if rows else []
-        values = [self._ticket(row, events) for row in rows]
-        if selected.statuses:
-            values = [item for item in values if item.status in selected.statuses]
-        if selected.priorities:
-            values = [item for item in values if item.priority in selected.priorities]
-        if selected.categories:
-            values = [item for item in values if item.category in selected.categories]
+        tenant = tenant_id or selected.tenant_id
+        if tenant:
+            clauses.append(("tenant_id", f"eq.{_identifier(tenant, 'tenant_id')}"))
+        if selected.installation_id:
+            clauses.append(("installation_id", f"eq.{_identifier(selected.installation_id, 'installation_id')}"))
+        for field, values, allowed in (
+            ("status", (status,) if status else selected.statuses, TICKET_STATUSES),
+            ("priority", (priority,) if priority else selected.priorities, TICKET_PRIORITIES),
+            ("category", (category,) if category else selected.categories, None),
+        ):
+            if values:
+                clean = tuple(_identifier(value, field) for value in values)
+                if allowed is not None and any(value not in allowed for value in clean):
+                    raise ControlCenterValidationError("Filtro invalido.")
+                if field == "status" and "closed" in clean:
+                    clean = (*clean, "cancelled")  # domain maps cancelled to closed
+                clauses.append((field, "in.(" + ",".join(clean) + ")"))
+        for bound in (selected.opened_from, selected.opened_until):
+            if bound is not None and (not isinstance(bound, datetime) or bound.tzinfo is None or bound.utcoffset() is None):
+                raise ControlCenterValidationError("Use datas com fuso horario.")
+        if selected.opened_from and selected.opened_until and selected.opened_from >= selected.opened_until:
+            raise ControlCenterValidationError("Intervalo de datas invalido.")
+        if selected.opened_from:
+            clauses.append(("opened_at", "gte." + _iso(selected.opened_from)))
+        if selected.opened_until:
+            clauses.append(("opened_at", "lt." + _iso(selected.opened_until)))
         if selected.query:
-            needle = sanitize_text(selected.query, maximum=120).casefold()
-            values = [item for item in values if needle in f"{item.protocol} {item.subject}".casefold()]
-        return tuple(values)
+            needle = sanitize_text(selected.query, maximum=120)
+            # Quote the PostgREST operand; punctuation must never become filter grammar.
+            needle = needle.replace("\\", "\\\\").replace('"', '\\"').replace("%", "\\%").replace("_", "\\_").replace("*", "\\*")
+            operand = '"%' + needle + '%"'
+            clauses.append(("or", f"(subject.ilike.{operand},metadata->>protocol.ilike.{operand},sanitized_description.ilike.{operand})"))
+        rows = self._select("np_support_tickets", filters=tuple(clauses), order="updated_at.desc,id.desc",
+                            limit=_limit(limit), offset=_offset(offset))
+        events = self._ticket_events() if rows else []
+        return tuple(self._ticket(row, events) for row in rows)
 
     def list_tenant_tickets(self, tenant_id: str, *, statuses: Sequence[str] | None = None,
                             limit: int = 100, offset: int = 0) -> tuple[SupportTicket, ...]:
@@ -772,25 +813,18 @@ class SupabaseControlCenterRepository:
         return ticket.history if ticket is not None else ()
 
     def set_ticket_status(self, ticket_id: str, status: str, *, changed_by: str | None = None,
-                          changed_at: datetime | None = None) -> SupportTicket:
+                          changed_at: datetime | None = None, tenant_id: str | None = None,
+                          installation_id: str | None = None) -> SupportTicket:
+        if tenant_id is not None or installation_id is not None:
+            raise ControlCenterValidationError("Use o canal autenticado da instalacao.")
+        result = self._rpc("np_admin_support_status", {"p_ticket_id": _identifier(ticket_id, "ticket_id"),
+            "p_actor_id": _identifier(changed_by, "changed_by"), "p_status": str(status).strip().casefold()})
+        if not isinstance(result, Mapping) or result.get("ok") is not True:
+            raise ControlCenterConflictError("Chamado nao foi atualizado.")
         ticket = self.get_ticket(ticket_id)
         if ticket is None:
             raise ControlCenterNotFoundError("Chamado nao encontrado.")
-        target = str(status).strip().casefold()
-        cloud_target = "closed" if target == "closed" else target
-        now = _utc(changed_at)
-        rows = self._patch("np_support_tickets", (("id", f"eq.{ticket.id}"),), {
-            "status": cloud_target, "closed_at": _iso(now) if target == "closed" else None,
-        })
-        if not rows:
-            raise ControlCenterConflictError("Chamado nao foi atualizado.")
-        self._insert("np_support_ticket_events", {
-            "tenant_id": ticket.tenant_id, "installation_id": ticket.installation_id,
-            "ticket_id": ticket.id, "idempotency_key": f"cc_status_{secrets.token_hex(16)}",
-            "event_type": "status_changed", "occurred_at": _iso(now),
-            "metadata": sanitize_mapping({"from_status": ticket.status, "to_status": target, "actor_id": changed_by}),
-        })
-        return self.get_ticket(ticket.id) or self._ticket(rows[0])
+        return ticket
 
     def add_ticket_internal_note(self, ticket_id: str, body: str, author_id: str, *,
                                  created_at: datetime | None = None) -> TicketInternalNote:
@@ -807,6 +841,93 @@ class SupabaseControlCenterRepository:
             "metadata": {"author_id": _identifier(author_id, "author_id"), "body": clean_body},
         })
         return self._ticket_event_notes(rows, ticket.id)[0]
+
+    def list_ticket_messages(self, ticket_id: str, *, tenant_id: str | None = None,
+                             installation_id: str | None = None, limit: int = 200,
+                             offset: int = 0) -> tuple[TicketMessage, ...]:
+        ticket = self.get_ticket(ticket_id)
+        if ticket is None or (tenant_id is not None and ticket.tenant_id != tenant_id) or (
+                installation_id is not None and ticket.installation_id != installation_id):
+            raise ControlCenterNotFoundError("Chamado nao encontrado.")
+        rows = self._select("np_support_ticket_events", filters=(("ticket_id", f"eq.{ticket.id}"),
+            ("tenant_id", f"eq.{ticket.tenant_id}"), ("event_type", "in.(public_reply,client_reply)")),
+            order="occurred_at.asc,id.asc", limit=_limit(limit), offset=_offset(offset))
+        return tuple(TicketMessage(id=str(row["id"]), ticket_id=ticket.id,
+            direction="customer" if row["event_type"] == "client_reply" else "support",
+            body=sanitize_text(_mapping(row.get("metadata")).get("body"), maximum=4000),
+            author_id=str(_mapping(row.get("metadata")).get("author_id") or "installation"),
+            created_at=_dt(row.get("occurred_at")) or utc_now()) for row in rows
+            if row.get("event_type") in {"public_reply", "client_reply"})
+
+    def add_ticket_message(self, ticket_id: str, body: str, author_id: str, *, message_id: str,
+                           direction: str, tenant_id: str | None = None,
+                           installation_id: str | None = None,
+                           created_at: datetime | None = None) -> TicketMessage:
+        # Customer mutations are accepted only by the credential-scoped Edge RPC.
+        if direction != "support" or tenant_id is not None or installation_id is not None:
+            raise ControlCenterValidationError("Resposta interna invalida.")
+        clean = sanitize_text(body, maximum=4000)
+        if not clean or len(body) > 4000:
+            raise ControlCenterValidationError("Mensagem invalida.")
+        result = self._rpc("np_admin_support_reply", {"p_ticket_id": _identifier(ticket_id, "ticket_id"),
+            "p_actor_id": _identifier(author_id, "author_id"), "p_message_id": _identifier(message_id, "message_id"),
+            "p_body": clean})
+        if not isinstance(result, Mapping) or result.get("ok") is not True:
+            raise ControlCenterConflictError("Nao foi possivel responder ao chamado.")
+        return TicketMessage(id=str(result["message_id"]), ticket_id=ticket_id, direction="support",
+            body=clean, author_id=author_id, created_at=_dt(result.get("created_at")) or utc_now())
+
+    @staticmethod
+    def _attachment(ticket_id: str, row: Mapping[str, Any]) -> TicketAttachment:
+        from control_center.attachments import validate_attachment
+        data = base64.b64decode(str(row.get("data_base64", "")), validate=True)
+        if data:
+            _, _, _, digest = validate_attachment(str(row["name"]), str(row["content_type"]), data)
+            if digest != row["sha256"] or len(data) != row["size_bytes"]:
+                raise ControlCenterValidationError("Anexo corrompido.")
+        return TicketAttachment(id=str(row["id"]), ticket_id=ticket_id, name=str(row["name"]),
+            content_type=str(row["content_type"]), sha256=str(row["sha256"]), size_bytes=int(row["size_bytes"]),
+            data=data, created_at=_dt(row.get("created_at")) or utc_now())
+
+    def _read_ticket_attachments(self, ticket_id: str, attachment_id: str | None, *,
+                                 tenant_id: str | None, installation_id: str | None) -> tuple[TicketAttachment, ...]:
+        ticket = self.get_ticket(ticket_id)
+        if ticket is None or (tenant_id is not None and tenant_id != ticket.tenant_id) or (
+                installation_id is not None and installation_id != ticket.installation_id):
+            raise ControlCenterNotFoundError("Chamado nao encontrado.")
+        result = self._rpc("np_support_attachment_operation", {"p_tenant": ticket.tenant_id,
+            "p_installation": ticket.installation_id, "p_ticket": ticket.id,
+            "p_action": "download" if attachment_id else "list", "p_attachment_id": attachment_id,
+            "p_name": "", "p_content_type": "", "p_sha256": "", "p_data_base64": ""})
+        if not isinstance(result, Mapping) or result.get("ok") is not True:
+            if isinstance(result, Mapping) and result.get("code") == "not_found":
+                return ()
+            raise ControlCenterValidationError("Nao foi possivel ler anexos.")
+        return tuple(self._attachment(ticket.id, row) for row in result["attachments"])
+
+    def list_ticket_attachments(self, ticket_id: str, *, tenant_id: str | None = None,
+                                installation_id: str | None = None) -> tuple[TicketAttachment, ...]:
+        return self._read_ticket_attachments(ticket_id, None, tenant_id=tenant_id, installation_id=installation_id)
+
+    def get_ticket_attachment(self, ticket_id: str, attachment_id: str, *, tenant_id: str | None = None,
+                               installation_id: str | None = None) -> TicketAttachment | None:
+        values = self._read_ticket_attachments(ticket_id, attachment_id, tenant_id=tenant_id, installation_id=installation_id)
+        return values[0] if values else None
+
+    def add_ticket_attachment(self, ticket_id: str, *, attachment_id: str, name: str,
+                               content_type: str, data: bytes, author_id: str | None = None,
+                               tenant_id: str | None = None, installation_id: str | None = None) -> TicketAttachment:
+        from control_center.attachments import validate_attachment
+        if tenant_id is not None or installation_id is not None:
+            raise ControlCenterValidationError("Use o canal autenticado da instalacao.")
+        name, content_type, data, digest = validate_attachment(name, content_type, data)
+        result = self._rpc("np_admin_support_attachment", {"p_actor_id": _identifier(author_id, "author_id"),
+            "p_ticket_id": _identifier(ticket_id, "ticket_id"), "p_action": "upload",
+            "p_attachment_id": _identifier(attachment_id, "attachment_id"), "p_name": name,
+            "p_content_type": content_type, "p_sha256": digest, "p_data_base64": base64.b64encode(data).decode("ascii")})
+        if not isinstance(result, Mapping) or result.get("ok") is not True:
+            raise ControlCenterConflictError("Nao foi possivel adicionar o anexo.")
+        return self._attachment(ticket_id, result["attachments"][0])
 
     def list_risk_summaries(self, filters: RiskFilters | None = None, *, tenant_id: str | None = None,
                             level: str | None = None, status: str | None = None,
