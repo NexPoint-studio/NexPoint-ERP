@@ -141,6 +141,11 @@ def _downgrade_to_phase_two(engine) -> None:
                 PHASE_THREE_VERSIONS,
             )
             connection.exec_driver_sql("drop table payments")
+            # Rebuilding the historical payments table also removes 0018's
+            # column; its ledger entry must not claim that it still exists.
+            connection.exec_driver_sql(
+                "delete from schema_migrations where version = '0018_payment_customer_surcharge'"
+            )
             connection.exec_driver_sql("drop table payment_fee_rules")
             connection.exec_driver_sql("drop table payment_terminals")
 

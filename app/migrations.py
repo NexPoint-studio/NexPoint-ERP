@@ -19,6 +19,8 @@ from sqlalchemy.engine import Connection, Engine
 from app.core.cash_config import PAYMENT_METHOD_DEFAULTS
 from app.core.database import Base
 from app.migration_definitions import (
+    CATALOG_ASSOCIATIONS_0017_STATEMENTS,
+    PAYMENT_SURCHARGE_0018_STATEMENTS,
     AUDIT_INDEXES_0012_STATEMENTS,
     BILLING_UNIT_DEFAULTS_0007,
     BILLING_UNITS_0007_STATEMENTS,
@@ -59,6 +61,8 @@ SUPPORTED_SCHEMA_VERSIONS = (
     "0014_functional_ux_recovery",
     "0015_remember_sessions",
     "0016_installation_access",
+    "0017_catalog_associations",
+    "0018_payment_customer_surcharge",
 )
 LATEST_SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSIONS[-1]
 
@@ -1139,6 +1143,7 @@ def _assert_phase_three_schema(connection: Connection, applied: set[str]) -> Non
             "ck_payments_money",
             "ck_payments_reversal",
             *({"ck_payments_notes"} if "0014_functional_ux_recovery" in applied else set()),
+            *({"ck_payments_customer_surcharge"} if "0018_payment_customer_surcharge" in applied else set()),
         })
         _require_named_indexes(connection, "payments", {
             "ix_payments_created_by": ("created_by",),
@@ -1513,6 +1518,26 @@ def _apply_pending_migrations(connection: Connection, versions: Table) -> set[st
         connection.execute(insert(versions).values(version="0016_installation_access", applied_at=now()))
         applied.add("0016_installation_access")
 
+    if "0017_catalog_associations" not in applied:
+        for statement in CATALOG_ASSOCIATIONS_0017_STATEMENTS:
+            connection.exec_driver_sql(statement)
+        # Existing snapshots are not guessed from today's catalog: keep their
+        # original names/prices and leave the new identity NULL.
+        connection.execute(insert(versions).values(version="0017_catalog_associations", applied_at=now()))
+        applied.add("0017_catalog_associations")
+
+    if "0018_payment_customer_surcharge" not in applied:
+        for statement in PAYMENT_SURCHARGE_0018_STATEMENTS:
+            connection.exec_driver_sql(statement)
+        connection.execute(insert(versions).values(version="0018_payment_customer_surcharge", applied_at=now()))
+        applied.add("0018_payment_customer_surcharge")
+    _require_model_columns(connection, "service_category_links")
+    _require_foreign_keys(connection, "service_category_links", {
+        ("service_id", "services", "id", "RESTRICT"),
+        ("category_id", "service_categories", "id", "RESTRICT"),
+    })
+    _require_unique_columns(connection, "service_category_links", {("service_id", "category_id")})
+    _require_named_checks(connection, "service_category_links", {"ck_service_category_links_price"})
     _assert_phase_two_schema(connection, applied)
     _assert_phase_three_schema(connection, applied)
     _assert_phase_four_schema(connection, applied)

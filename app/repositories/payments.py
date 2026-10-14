@@ -93,7 +93,7 @@ class PaymentRepository:
         return int(self.session.scalar(select(func.coalesce(func.sum(
             case(
                 (has_allocations, func.coalesce(allocated, 0)),
-                else_=Payment.gross_amount_cents,
+                else_=Payment.gross_amount_cents - Payment.customer_surcharge_cents,
             )
         ), 0)).where(
             Payment.service_note_id == note_id,

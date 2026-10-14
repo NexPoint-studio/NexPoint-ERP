@@ -67,6 +67,7 @@ class ResolvedItem:
     service_name: str
     service_description: str | None
     service_category_name: str | None
+    service_category_id: int | None
     billing_unit_id: int
     billing_unit_code: str
     billing_unit_name: str
@@ -353,6 +354,7 @@ class NoteService:
             "service_name": item.service_name_snapshot,
             "service_description": item.service_description_snapshot,
             "service_category_name": item.service_category_name_snapshot,
+            "service_category_id": item.service_category_id,
             "billing_unit_id": item.billing_unit_id,
             "billing_unit_code": item.billing_unit_code_snapshot,
             "billing_unit_name": item.billing_unit_name_snapshot,
@@ -371,6 +373,7 @@ class NoteService:
             "service_name": service.name,
             "service_description": service.description,
             "service_category_name": service.category_name,
+            "service_category_id": service.category_id,
             "billing_unit_id": unit.id,
             "billing_unit_code": unit.code,
             "billing_unit_name": unit.name,
@@ -396,11 +399,16 @@ class NoteService:
                 if item_input.service_id != existing.service_id:
                     item_input.errors["service_id"] = "O serviço de um item existente não pode ser substituído."
                     continue
+                if item_input.category_id is not None and item_input.category_id != existing.service_category_id:
+                    item_input.errors["category_id"] = "A categoria de um item existente não pode ser substituída."
+                    continue
                 source = self._source_from_existing(existing)
             elif item_input.service_id is not None:
-                available = self.repository.available_service(item_input.service_id, active_only=True)
+                available = self.repository.available_service(
+                    item_input.service_id, category_id=item_input.category_id, active_only=True,
+                )
                 if available is None:
-                    item_input.errors["service_id"] = "Serviço indisponível ou sem preço vigente."
+                    item_input.errors["service_id"] = "Serviço/categoria indisponível, ambíguo ou sem preço vigente."
                     continue
                 source = self._source_from_catalog(available)
             if source is None:
@@ -425,6 +433,7 @@ class NoteService:
                 service_name=str(source["service_name"]),
                 service_description=source["service_description"] if source["service_description"] is None else str(source["service_description"]),
                 service_category_name=source["service_category_name"] if source["service_category_name"] is None else str(source["service_category_name"]),
+                service_category_id=source["service_category_id"],
                 billing_unit_id=int(source["billing_unit_id"]),
                 billing_unit_code=str(source["billing_unit_code"]),
                 billing_unit_name=str(source["billing_unit_name"]),
@@ -615,6 +624,7 @@ class NoteService:
             service_name_snapshot=item.service_name,
             service_description_snapshot=item.service_description,
             service_category_name_snapshot=item.service_category_name,
+            service_category_id=item.service_category_id,
             billing_unit_id=item.billing_unit_id,
             billing_unit_code_snapshot=item.billing_unit_code,
             billing_unit_name_snapshot=item.billing_unit_name,
@@ -955,6 +965,7 @@ class NoteService:
                 {
                     "item_id": str(item.id),
                     "service_id": str(item.service_id),
+                    "category_id": str(item.service_category_id or ""),
                     "quantity": canonical_quantity(item.quantity),
                     "snapshot": item,
                 }

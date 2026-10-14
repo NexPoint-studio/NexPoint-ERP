@@ -8,8 +8,8 @@ from decimal import Decimal
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.money import decimal_to_cents
-from app.models import BillingUnit, Customer, Service, ServiceNote, ServicePrice, User
+from app.core.money import cents_to_decimal, decimal_to_cents
+from app.models import BillingUnit, Customer, Service, ServiceNote, ServicePrice, ServiceCategoryLink, User
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +21,7 @@ class AvailableService:
     category_name: str | None
     current_price: Decimal
     billing_unit: BillingUnit
+    category_id: int | None = None
 
     @property
     def current_price_cents(self) -> int:
@@ -70,59 +71,70 @@ class NoteRepository:
             query = query.where(Customer.is_active.is_(True))
         return list(self.session.scalars(query))
 
-    def available_service(self, service_id: int, *, active_only: bool = True) -> AvailableService | None:
-        if not self._valid_id(service_id):
-            return None
+    def _catalog_rows(self, service_id: int | None = None, *, active_only: bool = True):
         query = (
             select(Service, ServicePrice.amount)
             .join(BillingUnit, Service.billing_unit_id == BillingUnit.id)
-            .join(
+            .outerjoin(
                 ServicePrice,
                 and_(ServicePrice.service_id == Service.id, ServicePrice.valid_to.is_(None)),
             )
-            .where(Service.id == service_id)
-            .options(selectinload(Service.category), selectinload(Service.billing_unit))
-        )
-        if active_only:
-            query = query.where(Service.is_active.is_(True), BillingUnit.is_active.is_(True))
-        row = self.session.execute(query).one_or_none()
-        if row is None:
-            return None
-        service, current_price = row
-        return AvailableService(
-            id=service.id,
-            name=service.name,
-            code=service.code,
-            description=service.description,
-            category_name=service.category.name if service.category else None,
-            current_price=current_price,
-            billing_unit=service.billing_unit,
-        )
-
-    def available_services(self) -> list[AvailableService]:
-        query = (
-            select(Service, ServicePrice.amount)
-            .join(BillingUnit, Service.billing_unit_id == BillingUnit.id)
-            .join(
-                ServicePrice,
-                and_(ServicePrice.service_id == Service.id, ServicePrice.valid_to.is_(None)),
+            .options(
+                selectinload(Service.category), selectinload(Service.billing_unit),
+                selectinload(Service.category_links).selectinload(ServiceCategoryLink.category),
             )
-            .where(Service.is_active.is_(True), BillingUnit.is_active.is_(True))
-            .options(selectinload(Service.category), selectinload(Service.billing_unit))
             .order_by(Service.name, Service.id)
         )
-        rows = self.session.execute(query).all()
-        return [
-            AvailableService(
-                id=service.id,
-                name=service.name,
-                code=service.code,
+        if service_id is not None:
+            query = query.where(Service.id == service_id)
+        if active_only:
+            query = query.where(Service.is_active.is_(True), BillingUnit.is_active.is_(True))
+        return self.session.execute(query).all()
+
+    @staticmethod
+    def _combinations(service: Service, default_price: Decimal | None, *, active_only: bool):
+        if service.category_links:
+            candidates = [(link.category, link.price_cents) for link in service.category_links]
+        else:
+            # Compatibility with uncategorized/legacy rows; migrated categorized
+            # services use category_links as the authoritative association set.
+            candidates = [(service.category, None)]
+        for category, override_cents in candidates:
+            if active_only and category is not None and not category.is_active:
+                continue
+            price = cents_to_decimal(override_cents) if override_cents is not None else default_price
+            if price is None:
+                continue
+            yield AvailableService(
+                id=service.id, name=service.name, code=service.code,
                 description=service.description,
-                category_name=service.category.name if service.category else None,
-                current_price=price,
-                billing_unit=service.billing_unit,
+                category_id=category.id if category else None,
+                category_name=category.name if category else None,
+                current_price=price, billing_unit=service.billing_unit,
             )
-            for service, price in rows
+
+    def available_service(self, service_id: int, *, category_id: int | None = None,
+                          active_only: bool = True) -> AvailableService | None:
+        if not self._valid_id(service_id) or (category_id is not None and not self._valid_id(category_id)):
+            return None
+        rows = self._catalog_rows(service_id, active_only=active_only)
+        if not rows:
+            return None
+        service, default_price = rows[0]
+        # Never infer a category from availability: a disabled or unpriced
+        # association still makes a multi-category service ambiguous.
+        if category_id is None and len(service.category_links) > 1:
+            return None
+        choices = list(self._combinations(service, default_price, active_only=active_only))
+        if category_id is not None:
+            choices = [choice for choice in choices if choice.category_id == category_id]
+        return choices[0] if len(choices) == 1 else None
+
+    def available_services(self) -> list[AvailableService]:
+        return [
+            choice
+            for service, price in self._catalog_rows()
+            for choice in self._combinations(service, price, active_only=True)
         ]
 
     def list(

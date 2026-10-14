@@ -111,12 +111,14 @@
       <label class="field field--search">Pesquisar serviço
         <input type="search" placeholder="Nome, código, categoria ou unidade" autocomplete="off" data-note-service-search>
       </label>
-      <label class="field">Serviço disponível
+      <label class="field">Serviço e categoria
         <select data-note-service-picker>
           <option value="">Selecione um serviço</option>
           {% for service in available_services %}
             <option
-              value="{{ service.id }}"
+              value="{{ service.id }}:{{ service.category_id or '' }}"
+              data-service-id="{{ service.id }}"
+              data-category-id="{{ service.category_id or '' }}"
               data-service-name="{{ service.name }}"
               data-service-code="{{ service.code or '' }}"
               data-category="{{ service.category_name or '' }}"
@@ -125,10 +127,10 @@
               data-unit-symbol="{{ service.billing_unit.symbol }}"
               data-quantity-behavior="{{ service.billing_unit.quantity_behavior }}"
               data-decimal-places="{{ service.billing_unit.decimal_places }}"
-            >{{ service.name }}{% if service.code %} · {{ service.code }}{% endif %} · {{ service.current_price_cents|money_cents }} / {{ service.billing_unit.symbol }}</option>
+            >{{ service.name }}{% if service.category_name %} · {{ service.category_name }}{% endif %}{% if service.code %} · {{ service.code }}{% endif %} · {{ service.current_price_cents|money_cents }} / {{ service.billing_unit.symbol }}</option>
           {% endfor %}
         </select>
-        <small class="form-hint" data-note-service-result>{{ available_services|length }} serviço(s) disponível(is).</small>
+        <small class="form-hint" data-note-service-result>{{ available_services|length }} opção(ões) disponível(is), com o preço da categoria.</small>
       </label>
       <button class="button button--primary note-add-service" type="button" data-note-add-service>Adicionar serviço</button>
     </div>
@@ -140,10 +142,12 @@
         <tbody data-note-items>
           {% for item in form.get('items', []) %}
             {% set persisted_item = (note.items|selectattr('id', 'equalto', item.item_id|int)|list|first) if editing and item.item_id else none %}
-            {% set catalog_service = (available_services|selectattr('id', 'equalto', item.service_id|int)|list|first) if item.service_id else none %}
+            {% set catalog_choices = (available_services|selectattr('id', 'equalto', item.service_id|int)|list) if item.service_id else [] %}
+            {% set catalog_service = (catalog_choices|selectattr('category_id', 'equalto', item.category_id|int)|list|first) if item.category_id else (catalog_choices|first if catalog_choices|length == 1 else none) %}
             {% set item_error = item_errors[loop.index0] if item_errors and loop.index0 < item_errors|length else {} %}
             {% set display_name = persisted_item.service_name_snapshot if persisted_item else (catalog_service.name if catalog_service else 'Serviço não encontrado') %}
             {% set display_code = persisted_item.service_code_snapshot if persisted_item else (catalog_service.code if catalog_service else '') %}
+            {% set display_category = persisted_item.service_category_name_snapshot if persisted_item else (catalog_service.category_name if catalog_service else '') %}
             {% set unit_name = persisted_item.billing_unit_name_snapshot if persisted_item else (catalog_service.billing_unit.name if catalog_service else 'Unidade indisponível') %}
             {% set unit_symbol = persisted_item.billing_unit_symbol_snapshot if persisted_item else (catalog_service.billing_unit.symbol if catalog_service else '—') %}
             {% set quantity_behavior = persisted_item.quantity_behavior_snapshot if persisted_item else (catalog_service.billing_unit.quantity_behavior if catalog_service else 'DECIMAL') %}
@@ -152,6 +156,7 @@
             <tr
               data-note-item
               data-service-id="{{ item.service_id }}"
+              data-category-id="{{ item.category_id or '' }}"
               data-price-cents="{{ price_cents }}"
               data-quantity-behavior="{{ quantity_behavior }}"
               data-decimal-places="{{ decimal_places }}"
@@ -159,8 +164,10 @@
               <td>
                 <input type="hidden" name="item_id" value="{{ item.item_id or '' }}">
                 <input type="hidden" name="service_id" value="{{ item.service_id or '' }}">
-                <strong>{{ display_name }}</strong><small>{{ display_code or 'Sem código' }}{% if persisted_item %} · snapshot da Nota{% endif %}</small>
+                <input type="hidden" name="category_id" value="{{ item.category_id or '' }}">
+                <strong>{{ display_name }}</strong><small>{{ display_code or 'Sem código' }}{% if display_category %} · {{ display_category }}{% endif %}{% if persisted_item %} · snapshot da Nota{% endif %}</small>
                 {% if item_error.get('service_id') %}<small class="field-error">{{ item_error.get('service_id') }}</small>{% endif %}
+                {% if item_error.get('category_id') %}<small class="field-error">{{ item_error.get('category_id') }}</small>{% endif %}
               </td>
               <td><strong>{{ unit_symbol }}</strong><small>{{ unit_name }}</small></td>
               <td>

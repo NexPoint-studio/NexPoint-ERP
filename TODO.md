@@ -1,22 +1,19 @@
-## A Fazer
+﻿## A Fazer
 
-- [ ] Concluir recuperacao vinculada a empresa e instalacao, sem conta operacional {weight:8} {sector:SETOR_SEGURANCA}
-- [ ] Concluir transferencia generica de tenant com backup e handoff idempotente; inventariar notebook real antes de alteracao {weight:18} {sector:SETOR_BANCO_DADOS}
-- [ ] Validar updater com abertura direta e preservacao de dados em Windows QA limpo {weight:12} {sector:SETOR_QA_TESTES}
-- [ ] Atualizar manuais e preparar instalacao/entrega oficial em Entrega/NilLavLavanderia {weight:8} {sector:SETOR_COORDENACAO}
-- [ ] Executar regressao completa, RLS, Edge, scans de codigo/build/instalador/entrega e revisar Git {weight:12} {sector:SETOR_QA_TESTES}
-- [ ] Aplicar PROD somente apos Windows QA, backups, migrations, RLS e rollback validados; verificar Nil lav sem duplicacoes {weight:10} {sector:SETOR_COORDENACAO}
+- [ ] Fase 2: suporte ERP/Control Center e Nexa contextual {weight:18} {sector:SETOR_BACKEND}
+- [ ] Fase 3: updater existente e recuperação {weight:14} {sector:SETOR_BACKEND}
+- [ ] Fase 4: segurança, integridade, restore e promoção {weight:18} {sector:SETOR_SEGURANCA}
+- [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; deploy exige autorização {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
 
-- [ ] Simplificar acesso e identidade empresarial preservando historico e isolamento {sector:SETOR_COORDENACAO}
-  - [x] Auditar autenticacao, papeis, Admin Lock, empresa, ativacao, sync e updater; classificar legado e infraestrutura {weight:5} {sector:SETOR_COORDENACAO}
-  - [ ] Abrir ERP diretamente com ator tecnico nao autenticavel, remover rotas/menus de contas e preservar protecao administrativa {weight:10} {sector:SETOR_BACKEND}
-  - [ ] Separar modulos operacionais do Admin Lock e adaptar manutencao, Nexa e recovery {weight:8} {sector:SETOR_SEGURANCA}
-  - [ ] Persistir empresa e Outbox atomicamente; refletir nome exibido e sincronizar metadados sem trocar IDs {weight:12} {sector:SETOR_BANCO_DADOS}
-  - [ ] Implementar ativacao por codigo aleatorio, expiravel, revogavel e one-time com DPAPI e emissao no Control Center {weight:15} {sector:SETOR_SEGURANCA}
-  - [ ] Validar abertura direta, ausencia de RBAC operacional, CSRF, bloqueio, expiracao, rename/offline e ativacao {weight:10} {sector:SETOR_QA_TESTES}
-
 ## Concluídas
 
-- [x] Preservar trabalho anterior de Administracao, updater e plano de reassociacao; evidencias anteriores em Docs/ADMIN_TENANT_UPDATER.md {weight:2} {sector:SETOR_COORDENACAO}
+- [x] Fase 1 pós-piloto: catálogo e recebimentos {sector:SETOR_COORDENACAO}
+  - [x] Auditar arquitetura, Git e identidade remota somente leitura {weight:4} {sector:SETOR_COORDENACAO}
+  - [x] Catálogo M:N e preços específicos preservando snapshots {weight:8} {sector:SETOR_BANCO_DADOS}
+  - [x] Taxas, acréscimo cliente e ajustes auditados {weight:8} {sector:SETOR_BACKEND}
+  - [x] Visual, fluxo e responsividade das telas e navegação {weight:5} {sector:SETOR_INTERFACE_UX}
+  - [x] Migrations, regressões, integridade, backup/restore e scans; 1290 casos validados com reexecução dos 7 corrigidos {weight:7} {sector:SETOR_QA_TESTES}
+
+- [x] Baseline 8a38978 preservada em bundle verificado em artifacts/post-pilot-20261014 {weight:1} {sector:SETOR_COORDENACAO}

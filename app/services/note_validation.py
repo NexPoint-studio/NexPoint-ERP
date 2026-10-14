@@ -25,14 +25,14 @@ from app.core.note_config import (
 
 _INT64_MAX = 2**63 - 1
 _ITEM_INDEX_PATTERNS = (
-    re.compile(r"^items\[(\d+)]\[(item_id|service_id|quantity)]$"),
-    re.compile(r"^items\[(\d+)]\.(item_id|service_id|quantity)$"),
+    re.compile(r"^items\[(\d+)]\[(item_id|service_id|category_id|quantity)]$"),
+    re.compile(r"^items\[(\d+)]\.(item_id|service_id|category_id|quantity)$"),
 )
 _ALLOWED_FORM_FIELDS = {
     "number", "series", "customer_id", "received_at", "expected_ready_at",
     "notes", "delivery_enabled", "delivery_amount", "discount_type",
     "discount_input", "item_id", "item_id[]", "service_id", "service_id[]",
-    "quantity", "quantity[]", "revision", "submit", "receivable_ids",
+    "category_id", "category_id[]", "quantity", "quantity[]", "revision", "submit", "receivable_ids",
     "initial_payment_enabled", "initial_payment_request_uid",
     "initial_payment_amount", "initial_payment_method_id",
     "initial_payment_terminal_id", "initial_payment_card_mode",
@@ -221,6 +221,7 @@ def _raw_item_rows(form: Any) -> tuple[list[dict[str, str]], str | None]:
     flat = {
         "item_id": _form_list(form, ("item_id", "item_id[]")),
         "service_id": _form_list(form, ("service_id", "service_id[]")),
+        "category_id": _form_list(form, ("category_id", "category_id[]")),
         "quantity": _form_list(form, ("quantity", "quantity[]")),
     }
     has_flat = any(flat.values())
@@ -253,10 +254,14 @@ def _raw_item_rows(form: Any) -> tuple[list[dict[str, str]], str | None]:
         return [], "Os campos dos itens estão incompletos ou desalinhados."
     if flat["item_id"] and len(flat["item_id"]) != row_count:
         return [], "Os identificadores dos itens estão desalinhados."
+    if flat["category_id"] and len(flat["category_id"]) != row_count:
+        return [], "As categorias dos itens estão desalinhadas."
+    if not flat["category_id"]:
+        flat["category_id"] = [""] * row_count
     if not flat["item_id"]:
         flat["item_id"] = [""] * row_count
     return [
-        {field_name: flat[field_name][index] for field_name in ("item_id", "service_id", "quantity")}
+        {field_name: flat[field_name][index] for field_name in ("item_id", "service_id", "category_id", "quantity")}
         for index in range(row_count)
     ], None
 
@@ -267,6 +272,7 @@ class NoteItemInput:
     service_id: int | None
     quantity_text: str
     errors: dict[str, str] = field(default_factory=dict)
+    category_id: int | None = None
 
     @classmethod
     def from_row(cls, row: dict[str, str]) -> "NoteItemInput":
@@ -281,15 +287,21 @@ class NoteItemInput:
         except ValueError as exc:
             service_id = None
             errors["service_id"] = str(exc)
+        try:
+            category_id = _parse_id(row.get("category_id"), "Selecione uma categoria válida.", optional=True)
+        except ValueError as exc:
+            category_id = None
+            errors["category_id"] = str(exc)
         quantity_text = str(row.get("quantity") or "").strip()
         if not quantity_text:
             errors["quantity"] = "Informe a quantidade."
-        return cls(item_id, service_id, quantity_text, errors)
+        return cls(item_id, service_id, quantity_text, errors, category_id)
 
     def as_form(self) -> dict[str, str]:
         return {
             "item_id": str(self.item_id or ""),
             "service_id": str(self.service_id or ""),
+            "category_id": str(self.category_id or ""),
             "quantity": self.quantity_text,
         }
 

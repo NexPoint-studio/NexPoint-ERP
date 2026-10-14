@@ -12,7 +12,7 @@ from app.models.receivables import (
     ReceivablePayment,
 )
 from app.models.remember_sessions import RememberSession
-from app.models.services import BillingUnit, Service, ServiceCategory, ServicePrice
+from app.models.services import BillingUnit, Service, ServiceCategory, ServiceCategoryLink, ServicePrice
 from app.models.support import SupportGrant
 from app.models.sync import DiagnosticEventRecord, NonceReceipt, OutboxItem
 
@@ -22,7 +22,7 @@ __all__ = [
     "AdminRecoveryCode",
     "CashCategory", "CashMovement", "CashPaymentMethod",
     "Customer", "CustomerActivity", "CustomerAddress",
-    "BillingUnit", "Service", "ServiceCategory", "ServicePrice",
+    "BillingUnit", "Service", "ServiceCategory", "ServiceCategoryLink", "ServicePrice",
     "ServiceNote", "ServiceNoteItem", "ServiceNoteEvent",
     "Payment", "PaymentFeeRule", "PaymentTerminal",
     "NoteClosure", "CustomerReceivable", "NoteReceivableLink",

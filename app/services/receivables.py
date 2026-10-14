@@ -135,6 +135,22 @@ class ReceivableService:
         if normalized_paid_at < source_received_at:
             raise ReceivableError("A data do pagamento não pode anteceder o recebimento da Nota de origem.")
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+        # Share the confirmed-payment calculation; the cash entry and audit keep
+        # immutable applied values even after the configuration changes.
+        from app.repositories.payments import PaymentRepository
+        from app.services.payments import PaymentService, PaymentStateError
+
+        rule = PaymentRepository(self.session).resolve_fee_rule(
+            payment_method_id=method.id, terminal_id=None, card_mode=None,
+            installments=None, paid_at=normalized_paid_at,
+        )
+        percentage = rule.fee_percentage_scaled if rule else 0
+        fixed = rule.fixed_fee_cents if rule else 0
+        try:
+            fee_cents = PaymentService._fee_amount(amount_cents, percentage, fixed)
+        except PaymentStateError as exc:
+            raise ReceivableError(str(exc)) from exc
+        net_cents = amount_cents - fee_cents
         payment = ReceivablePayment(request_uid=request_uid, receivable_id=receivable.id,
             payment_method_id=method.id, method_name_snapshot=method.name, amount_cents=amount_cents,
             paid_at=normalized_paid_at, created_by=actor_id, created_at=now)
@@ -145,7 +161,7 @@ class ReceivableService:
         self.refresh_source_note_status(receivable, actor_id, now)
         movement = CashMovement(movement_type="ENTRY", description="Pagamento de saldo devedor",
             category_id=None, payment_method_id=method.id, gross_amount=cents_to_decimal(amount_cents),
-            fee_amount=cents_to_decimal(0), net_amount=cents_to_decimal(amount_cents), occurred_at=normalized_paid_at,
+            fee_amount=cents_to_decimal(fee_cents), net_amount=cents_to_decimal(net_cents), occurred_at=normalized_paid_at,
             notes=None, status="ACTIVE", origin="SYSTEM", source_reference=f"Débito #{receivable.id}",
             source_type="RECEIVABLE_PAYMENT", source_id=str(payment.id), created_at=now, updated_at=now,
             created_by=actor_id, updated_by=actor_id)
@@ -156,11 +172,14 @@ class ReceivableService:
             decimal_to_cents(movement.gross_amount),
             decimal_to_cents(movement.fee_amount),
             decimal_to_cents(movement.net_amount),
-        ) != (amount_cents, 0, amount_cents):
+        ) != (amount_cents, fee_cents, net_cents):
             raise ReceivableError("O Caixa não preservou os centavos do recebimento.")
         self.session.add(AuditEvent(user_id=actor_id, action="receivable.payment_received",
             resource=f"customer_receivables/{receivable.id}",
-            details=json.dumps({"payment_id": payment.id, "amount_cents": amount_cents})))
+            details=json.dumps({"payment_id": payment.id, "amount_cents": amount_cents,
+                "fee_rule_id": rule.id if rule else None,
+                "fee_percentage_scaled": percentage, "fixed_fee_cents": fixed,
+                "fee_amount_cents": fee_cents, "net_amount_cents": net_cents})))
         self.session.commit()
         emit_observability_event(
             module="receivable", component="receivable_service",

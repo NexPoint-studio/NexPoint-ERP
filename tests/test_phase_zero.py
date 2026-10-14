@@ -96,6 +96,7 @@ def test_sqlite_contains_infrastructure_and_domain_tables(app):
         "customer_activities", "customer_addresses", "customers",
         "feature_flags", "permissions", "role_permissions", "roles",
         "schema_migrations", "service_categories", "service_prices", "services",
+        "service_category_links",
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "settings", "user_roles", "users",
         "payments", "payment_terminals", "payment_fee_rules", "support_grants",

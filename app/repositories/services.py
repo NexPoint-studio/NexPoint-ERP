@@ -7,14 +7,14 @@ from decimal import Decimal
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import BillingUnit, Service, ServiceCategory, ServicePrice, User
+from app.models import BillingUnit, Service, ServiceCategory, ServiceCategoryLink, ServicePrice, User
 
 
 @dataclass(frozen=True, slots=True)
 class ServiceListItem:
     service: Service
-    current_price: Decimal
-    price_changed_at: datetime
+    current_price: Decimal | None
+    price_changed_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +46,9 @@ class ServiceCategoryRepository:
 
     def list_with_counts(self) -> list[CategoryListItem]:
         rows = self.session.execute(
-            select(ServiceCategory, func.count(Service.id)).outerjoin(Service).group_by(ServiceCategory.id)
+            select(ServiceCategory, func.count(ServiceCategoryLink.service_id)).outerjoin(
+                ServiceCategoryLink, ServiceCategoryLink.category_id == ServiceCategory.id
+            ).group_by(ServiceCategory.id)
             .order_by(ServiceCategory.sort_order, ServiceCategory.name)
         ).all()
         return [CategoryListItem(row[0], int(row[1])) for row in rows]
@@ -94,14 +96,17 @@ class ServiceRepository:
         if term:
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             like = f"%{escaped}%"
-            query = query.outerjoin(ServiceCategory).where(or_(
+            category_match = Service.category_links.any(ServiceCategoryLink.category.has(
+                func.casefold(ServiceCategory.name).like(like, escape="\\")
+            ))
+            query = query.where(or_(
                 func.casefold(Service.name).like(like, escape="\\"), func.casefold(func.coalesce(Service.code, "")).like(like, escape="\\"),
-                func.casefold(func.coalesce(Service.description, "")).like(like, escape="\\"), func.casefold(func.coalesce(ServiceCategory.name, "")).like(like, escape="\\"),
+                func.casefold(func.coalesce(Service.description, "")).like(like, escape="\\"), category_match,
             ))
         if category == "NONE":
-            query = query.where(Service.category_id.is_(None))
+            query = query.where(~Service.category_links.any(), Service.category_id.is_(None))
         elif category.isascii() and category.isdecimal() and len(category) < 19:
-            query = query.where(Service.category_id == int(category))
+            query = query.where(Service.category_links.any(ServiceCategoryLink.category_id == int(category)))
         if billing_unit != "ALL":
             query = query.join(BillingUnit, BillingUnit.id == Service.billing_unit_id).where(
                 BillingUnit.code == billing_unit

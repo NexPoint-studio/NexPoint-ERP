@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
@@ -19,6 +21,15 @@ router = APIRouter(prefix="/servicos")
 admin_router = APIRouter(
     prefix="/admin/servicos", dependencies=[Depends(require_admin_unlock)]
 )
+
+
+async def _service_form(request: Request):
+    form = await request.form()
+    raw = {key: str(value) for key, value in form.items()}
+    # Presence marker lets an edit intentionally clear every checkbox.
+    if "categories_present" in form or "category_ids" in form:
+        raw["category_ids"] = [str(value) for value in form.getlist("category_ids")]
+    return raw
 
 
 def _context(request: Request, session, tab_id: str, **extra):
@@ -77,7 +88,7 @@ def new_service(request: Request):
 @router.post("/novo", dependencies=[Depends(require_admin_unlock)])
 async def create_service(request: Request):
     user = require_permission(request, "admin.services.create")
-    raw = {key: str(value) for key, value in (await request.form()).items()}
+    raw = await _service_form(request)
     data = ServiceInput.from_form(raw, require_price=True)
     with request.app.state.session_factory() as session:
         service = CatalogService(session)
@@ -230,7 +241,9 @@ def edit_service(request: Request, service_id: int):
         item = service.repository.get(service_id)
         if item is None:
             _not_found()
-        form = {"name": item.name, "code": item.code or "", "description": item.description or "", "category_id": str(item.category_id or ""), "billing_unit": item.billing_unit.code, "is_active": "1" if item.is_active else "0"}
+        form = {"name": item.name, "code": item.code or "", "description": item.description or "", "category_id": str(item.category_id or ""), "billing_unit": item.billing_unit.code, "is_active": "1" if item.is_active else "0",
+                "category_ids": [str(link.category_id) for link in item.category_links],
+                **{f"category_price_{link.category_id}": str(Decimal(link.price_cents) / 100) if link.price_cents is not None else "" for link in item.category_links}}
         billing_units = service.billing_units.all(active_only=True)
         if not item.billing_unit.is_active:
             billing_units.append(item.billing_unit)
@@ -245,7 +258,7 @@ def edit_service(request: Request, service_id: int):
 @router.post("/{service_id}/editar", dependencies=[Depends(require_admin_unlock)])
 async def update_service(request: Request, service_id: int):
     user = require_permission(request, "admin.services.edit")
-    raw = {key: str(value) for key, value in (await request.form()).items()}
+    raw = await _service_form(request)
     data = ServiceInput.from_form(raw, require_price=False)
     with request.app.state.session_factory() as session:
         service = CatalogService(session)

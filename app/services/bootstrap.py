@@ -177,7 +177,7 @@ def initialize_database(
         raise ValueError("A identidade persistente do ERP deve ser hexadecimal.")
     domain_tables = {
         "customers", "customer_addresses", "customer_activities",
-        "service_categories", "services", "service_prices",
+        "service_categories", "services", "service_prices", "service_category_links",
         "billing_units", "service_notes", "service_note_items", "service_note_events",
         "cash_categories", "cash_payment_methods", "cash_movements",
         "payment_terminals", "payment_fee_rules", "payments",

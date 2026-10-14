@@ -11,16 +11,17 @@
   <article class="metric-card"><span class="metric-card__label">Financeiro</span><strong class="metric-card__value note-metric-text">{{ financial_status_labels.get(note.financial_status, note.financial_status) }}</strong></article>
   <article class="metric-card metric-card--positive"><span class="metric-card__label">Total a cobrar</span><strong class="metric-card__value">{{ total_collectible_cents|money_cents }}</strong><small>Nota atual: {{ outstanding_cents|money_cents }} · saldo anterior: {{ linked_outstanding_cents|money_cents }}</small></article>
 </section>
-<form method="post" class="customer-form" data-payment-form>
+<form method="post" class="customer-form" data-payment-form data-payment-preview-url="/servicos/notas/{{ note.id }}/pagamento/previa">
   <input type="hidden" name="request_uid" value="{{ form.request_uid }}">
   <input type="hidden" name="revision" value="{{ form.revision }}">
   <input type="hidden" name="deliver" value="{{ '1' if deliver else '0' }}">
   <section class="panel form-section">
     <div class="section-heading"><div><span class="section-kicker">Recebimento confirmado</span><h2>Forma de pagamento</h2><p>Boleto nesta tela significa que o valor já foi recebido.</p></div></div>
     <div class="form-grid">
-      <label class="field">Valor recebido *
+      <label class="field">Valor aplicado ao saldo *
         <input name="amount" inputmode="decimal" required value="{{ form.amount or (total_collectible_cents|money_cents)|replace('R$', '')|trim }}" {% if deliver %}readonly{% endif %}>
         {% if errors.amount %}<small class="field-error">{{ errors.amount }}</small>{% endif %}
+        <small class="form-hint">Informe quanto será quitado da Nota e dos saldos anteriores. Um acréscimo ao cliente, se houver, é informado abaixo.</small>
       </label>
       <label class="field">Forma de pagamento *
         <select name="payment_method_id" required data-payment-method>
@@ -44,8 +45,32 @@
       <p class="panel-note">A taxa é escolhida e calculada pelo servidor conforme terminal, modalidade, parcelas e vigência.</p>
     </div>
     {% if linked_outstanding_cents %}<p class="panel-note">O recebimento quita primeiro os saldos anteriores vinculados, do mais antigo ao mais recente. O restante será aplicado à Nota atual. Cada parcela ficará registrada no histórico.</p>{% endif %}
+    <details {% if errors.customer_surcharge or errors.override_fee_percentage or errors.override_fixed_fee or errors.fee_override_reason or form.fee_override_reason %}open{% endif %}>
+      <summary>Acréscimo ao cliente ou ajuste de taxa neste recebimento</summary>
+      <p class="panel-note">A taxa da operadora é um custo da empresa e não aumenta a dívida do cliente. O bruto recebido é o valor aplicado ao saldo mais o acréscimo combinado com o cliente; o líquido é esse bruto menos o custo da operadora.</p>
+      <div class="form-grid">
+        <label class="field">Acréscimo combinado com o cliente (R$)<input name="customer_surcharge" inputmode="decimal" value="{{ form.customer_surcharge or '0,00' }}"><small class="form-hint">Opcional, somente neste recebimento. Não reduz o saldo principal da Nota.</small>{% if errors.customer_surcharge %}<small class="field-error">{{ errors.customer_surcharge }}</small>{% endif %}</label>
+        <label class="field">Custo da operadora (%)<input name="override_fee_percentage" inputmode="decimal" value="{{ form.override_fee_percentage }}" placeholder="Automático"><small class="form-hint">Deixe percentual e fixo vazios para usar a configuração. Para isentar, informe 0.</small>{% if errors.override_fee_percentage %}<small class="field-error">{{ errors.override_fee_percentage }}</small>{% endif %}</label>
+        <label class="field">Custo fixo da operadora (R$)<input name="override_fixed_fee" inputmode="decimal" value="{{ form.override_fixed_fee }}" placeholder="Automático"><small class="form-hint">Ao preencher um ajuste, o componente deixado vazio será zero.</small>{% if errors.override_fixed_fee %}<small class="field-error">{{ errors.override_fixed_fee }}</small>{% endif %}</label>
+        <label class="field field--wide">Motivo do ajuste da taxa<textarea name="fee_override_reason" maxlength="300" placeholder="Obrigatório ao alterar o custo da operadora">{{ form.fee_override_reason }}</textarea>{% if errors.fee_override_reason %}<small class="field-error">{{ errors.fee_override_reason }}</small>{% endif %}</label>
+      </div>
+    </details>
+    <p class="panel-note">A taxa é aplicada uma vez por recebimento confirmado, sobre o bruto recebido. Pagamentos parciais usam apenas o seu próprio valor; não repetem a taxa sobre o total da Nota.</p>
+  </section>
+  <section class="panel form-section" aria-label="Prévia do recebimento">
+    <h2>Confira o recebimento</h2>
+    <p data-payment-preview-status role="status" aria-live="polite">Selecione a forma de pagamento para calcular os valores.</p>
+    <dl class="form-grid" data-payment-preview hidden>
+      <div><dt>Aplicado ao saldo</dt><dd data-quote="principal"></dd></div>
+      <div><dt>Acréscimo ao cliente</dt><dd data-quote="surcharge"></dd></div>
+      <div><dt>Bruto recebido</dt><dd data-quote="gross"></dd></div>
+      <div><dt>Custo da operadora</dt><dd data-quote="fee"></dd></div>
+      <div><dt>Líquido no Caixa</dt><dd data-quote="net"></dd></div>
+    </dl>
+    <small class="form-hint">Os valores são recalculados ao confirmar. A configuração da taxa fica preservada no histórico.</small>
   </section>
   {% if deliver %}<div class="alert alert--warning"><strong>Operação única.</strong> A Nota será entregue e paga na mesma transação. Se qualquer etapa falhar, nenhuma alteração será salva.</div>{% endif %}
   <div class="form-actions form-actions--sticky"><a class="button button--secondary" href="/servicos/notas/{{ note.id }}">Cancelar</a><button class="button button--primary" type="submit">{{ 'Confirmar entrega e recebimento' if deliver else 'Confirmar pagamento' }}</button></div>
 </form>
+<script defer src="{{ url_for('static', path='/js/payment-preview.js') }}"></script>
 {% endblock %}

@@ -737,6 +737,33 @@ FUNCTIONAL_UX_RECOVERY_0014_STATEMENTS = (
 )
 
 
+CATALOG_ASSOCIATIONS_0017_STATEMENTS = (
+    """CREATE TABLE service_category_links (
+        service_id INTEGER NOT NULL,
+        category_id INTEGER NOT NULL,
+        price_cents INTEGER,
+        PRIMARY KEY (service_id, category_id),
+        CONSTRAINT ck_service_category_links_price CHECK (
+            price_cents is null or (typeof(price_cents) = 'integer'
+                and price_cents between 1 and 999999999999)),
+        FOREIGN KEY(service_id) REFERENCES services(id) ON DELETE RESTRICT,
+        FOREIGN KEY(category_id) REFERENCES service_categories(id) ON DELETE RESTRICT
+    )""",
+    "CREATE INDEX ix_service_category_links_category ON service_category_links(category_id)",
+    "INSERT INTO service_category_links(service_id, category_id) "
+    "SELECT id, category_id FROM services WHERE category_id IS NOT NULL",
+    "ALTER TABLE service_note_items ADD COLUMN service_category_id INTEGER",
+)
+
+
+PAYMENT_SURCHARGE_0018_STATEMENTS = (
+    "ALTER TABLE payments ADD COLUMN customer_surcharge_cents INTEGER NOT NULL DEFAULT 0 "
+    "CONSTRAINT ck_payments_customer_surcharge CHECK ("
+    "typeof(customer_surcharge_cents) = 'integer' and customer_surcharge_cents >= 0 "
+    "and customer_surcharge_cents < gross_amount_cents)",
+)
+
+
 # Sessão persistente opcional para o login normal. O token nunca é armazenado:
 # somente o SHA-256 de um segredo aleatório de alta entropia fica no SQLite.
 # A tabela de códigos de recuperação permanece apenas por compatibilidade; a

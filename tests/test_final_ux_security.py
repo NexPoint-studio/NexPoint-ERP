@@ -18,6 +18,11 @@ def test_0015_migration_preserves_rows_and_revokes_legacy_recovery_codes(tmp_pat
         before_users = int(connection.exec_driver_sql("select count(*) from users").scalar_one())
         connection.exec_driver_sql("delete from schema_migrations where version>=?", ("0015_remember_sessions",))
         connection.exec_driver_sql("drop table remember_sessions")
+        # Restore the historical schema as well as its ledger. Leaving future
+        # objects in place would not represent a real installation on 0014.
+        connection.exec_driver_sql("drop table service_category_links")
+        connection.exec_driver_sql("alter table service_note_items drop column service_category_id")
+        connection.exec_driver_sql("alter table payments drop column customer_surcharge_cents")
         connection.exec_driver_sql(
             "insert into admin_recovery_codes "
             "(batch_uid,code_hash,status,created_at,created_by,used_at,used_by,invalidated_at) "

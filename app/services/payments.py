@@ -107,7 +107,7 @@ class PaymentService:
 
     @staticmethod
     def _fingerprint(note_id: int, data: PaymentInput, deliver: bool, amount_cents: int) -> dict[str, object]:
-        return {
+        fingerprint = {
             "service_note_id": note_id,
             "payment_method_id": data.payment_method_id,
             "terminal_id": data.terminal_id,
@@ -119,6 +119,33 @@ class PaymentService:
             "amount_cents": amount_cents,
             "has_notes": bool(data.notes),
         }
+        # Keep legacy fingerprints identical when the automatic rate is used.
+        if data.override_fee_percentage_scaled is not None:
+            fingerprint["fee_override"] = {
+                "percentage_scaled": data.override_fee_percentage_scaled,
+                "fixed_cents": data.override_fixed_fee_cents,
+                "reason": data.fee_override_reason,
+            }
+        if data.customer_surcharge_cents:
+            fingerprint["customer_surcharge_cents"] = data.customer_surcharge_cents
+        return fingerprint
+
+    @staticmethod
+    def _validate_fee_override(data: PaymentInput) -> None:
+        values = (data.override_fee_percentage_scaled, data.override_fixed_fee_cents)
+        if all(value is None for value in values) and data.fee_override_reason is None:
+            return
+        if (
+            any(not isinstance(value, int) or isinstance(value, bool) for value in values)
+            or not 0 <= data.override_fee_percentage_scaled <= 1_000_000
+            or not 0 <= data.override_fixed_fee_cents <= MAX_CASH_CENTS
+            or not isinstance(data.fee_override_reason, str)
+            or not 5 <= len(data.fee_override_reason.strip()) <= 300
+        ):
+            raise PaymentValidationError(
+                "Revise o ajuste da taxa.",
+                errors={"fee_override_reason": "Informe uma taxa válida e um motivo de 5 a 300 caracteres."},
+            )
 
     def _existing_result(
         self,
@@ -188,7 +215,7 @@ class PaymentService:
             total = int(proportional) + int(fixed_cents)
         if total < 0 or total > gross_cents:
             raise PaymentStateError(
-                "A taxa configurada supera o valor integral da Nota. Revise a regra de taxa."
+                "O custo da operadora supera o valor deste recebimento. Revise a taxa."
             )
         return total
 
@@ -203,6 +230,46 @@ class PaymentService:
             raise PaymentConsistencyError(
                 "A persistência legada do Caixa não preservou os centavos calculados."
             )
+
+    def preview(self, note_id: int, data: PaymentInput, principal_cents: int) -> dict[str, int]:
+        """Read-only quote; confirmation always resolves and validates again."""
+        if data.errors:
+            raise PaymentValidationError("Revise os dados do pagamento.", errors=data.errors)
+        self._validate_fee_override(data)
+        note = self.repository.note(note_id)
+        if note is None:
+            raise PaymentNoteNotFoundError("Nota não encontrada.")
+        if note.operational_status in {"CANCELADO", "FECHADO"} or data.revision != note.revision:
+            raise PaymentValidationError("Atualize a Nota antes de receber.")
+        debts = ReceivableRepository(self.session)
+        collectible = note.total_cents - self.repository.paid_cents_for_note(note.id) + sum(
+            debt.remaining_amount_cents for link in debts.links(note.id)
+            if (debt := debts.get(link.receivable_id)) is not None
+        )
+        if principal_cents > collectible:
+            raise PaymentValidationError("O valor aplicado supera o saldo da cobrança.")
+        method = self.repository.payment_method(data.payment_method_id)
+        if method is None or not method.is_active:
+            raise PaymentValidationError("Selecione uma forma de pagamento ativa.")
+        self._validate_card_fields(data, method.method_kind)
+        terminal = self.repository.terminal(data.terminal_id)
+        if method.method_kind == "CARD" and (terminal is None or not terminal.is_active):
+            raise PaymentValidationError("Selecione um terminal ativo.")
+        gross = principal_cents + data.customer_surcharge_cents
+        if not 0 < principal_cents <= gross <= MAX_CASH_CENTS:
+            raise PaymentValidationError("O total recebido está fora do limite monetário.")
+        rule = self.repository.resolve_fee_rule(
+            payment_method_id=method.id, terminal_id=data.terminal_id,
+            card_mode=data.card_mode, installments=data.installments,
+            paid_at=_utc_naive(data.paid_at),
+        )
+        percentage = rule.fee_percentage_scaled if rule else 0
+        fixed = rule.fixed_fee_cents if rule else 0
+        if data.override_fee_percentage_scaled is not None:
+            percentage, fixed = data.override_fee_percentage_scaled, data.override_fixed_fee_cents
+        fee = self._fee_amount(gross, percentage, fixed)
+        return {"principal": principal_cents, "surcharge": data.customer_surcharge_cents,
+                "gross": gross, "fee": fee, "net": gross - fee}
 
     @atomic_write
     def receive(
@@ -231,6 +298,11 @@ class PaymentService:
             require_active_actor_permission(self.session, actor_id, "notes.change_status")
         if data.errors:
             raise PaymentValidationError("Revise os dados do pagamento.", errors=data.errors)
+        self._validate_fee_override(data)
+        if (not isinstance(data.customer_surcharge_cents, int)
+                or isinstance(data.customer_surcharge_cents, bool)
+                or not 0 <= data.customer_surcharge_cents <= MAX_CASH_CENTS):
+            raise PaymentValidationError("Acréscimo inválido.", errors={"customer_surcharge": "Informe um valor monetário válido."})
         if not isinstance(deliver, bool):
             raise PaymentValidationError("A ação de entrega é inválida.")
         if amount_cents is not None and (not isinstance(amount_cents, int) or isinstance(amount_cents, bool)):
@@ -240,7 +312,7 @@ class PaymentService:
         existing = self.repository.by_request_uid(data.request_uid)
         if existing is not None:
             if requested_amount is None:
-                fingerprint["amount_cents"] = existing.gross_amount_cents
+                fingerprint["amount_cents"] = existing.gross_amount_cents - existing.customer_surcharge_cents
             return self._existing_result(existing, fingerprint, data.notes)
 
         note = self.repository.note(note_id)
@@ -317,8 +389,16 @@ class PaymentService:
         if deliver and gross_cents != total_collectible_cents:
             raise PaymentStateError("Entregar e receber exige a quitação de toda a cobrança.")
         fingerprint["amount_cents"] = gross_cents
+        principal_cents = gross_cents
+        gross_cents += data.customer_surcharge_cents
+        if gross_cents > MAX_CASH_CENTS:
+            raise PaymentValidationError("O total recebido supera o limite do Caixa.", errors={"customer_surcharge": "Reduza o acréscimo."})
         percentage_scaled = fee_rule.fee_percentage_scaled if fee_rule else 0
         fixed_fee_cents = fee_rule.fixed_fee_cents if fee_rule else 0
+        configured_fee = {"percentage_scaled": percentage_scaled, "fixed_cents": fixed_fee_cents}
+        if data.override_fee_percentage_scaled is not None:
+            percentage_scaled = data.override_fee_percentage_scaled
+            fixed_fee_cents = data.override_fixed_fee_cents
         fee_cents = self._fee_amount(gross_cents, percentage_scaled, fixed_fee_cents)
         net_cents = gross_cents - fee_cents
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -337,6 +417,7 @@ class PaymentService:
             card_mode_snapshot=data.card_mode if method.method_kind == "CARD" else None,
             installments=data.installments if method.method_kind == "CARD" else None,
             gross_amount_cents=gross_cents,
+            customer_surcharge_cents=data.customer_surcharge_cents,
             fee_percentage_scaled=percentage_scaled,
             fixed_fee_cents=fixed_fee_cents,
             fee_amount_cents=fee_cents,
@@ -350,7 +431,7 @@ class PaymentService:
         self.session.flush()
         self._checkpoint("after_payment")
 
-        remaining_to_allocate = gross_cents
+        remaining_to_allocate = principal_cents
         allocation_details: list[dict[str, int | None]] = []
         for debt in linked_debts:
             amount = min(remaining_to_allocate, debt.remaining_amount_cents)
@@ -440,6 +521,8 @@ class PaymentService:
             "cash_movement_id": movement.id,
             "method": method.name,
             "gross_amount_cents": gross_cents,
+            "principal_amount_cents": principal_cents,
+            "customer_surcharge_cents": data.customer_surcharge_cents,
             "fee_amount_cents": fee_cents,
             "net_amount_cents": net_cents,
             "allocations": allocation_details,
@@ -452,11 +535,21 @@ class PaymentService:
             "request_fingerprint": fingerprint,
             "cash_movement_id": movement.id,
             "gross_amount_cents": gross_cents,
+            "principal_amount_cents": principal_cents,
+            "customer_surcharge_cents": data.customer_surcharge_cents,
             "fee_amount_cents": fee_cents,
             "net_amount_cents": net_cents,
             "fee_rule_id": fee_rule.id if fee_rule else None,
             "allocations": allocation_details,
         })
+        if data.override_fee_percentage_scaled is not None:
+            self._audit(actor_id, "payment.fee_overridden", f"payments/{payment.id}", {
+                "fee_rule_id": fee_rule.id if fee_rule else None,
+                "configured": configured_fee,
+                "applied": {"percentage_scaled": percentage_scaled, "fixed_cents": fixed_fee_cents},
+                "fee_amount_cents": fee_cents,
+                "reason": data.fee_override_reason,
+            })
         self._audit(actor_id, "cash_movement.system_created", f"cash_movements/{movement.id}", {
             "payment_id": payment.id,
             "service_note_id": note.id,

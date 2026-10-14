@@ -148,7 +148,7 @@ def test_0013_upgrades_historical_rows_and_is_idempotent(tmp_path):
     with engine.connect() as connection:
         assert connection.exec_driver_sql(
             "select count(*) from schema_migrations"
-        ).scalar_one() == 16
+        ).scalar_one() == 18
         assert connection.exec_driver_sql(
             "select 1 from sqlite_master where name = 'uq_payments_confirmed_service_note'"
         ).first() is None

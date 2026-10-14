@@ -240,6 +240,8 @@ class ServiceNoteItem(Base):
     service_name_snapshot: Mapped[str] = mapped_column(String(180))
     service_description_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     service_category_name_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Snapshot identity, deliberately independent of the mutable catalog link.
+    service_category_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     billing_unit_id: Mapped[int] = mapped_column(
         ForeignKey("billing_units.id", ondelete="RESTRICT"), index=True
     )

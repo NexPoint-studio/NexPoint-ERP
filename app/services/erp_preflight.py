@@ -63,13 +63,13 @@ def _local_domain_findings(connection, tables: frozenset[str], now: datetime) ->
         wrong_allocations = _count(connection,
             "SELECT count(*) FROM payments p WHERE p.status = 'CONFIRMED' AND "
             "(SELECT coalesce(sum(a.amount_cents), 0) FROM payment_allocations a "
-            "WHERE a.payment_id = p.id) NOT IN (0, p.gross_amount_cents)")
+            "WHERE a.payment_id = p.id) NOT IN (0, p.gross_amount_cents - p.customer_surcharge_cents)")
         overpaid = _count(connection,
             "SELECT count(*) FROM service_notes n WHERE "
             "(SELECT coalesce(sum(CASE WHEN EXISTS(SELECT 1 FROM payment_allocations a "
             "WHERE a.payment_id = p.id) THEN coalesce((SELECT sum(a.amount_cents) "
             "FROM payment_allocations a WHERE a.payment_id = p.id AND a.receivable_id IS NULL), 0) "
-            "ELSE p.gross_amount_cents END), 0) FROM payments p "
+            "ELSE p.gross_amount_cents - p.customer_surcharge_cents END), 0) FROM payments p "
             "WHERE p.service_note_id = n.id AND p.status = 'CONFIRMED') > n.total_cents")
         findings.extend((
             PreflightFinding("payment_allocations", "FAIL" if wrong_allocations else "PASS",

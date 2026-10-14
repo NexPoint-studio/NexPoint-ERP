@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.modules import MODULE_BY_ID
 from app.core.note_config import FINANCIAL_STATUS_LABELS, OPERATIONAL_STATUS_LABELS
@@ -12,7 +12,7 @@ from app.core.permissions import require_permission
 from app.repositories.payments import PaymentRepository
 from app.repositories.receivables import ReceivableRepository
 from app.observability.context import emit_observability_event
-from app.routes.helpers import navigation_context, runtime_timezone, templates
+from app.routes.helpers import _format_money_cents, navigation_context, runtime_timezone, templates
 from app.core.money import decimal_to_cents
 from app.services.cash_validation import local_now, parse_money
 from app.services.payment_validation import PaymentInput
@@ -30,6 +30,8 @@ router = APIRouter(prefix="/servicos/notas")
 ALLOWED_PAYMENT_FIELDS = frozenset({
     "request_uid", "payment_method_id", "terminal_id", "card_mode",
     "installments", "paid_at", "revision", "deliver", "amount", "notes", "submit",
+    "override_fee_percentage", "override_fixed_fee", "fee_override_reason",
+    "customer_surcharge",
 })
 
 
@@ -242,3 +244,23 @@ async def receive_payment(request: Request, note_id: int):
     return RedirectResponse(
         f"/servicos/notas/{note_id}?payment_saved=1", status_code=303
     )
+
+
+@router.post("/{note_id}/pagamento/previa")
+async def preview_payment(request: Request, note_id: int):
+    require_permission(request, "notes.view")
+    require_permission(request, "payments.receive")
+    form = await request.form()
+    if {str(key) for key in form.keys()} - ALLOWED_PAYMENT_FIELDS:
+        raise HTTPException(status_code=422, detail="Campos não permitidos.")
+    raw = {str(key): str(value) for key, value in form.items()}
+    with request.app.state.session_factory() as session:
+        data = PaymentInput.from_form(raw, runtime_timezone(request, session))
+        try:
+            principal = decimal_to_cents(parse_money(raw.get("amount"), label="valor aplicado ao saldo"))
+            quote = PaymentService(session).preview(note_id, data, principal)
+        except PaymentNoteNotFoundError:
+            _not_found()
+        except (PaymentValidationError, PaymentStateError, ValueError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse({key: _format_money_cents(value) for key, value in quote.items()})

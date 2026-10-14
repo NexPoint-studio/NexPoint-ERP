@@ -106,7 +106,8 @@
     {% if payment_allocations.get(payment.id) %}
       {% for allocation in payment_allocations[payment.id] %}<div><dt>{{ 'Nota atual' if allocation.receivable_id is none else 'Saldo anterior #' ~ allocation.receivable_id }}</dt><dd>{{ allocation.amount_cents|money_cents }}</dd></div>{% endfor %}
     {% else %}<div><dt>Nota atual</dt><dd>{{ payment.gross_amount_cents|money_cents }}</dd></div>{% endif %}
-    <div><dt>Taxa</dt><dd>{{ payment.fee_amount_cents|money_cents }}</dd></div>
+    {% if payment.customer_surcharge_cents %}<div><dt>Aplicado ao saldo</dt><dd>{{ (payment.gross_amount_cents - payment.customer_surcharge_cents)|money_cents }}</dd></div><div><dt>Acréscimo ao cliente</dt><dd>{{ payment.customer_surcharge_cents|money_cents }}</dd></div>{% endif %}
+    <div><dt>Custo da operadora</dt><dd>{{ payment.fee_amount_cents|money_cents }}</dd></div>
     <div><dt>Impacto líquido</dt><dd>{{ payment.net_amount_cents|money_cents }}</dd></div>
     {% if payment_cash.get(payment.id) and current_user.can('finance.overview.view') %}<div><dt>Caixa</dt><dd><a href="/caixa/movimentos/{{ payment_cash[payment.id].id }}">Ver movimento</a></dd></div>{% endif %}
   </dl>{% endfor %}

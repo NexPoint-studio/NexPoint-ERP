@@ -36,6 +36,8 @@ class ServiceInput:
     is_active: bool
     initial_price: Decimal | None = None
     errors: dict[str, str] = field(default_factory=dict)
+    category_ids: tuple[int, ...] = ()
+    category_prices: dict[int, Decimal | None] = field(default_factory=dict)
 
     @classmethod
     def from_form(cls, form: dict[str, str], *, require_price: bool) -> ServiceInput:
@@ -56,16 +58,37 @@ class ServiceInput:
         except ValueError:
             category_id = None
             errors["category_id"] = "Selecione uma categoria válida."
+        # Repeated checkbox values are retained by the route. A legacy single
+        # category remains accepted for older local clients.
+        raw_ids = form.get("category_ids", [category_id] if category_id else [])
+        if not isinstance(raw_ids, (list, tuple)):
+            raw_ids = [raw_ids] if raw_ids else []
+        ids: list[int] = []
+        category_prices: dict[int, Decimal | None] = {}
+        if len(raw_ids) > 200:
+            errors["category_id"] = "Selecione até 200 categorias."
+        for raw_id in raw_ids[:200]:
+            try:
+                cid = int(raw_id)
+                if not 1 <= cid < 2**63 or cid in ids:
+                    raise ValueError()
+                ids.append(cid)
+                raw_price = form.get(f"category_price_{cid}", "")
+                category_prices[cid] = parse_money(raw_price) if str(raw_price).strip() else None
+            except (ValueError, TypeError):
+                errors["category_id"] = "Confira as categorias e seus preços; não repita associações."
         price = None
-        if require_price:
+        if require_price and str(form.get("initial_price", "")).strip():
             try:
                 price = parse_money(form.get("initial_price"))
             except ValueError as exc:
                 errors["initial_price"] = str(exc)
+        if require_price and price is None and (not ids or any(category_prices.get(cid) is None for cid in ids)):
+            errors.setdefault("initial_price", "Informe um preço padrão válido ou um preço para cada categoria.")
         return cls(
             name=name, code=code, description=clean_optional(form.get("description"), max_length=3000),
-            category_id=category_id, billing_unit=billing_unit, is_active=form.get("is_active") == "1",
-            initial_price=price, errors=errors,
+            category_id=ids[0] if ids else None, billing_unit=billing_unit, is_active=form.get("is_active") == "1",
+            initial_price=price, errors=errors, category_ids=tuple(ids), category_prices=category_prices,
         )
 
     def as_form(self) -> dict[str, str]:
@@ -74,6 +97,9 @@ class ServiceInput:
             "category_id": str(self.category_id or ""), "billing_unit": self.billing_unit,
             "is_active": "1" if self.is_active else "0",
             "initial_price": str(self.initial_price or ""),
+            "category_ids": [str(cid) for cid in self.category_ids],
+            **{f"category_price_{cid}": str(amount) if amount is not None else ""
+               for cid, amount in self.category_prices.items()},
         }
 
 

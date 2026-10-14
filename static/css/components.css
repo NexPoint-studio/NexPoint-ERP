@@ -68,6 +68,12 @@ tbody tr:last-child td { border-bottom: 0; }
 .empty-state p { margin: 4px 0 0; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 22px; background: rgba(25, 25, 25, .38); backdrop-filter: blur(3px); }
 .modal-backdrop[hidden] { display: none; }
+[data-payment-preview][hidden] { display: none; }
+[data-payment-preview] { margin: 20px 0; gap: 12px; }
+[data-payment-preview] > div { min-width: 0; padding: 16px; border: 1px solid #e1e5e9; border-radius: 12px; background: #f8fafb; }
+[data-payment-preview] dt { color: #59636d; font-size: 13px; }
+[data-payment-preview] dd { margin: 8px 0 0; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+[data-payment-preview] > div:last-child { border-color: #b8d9c9; background: #eef7f2; }
 .modal { width: min(100%, 560px); max-height: calc(100vh - 44px); overflow: auto; padding: 26px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); box-shadow: 0 28px 80px rgba(0, 0, 0, .2); }
 .modal__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .modal__header h2 { margin: 0; color: var(--color-primary-dark); font-size: 22px; }

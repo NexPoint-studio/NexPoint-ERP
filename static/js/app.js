@@ -660,15 +660,17 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
       return;
     }
     const alreadyAdded = [...itemsBody.querySelectorAll('[data-note-item]')]
-      .some((row) => row.dataset.serviceId === option.value);
+      .some((row) => row.dataset.serviceId === option.dataset.serviceId
+        && row.dataset.categoryId === (option.dataset.categoryId || ''));
     if (alreadyAdded) {
-      showPickerMessage('Este serviço já foi adicionado. Ajuste a quantidade no item existente.');
+      showPickerMessage('Esta combinação já foi adicionada. Ajuste a quantidade no item existente.');
       return;
     }
 
     const row = document.createElement('tr');
     row.dataset.noteItem = '';
-    row.dataset.serviceId = option.value;
+    row.dataset.serviceId = option.dataset.serviceId;
+    row.dataset.categoryId = option.dataset.categoryId || '';
     row.dataset.priceCents = option.dataset.priceCents || '0';
     row.dataset.quantityBehavior = option.dataset.quantityBehavior || 'DECIMAL';
     row.dataset.decimalPlaces = option.dataset.decimalPlaces || '0';
@@ -681,8 +683,12 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
     const serviceId = document.createElement('input');
     serviceId.type = 'hidden';
     serviceId.name = 'service_id';
-    serviceId.value = option.value;
-    serviceCell.append(itemId, serviceId);
+    serviceId.value = option.dataset.serviceId;
+    const categoryId = document.createElement('input');
+    categoryId.type = 'hidden';
+    categoryId.name = 'category_id';
+    categoryId.value = option.dataset.categoryId || '';
+    serviceCell.append(itemId, serviceId, categoryId);
     appendText(serviceCell, 'strong', option.dataset.serviceName || option.textContent.trim());
     appendText(serviceCell, 'small', `${option.dataset.serviceCode || 'Sem código'}${option.dataset.category ? ` · ${option.dataset.category}` : ''}`);
     row.append(serviceCell);
@@ -755,7 +761,7 @@ document.querySelectorAll('[data-note-form]').forEach((form) => {
       if (matches) visible += 1;
     });
     if (servicePicker?.selectedOptions[0]?.disabled) servicePicker.value = '';
-    if (serviceResult) serviceResult.textContent = `${visible} serviço(s) encontrado(s).`;
+    if (serviceResult) serviceResult.textContent = `${visible} opção(ões) encontrada(s).`;
   };
 
   const refreshDelivery = () => {

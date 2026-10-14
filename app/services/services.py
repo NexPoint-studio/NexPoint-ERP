@@ -12,7 +12,8 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from app.services.transactions import atomic_write
 
-from app.models import AuditEvent, BillingUnit, Service, ServiceCategory, ServicePrice
+from app.models import AuditEvent, BillingUnit, Service, ServiceCategory, ServiceCategoryLink, ServicePrice
+from app.core.money import decimal_to_cents
 from app.repositories import BillingUnitRepository, ServiceCategoryRepository, ServicePriceRepository, ServiceRepository
 from app.repositories.services import CategoryListItem, ServiceListItem
 from app.services.service_validation import CategoryInput, ServiceInput, parse_money
@@ -61,7 +62,7 @@ class ServiceListResult:
 @dataclass(frozen=True, slots=True)
 class ServiceProfile:
     service: Service
-    current_price: ServicePrice
+    current_price: ServicePrice | None
     actor_names: dict[int, str]
 
 
@@ -86,8 +87,18 @@ class CatalogService:
         exclude_id: int | None = None,
         current_service: Service | None = None,
     ) -> BillingUnit:
-        if data.category_id is not None and self.categories.get(data.category_id) is None:
-            data.errors["category_id"] = "Categoria não encontrada."
+        if not data.category_ids and data.category_id is not None:
+            data.category_ids = (data.category_id,)
+        previous = {link.category_id for link in current_service.category_links} if current_service else set()
+        for cid in data.category_ids:
+            category = self.categories.get(cid)
+            if category is None or (not category.is_active and cid not in previous):
+                data.errors["category_id"] = "Selecione categorias ativas desta empresa."
+        default_price = self.prices.current(current_service.id) if current_service else None
+        if not (default_price or data.initial_price) and (
+            not data.category_ids or any(data.category_prices.get(cid) is None for cid in data.category_ids)
+        ):
+            data.errors.setdefault("initial_price", "Informe um preço padrão válido ou um preço para cada categoria.")
         billing_unit = self.billing_units.by_code(data.billing_unit)
         if billing_unit is None or (
             not billing_unit.is_active
@@ -99,6 +110,23 @@ class CatalogService:
         if data.code and self.repository.by_code(data.code, exclude_id):
             raise DuplicateCodeError()
         return billing_unit
+
+    def _sync_categories(self, service: Service, data: ServiceInput) -> dict:
+        before = {link.category_id: link.price_cents for link in service.category_links}
+        after = {cid: decimal_to_cents(data.category_prices[cid])
+                 if data.category_prices.get(cid) is not None else None for cid in data.category_ids}
+        existing = {link.category_id: link for link in service.category_links}
+        for cid, link in existing.items():
+            if cid not in after:
+                service.category_links.remove(link)
+        for cid, cents in after.items():
+            if cid in existing:
+                existing[cid].price_cents = cents
+            else:
+                service.category_links.append(ServiceCategoryLink(category_id=cid, price_cents=cents))
+        # Compatibility projection for old exports, never the authoritative M:N.
+        service.category_id = data.category_ids[0] if data.category_ids else None
+        return {"from": before, "to": after} if before != after else {}
 
     def _duplicates(self, data: ServiceInput, *, exclude_id: int | None = None) -> list[Service]:
         matches = []
@@ -127,8 +155,10 @@ class CatalogService:
             if data.code and self.repository.by_code(data.code):
                 raise DuplicateCodeError() from None
             raise
-        self.session.add(ServicePrice(service_id=service.id, amount=data.initial_price, created_by=user_id))
-        self._audit(user_id, "service.created", f"services/{service.id}", {"name": service.name})
+        if data.initial_price is not None:
+            self.session.add(ServicePrice(service_id=service.id, amount=data.initial_price, created_by=user_id))
+        association_changes = self._sync_categories(service, data)
+        self._audit(user_id, "service.created", f"services/{service.id}", {"name": service.name, "categories": association_changes})
         self.session.commit()
         return service
 
@@ -156,6 +186,9 @@ class CatalogService:
                 changes[field] = {"from": before, "to": after}
                 setattr(service, field, after)
         service.updated_by = user_id
+        category_changes = self._sync_categories(service, data)
+        if category_changes:
+            changes["categories"] = category_changes
         self._audit(user_id, "service.updated", f"services/{service.id}", changes)
         self.session.commit()
         return service
@@ -180,27 +213,26 @@ class CatalogService:
             raise ServiceNotFoundError()
         amount = parse_money(raw_amount)
         current = self.prices.current(service_id)
-        if current is None:
-            raise ValueError("O serviço não possui preço vigente.")
         moment = at or datetime.now(timezone.utc)
-        current_from = current.valid_from
+        current_from = current.valid_from if current else moment - timedelta(microseconds=1)
         if moment.tzinfo is not None:
             moment = moment.astimezone(timezone.utc).replace(tzinfo=None)
         if current_from.tzinfo is not None:
             current_from = current_from.astimezone(timezone.utc).replace(tzinfo=None)
         if moment <= current_from:
             moment = current_from + timedelta(microseconds=1)
-        closed = self.session.execute(update(ServicePrice).where(ServicePrice.id == current.id, ServicePrice.valid_to.is_(None)).values(valid_to=moment).execution_options(synchronize_session=False))
-        if closed.rowcount != 1:
-            raise PriceConflictError("O preço foi alterado em outra solicitação. Confira o valor atual e tente novamente.")
-        self.session.expire(current, ["valid_to"])
+        if current is not None:
+            closed = self.session.execute(update(ServicePrice).where(ServicePrice.id == current.id, ServicePrice.valid_to.is_(None)).values(valid_to=moment).execution_options(synchronize_session=False))
+            if closed.rowcount != 1:
+                raise PriceConflictError("O preço foi alterado em outra solicitação. Confira o valor atual e tente novamente.")
+            self.session.expire(current, ["valid_to"])
         new_price = ServicePrice(
             service_id=service_id, amount=amount, valid_from=moment,
             reason=reason.strip()[:300] or None, created_by=user_id,
         )
         self.session.add(new_price)
         service.updated_by = user_id
-        self._audit(user_id, "service.price_changed", f"services/{service.id}", {"from": current.amount, "to": amount, "reason": new_price.reason})
+        self._audit(user_id, "service.price_changed", f"services/{service.id}", {"from": current.amount if current else None, "to": amount, "reason": new_price.reason})
         self.session.commit()
         return new_price
 
@@ -216,8 +248,6 @@ class CatalogService:
         if service is None:
             raise ServiceNotFoundError()
         current = self.prices.current(service_id)
-        if current is None:
-            raise ServiceNotFoundError()
         return ServiceProfile(service, current, self.prices.actor_names(service.prices))
 
     @atomic_write

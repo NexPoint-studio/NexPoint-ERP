@@ -194,6 +194,11 @@ class Payment(Base):
             "notes is null or length(notes) <= 1000",
             name="ck_payments_notes",
         ),
+        CheckConstraint(
+            "typeof(customer_surcharge_cents) = 'integer' and customer_surcharge_cents >= 0 "
+            "and customer_surcharge_cents < gross_amount_cents",
+            name="ck_payments_customer_surcharge",
+        ),
         Index("ix_payments_note_status_paid", "service_note_id", "status", "paid_at"),
         Index("ix_payments_customer_paid", "customer_id", "paid_at"),
         Index("ix_payments_method_paid", "payment_method_id", "paid_at"),
@@ -222,6 +227,7 @@ class Payment(Base):
     card_mode_snapshot: Mapped[str | None] = mapped_column(String(12), nullable=True)
     installments: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gross_amount_cents: Mapped[int] = mapped_column(Integer)
+    customer_surcharge_cents: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     fee_percentage_scaled: Mapped[int] = mapped_column(Integer, default=0)
     fixed_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
     fee_amount_cents: Mapped[int] = mapped_column(Integer, default=0)

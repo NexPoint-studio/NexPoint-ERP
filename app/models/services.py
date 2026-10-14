@@ -128,6 +128,36 @@ class Service(Base):
     prices: Mapped[list[ServicePrice]] = relationship(
         back_populates="service", cascade="all, delete-orphan", order_by="ServicePrice.valid_from.desc()"
     )
+    category_links: Mapped[list[ServiceCategoryLink]] = relationship(
+        back_populates="service", cascade="all, delete-orphan", lazy="selectin",
+        order_by="ServiceCategoryLink.category_id",
+    )
+
+    @property
+    def category_names(self) -> str:
+        return ", ".join(link.category.name for link in self.category_links) or (
+            self.category.name if self.category else "Sem categoria"
+        )
+
+
+class ServiceCategoryLink(Base):
+    """One catalog per installation database; no shared cross-tenant catalog.
+
+    The composite PK is unique within that company's SQLite. Historical note
+    items retain independent category/name/price snapshots when a link changes.
+    """
+    __tablename__ = "service_category_links"
+    __table_args__ = (
+        CheckConstraint("price_cents is null or (typeof(price_cents) = 'integer' "
+                        "and price_cents between 1 and 999999999999)",
+                        name="ck_service_category_links_price"),
+        Index("ix_service_category_links_category", "category_id"),
+    )
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id", ondelete="RESTRICT"), primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("service_categories.id", ondelete="RESTRICT"), primary_key=True)
+    price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    service: Mapped[Service] = relationship(back_populates="category_links")
+    category: Mapped[ServiceCategory] = relationship(lazy="joined")
 
 
 class ServicePrice(Base):
