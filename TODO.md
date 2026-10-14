@@ -1,11 +1,12 @@
 ﻿## A Fazer
 
-- [ ] Fase 2: suporte ERP/Control Center e Nexa contextual {weight:18} {sector:SETOR_BACKEND}
 - [ ] Fase 3: updater existente e recuperação {weight:14} {sector:SETOR_BACKEND}
 - [ ] Fase 4: segurança, integridade, restore e promoção {weight:18} {sector:SETOR_SEGURANCA}
 - [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; deploy exige autorização {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
+
+- [ ] Fase 2: suporte ERP/Control Center e Nexa contextual {weight:18} {sector:SETOR_BACKEND}
 
 ## Concluídas
 

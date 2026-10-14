@@ -5,6 +5,7 @@ from hashlib import sha256
 import hmac
 from dataclasses import asdict
 import re
+import unicodedata
 
 from app.core.modules import MODULES
 from app.knowledge import ERP_HELP
@@ -52,12 +53,21 @@ def screen_context(raw_screen: object, permissions: frozenset[str]) -> tuple[str
 
 
 def public_help(query: str, permissions: frozenset[str]) -> list[dict[str, str]]:
-    terms = set(re.findall(r"[a-z]{4,}", str(query or "").casefold()[:200]))
-    return [
-        {"topic": title, "summary": summary}
-        for key, title, summary, permission in ERP_HELP
-        if permission in permissions and (not terms or terms & set(re.findall(r"[a-z]{4,}", (key + title + summary).casefold())))
-    ][:5]
+    def words(value: str) -> set[str]:
+        normalized = unicodedata.normalize("NFKD", value.casefold())
+        normalized = "".join(c for c in normalized if not unicodedata.combining(c))
+        return set(re.findall(r"[a-z]{4,}", normalized))
+
+    terms = words(str(query or "")[:200]) - {"como", "para", "posso", "quero", "qual", "onde", "fazer"}
+    matches = []
+    for index, (key, title, summary, permission) in enumerate(ERP_HELP):
+        if permission not in permissions:
+            continue
+        score = 3 * len(terms & words(key + " " + title)) + len(terms & words(summary))
+        if not terms or score:
+            matches.append((score, index, {"topic": title, "summary": summary}))
+    matches.sort(key=lambda match: (-match[0], match[1]))
+    return [result for _, _, result in matches[:5]]
 
 
 def pseudonymous_user_id(secret: str, user_id: int) -> str:
