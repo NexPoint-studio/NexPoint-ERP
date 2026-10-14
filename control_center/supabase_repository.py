@@ -722,7 +722,17 @@ class SupabaseControlCenterRepository:
 
     def get_tenant_ticket(self, tenant_id: str, ticket_id: str) -> SupportTicket | None:
         ticket = self.get_ticket(ticket_id)
-        return ticket if ticket and ticket.tenant_id == _identifier(tenant_id, "tenant_id") else None
+        return self._tenant_ticket_projection(ticket) if ticket and ticket.tenant_id == _identifier(tenant_id, "tenant_id") else None
+
+    @staticmethod
+    def _tenant_ticket_projection(ticket: SupportTicket) -> SupportTicket:
+        """Keep platform-only notes and author identities inside Control Center."""
+        history = tuple(
+            replace(entry, actor_id=None, detail=None)
+            for entry in ticket.history
+            if entry.event_type in {"created", "status_changed"}
+        )
+        return replace(ticket, internal_notes=(), history=history)
 
     def list_tickets(self, filters: TicketFilters | None = None, *, status: str | None = None,
                      tenant_id: str | None = None, priority: str | None = None,
@@ -751,15 +761,15 @@ class SupabaseControlCenterRepository:
 
     def list_tenant_tickets(self, tenant_id: str, *, statuses: Sequence[str] | None = None,
                             limit: int = 100, offset: int = 0) -> tuple[SupportTicket, ...]:
-        return self.list_tickets(TicketFilters(tenant_id=tenant_id, statuses=tuple(statuses or ())), limit=limit, offset=offset)
+        return tuple(self._tenant_ticket_projection(ticket) for ticket in self.list_tickets(
+            TicketFilters(tenant_id=tenant_id, statuses=tuple(statuses or ())), limit=limit, offset=offset))
 
     def list_ticket_history(self, ticket_id: str) -> tuple[TicketHistoryEntry, ...]:
         return self._ticket_history(self._ticket_events(ticket_id), _identifier(ticket_id, "ticket_id"))
 
     def list_tenant_ticket_history(self, tenant_id: str, ticket_id: str) -> tuple[TicketHistoryEntry, ...]:
-        if self.get_tenant_ticket(tenant_id, ticket_id) is None:
-            return ()
-        return self.list_ticket_history(ticket_id)
+        ticket = self.get_tenant_ticket(tenant_id, ticket_id)
+        return ticket.history if ticket is not None else ()
 
     def set_ticket_status(self, ticket_id: str, status: str, *, changed_by: str | None = None,
                           changed_at: datetime | None = None) -> SupportTicket:

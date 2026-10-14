@@ -459,6 +459,10 @@ class ClientSupportService:
         technical: TicketTechnicalContext,
     ) -> SupportTicket:
         errors: dict[str, str] = {}
+        consent_value = raw.get("diagnostic_consent", "0")
+        if not isinstance(consent_value, str) or consent_value not in {"0", "1"}:
+            errors["diagnostic_consent"] = "Confirme se deseja compartilhar o diagnóstico."
+        diagnostic_consent = consent_value == "1"
         subject = self._field(
             raw,
             "subject",
@@ -506,10 +510,11 @@ class ClientSupportService:
             module=technical.module,
             screen=technical.screen,
             erp_version=self.identity.version,
-            technical_context=technical.payload,
-            diagnostic_fingerprint=technical.diagnostic_fingerprint,
-            correlation_id=technical.correlation_id,
-            nexa_diagnosis=nexa_diagnosis,
+            technical_context={**(technical.payload if diagnostic_consent else {}),
+                               "diagnostic_consent": diagnostic_consent},
+            diagnostic_fingerprint=technical.diagnostic_fingerprint if diagnostic_consent else None,
+            correlation_id=technical.correlation_id if diagnostic_consent else None,
+            nexa_diagnosis=nexa_diagnosis if diagnostic_consent else None,
             is_demo=False,
         )
         if self.outbox is not None:

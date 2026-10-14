@@ -21,6 +21,7 @@ def _valid_ticket(**changes: str) -> dict[str, str]:
         "description": "A tela permaneceu aberta depois de confirmar a operacao.",
         "priority": "high",
         "screen": "/servicos/notas",
+        "diagnostic_consent": "1",
     }
     values.update(changes)
     return values
@@ -49,6 +50,35 @@ def test_erp_support_is_client_ticket_center_and_existing_admin_tabs_are_visible
     assert ">Usuários e permissões<" not in response.text
     assert ">Empresa<" in response.text
     assert "Acesso técnico temporário" not in response.text
+
+
+@pytest.mark.parametrize("consent", [None, "0"])
+def test_ticket_without_consent_does_not_collect_or_send_diagnostics(client, app, monkeypatch, consent):
+    login(client, "admin@local")
+    monkeypatch.setattr("app.routes.support.build_ticket_technical_context",
+                        lambda *a, **kw: pytest.fail("Diagnostics require consent"))
+    monkeypatch.setattr("app.routes.nexa.resolve_assistant_diagnosis",
+                        lambda *a, **kw: pytest.fail("Nexa diagnosis requires consent"))
+    form = _valid_ticket()
+    form.pop("diagnostic_consent")
+    if consent is not None:
+        form["diagnostic_consent"] = consent
+    response = client.post("/admin/suporte/chamados", data=form, follow_redirects=False)
+    assert response.status_code == 303
+    ticket = _wait_for_ticket_delivery(app)[0]
+    assert ticket.technical_context == {"diagnostic_consent": False}
+    assert ticket.nexa_diagnosis is None
+    assert ticket.diagnostic_fingerprint is None
+    assert ticket.correlation_id is None
+
+
+def test_ticket_consent_starts_unchecked_and_invalid_value_is_rejected(client, app):
+    page = client.get("/admin/suporte")
+    checkbox = re.search(r'<input[^>]*name="diagnostic_consent"[^>]*>', page.text).group()
+    assert "checked" not in checkbox
+    response = client.post("/admin/suporte/chamados", data=_valid_ticket(diagnostic_consent="yes"))
+    assert response.status_code == 422
+    assert app.state.control_center_repository.list_tickets() == ()
 
 
 def test_standard_erp_user_can_open_support_but_cannot_forge_ticket_scope(client, app):

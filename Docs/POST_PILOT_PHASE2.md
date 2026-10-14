@@ -32,6 +32,41 @@ as exigências de contexto confiável da Fase 2.
 
 ## Próxima implementação
 
+### Proteção da fronteira do cliente
+
+Achado confirmado por teste local, severidade MEDIUM: os métodos de consulta
+por tenant do repositório Supabase retornavam o objeto administrativo completo,
+incluindo notas internas e autores/detalhes do histórico. O backend SQLite já
+removia esse conteúdo. Isso representa uma falha do contrato de exposição;
+não foi demonstrado vazamento em PROD e nenhuma consulta remota foi necessária.
+
+Correção: detalhe, listagem e histórico por tenant usam projeção explícita.
+Somente eventos `created` e `status_changed` são publicados, sem autor ou detalhe
+interno. Eventos desconhecidos são omitidos. A consulta administrativa mantém
+as notas para uso interno. Testes com objetos e transporte JSON simulado cobrem
+as três leituras e a rejeição de outro tenant.
+
+### Consentimento para diagnóstico
+
+O formulário de chamado passou a oferecer checkbox opcional, desmarcado por
+padrão. Sem consentimento, não chama o coletor técnico nem resolve diagnóstico
+da Nexa; mantém somente a identificação necessária do atendimento. O serviço
+também remove payload, fingerprint, correlação e diagnóstico na ausência de
+consentimento, registrando a decisão no contexto do chamado. O caminho com
+consentimento preserva a sanitização existente.
+
+Não foram adicionados endpoints remotos, migrations ou transporte de mensagens
+neste incremento. Conversa bidirecional e anexos continuam pendentes.
+
+Validação deste incremento: 69 testes passaram em suporte, fronteira pública,
+sync offline, Control Center com backend simulado e Nexa. Evidência local:
+`artifacts/post-pilot-20261014/support-boundary.xml`. Secret scan passou em 508
+arquivos candidatos e `git diff --check` passou. Tela conferida no navegador
+em 1366 e 390 pixels, sem overflow horizontal, checkbox desmarcado; captura
+mobile inspecionada. Bancos e imagens são descartáveis e ficam fora do Git.
+
+### Sequência restante
+
 Definir e implementar mensagens públicas com identificação estável, direção,
 data e estado; transporte de ida/volta autenticado por instalação; persistência
 local para consulta offline; status/reabertura autorizados; projeção pública

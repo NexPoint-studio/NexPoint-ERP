@@ -32,6 +32,7 @@ from app.services.support import (
 )
 from app.services.support_tickets import (
     ClientSupportService,
+    TicketTechnicalContext,
     SupportTicketNotFoundError,
     SupportTicketValidationError,
     TICKET_CATEGORIES,
@@ -54,6 +55,7 @@ TICKET_CREATE_FIELDS = frozenset(
         "priority",
         "screen",
         "nexa_request_id",
+        "diagnostic_consent",
         "submit",
     }
 )
@@ -253,9 +255,10 @@ async def support_ticket_create(request: Request):
     )
 
     diagnosis_reference = raw.get("nexa_request_id", "")
-    raw["nexa_diagnosis"] = resolve_assistant_diagnosis(
+    consent = raw.get("diagnostic_consent") == "1"
+    raw["nexa_diagnosis"] = (resolve_assistant_diagnosis(
         request, diagnosis_reference, raw.get("screen")
-    ) or ""
+    ) or "") if consent else ""
     with request.app.state.session_factory() as session:
         _ticket_access(session, actor.id)
         identity = client_support_identity(request, session)
@@ -272,6 +275,9 @@ async def support_ticket_create(request: Request):
             technical = build_ticket_technical_context(
                 request,
                 screen=raw.get("screen") or request.url.path,
+            ) if consent else TicketTechnicalContext(
+                module="support", screen="support", correlation_id="",
+                diagnostic_fingerprint=None, payload={},
             )
             ticket = service.create_ticket(raw, technical)
         except SupportTicketValidationError as exc:

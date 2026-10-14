@@ -12,7 +12,7 @@
   <div>
     <p class="eyebrow">ADMINISTRAÇÃO › SUPORTE</p>
     <h1>Central de Suporte</h1>
-    <p>Abra e acompanhe chamados enviados à NexPoint. O ERP inclui somente contexto técnico sanitizado.</p>
+    <p>Abra e acompanhe chamados enviados à NexPoint. Você escolhe se deseja compartilhar um diagnóstico técnico.</p>
   </div>
   <a class="button button--primary" href="#abrir-chamado">Abrir chamado</a>
 </header>
@@ -63,8 +63,9 @@
       </label>
 
       <div class="support-context-note">
-        <strong>Contexto técnico protegido</strong>
-        <p>Módulo, tela, versão, horário e sinais de diagnóstico relevantes serão anexados automaticamente após sanitização.</p>
+        <label class="checkbox"><input type="checkbox" name="diagnostic_consent" value="1" {% if ticket_form.get('diagnostic_consent') == '1' %}checked{% endif %}> Compartilhar diagnóstico técnico deste chamado</label>
+        <p>Opcional. Inclui sinais de erro, módulo, tela e diagnóstico da Nexa, quando disponível, após sanitização. O chamado pode ser enviado sem isso. Empresa, instalação e versão identificam o atendimento automaticamente.</p>
+        {% if form_errors.diagnostic_consent %}<small class="field-error">{{ form_errors.diagnostic_consent }}</small>{% endif %}
       </div>
       <div class="form-actions support-form-actions">
         <button class="button button--primary" type="submit">Enviar chamado</button>
