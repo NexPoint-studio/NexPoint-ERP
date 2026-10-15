@@ -65,8 +65,8 @@ PRODUCT_DIRECTORY = "ERP-QA"
 
 $versionInfo = Join-Path $stage 'packaging\windows_version_info.txt'
 $versionText = Get-Content -LiteralPath $versionInfo -Raw
-$versionText = $versionText.Replace('1, 1, 0, 0', ('1, 1, ' + $(if ($Build -eq 'A') { '0' } else { '2' }) + ', 0'))
-$versionText = $versionText.Replace('1.1.0', $version).Replace('NexPoint ERP', 'NexPoint ERP QA')
+$versionText = $versionText -replace '1, 1, \d+, 0', ('1, 1, ' + $(if ($Build -eq 'A') { '0' } else { '2' }) + ', 0')
+$versionText = ($versionText -replace '1\.1\.\d+', $version).Replace('NexPoint ERP', 'NexPoint ERP QA')
 Set-Content -LiteralPath $versionInfo -Value $versionText -Encoding UTF8
 $manifestPath = Join-Path $base 'build-manifest.json'
 $manifest = [ordered]@{
