@@ -1,14 +1,15 @@
 ﻿## A Fazer
 
-- [ ] Windows QA: acesso válido à VM e instalação/update A→B com preservação de dados e DPAPI {weight:14} {sector:SETOR_QA_TESTES}
 - [ ] Fase 4: segurança, integridade, restore e promoção {weight:18} {sector:SETOR_SEGURANCA}
 - [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; preservar identidade e dados, cumprir gates de backup/restore antes de PROD {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
 
-- [ ] Corrigir sanitiza??o de build; gerar novos A/B QA e repetir gates completos na VM com login validado {weight:8} {sector:SETOR_QA_TESTES}
 
 ## Concluídas
+
+- [x] Corrigir sanitização de build; novos A/B QA b7b5ed5, ciclo completo na VM e 1402 testes PASS; 49 eventos synced, zero dead_letter {weight:8} {sector:SETOR_QA_TESTES}
+- [x] Windows QA: instalação limpa, ativação, Empresa, Admin Lock, Recovery, update A→B/reinício do ERP, preservação de SQLite e DPAPI {weight:14} {sector:SETOR_QA_TESTES}
 
 - [x] Builds e instaladores exclusivos QA A 1.1.0 / B 1.1.2 gerados; hashes, secret scan e boundary QA passaram {sector:SETOR_COORDENACAO}
 
