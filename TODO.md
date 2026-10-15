@@ -6,7 +6,7 @@
 
 ## Em andamento
 
-- [ ] Validar instaladores QA A/B de be07424 na VM; acesso ao Windows convidado pendente {weight:8} {sector:SETOR_QA_TESTES}
+- [ ] Corrigir sanitiza??o de build; gerar novos A/B QA e repetir gates completos na VM com login validado {weight:8} {sector:SETOR_QA_TESTES}
 
 ## Concluídas
 

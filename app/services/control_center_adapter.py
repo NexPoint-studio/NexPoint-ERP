@@ -17,7 +17,7 @@ from app.services.connectivity import ConnectivityState
 from app.services.erp_preflight import run_preflight
 from control_center.domain import ErpInstallation, HealthSnapshot, RiskSummary, Tenant
 from control_center.local_repository import LocalControlCenterRepository
-from control_center.sanitization import sanitize_mapping, sanitize_text
+from control_center.sanitization import sanitize_build_identifier, sanitize_mapping, sanitize_text
 from app.repositories.sync import OutboxRepository
 
 
@@ -284,7 +284,6 @@ class ControlTelemetryAdapter:
         display_name = sanitize_text(settings.get("company.trade_name") or settings.get("company.name") or app.state.settings.company_name, maximum=180) or "Sua Empresa"
         version = sanitize_text(settings.get("app.version") or app.state.settings.version, maximum=80) or "unknown"
         environment = sanitize_text(app.state.settings.environment, maximum=40) or "local"
-        build = sanitize_text(app.state.settings.build, maximum=80) or "unknown"
         # A commit SHA is a public build identifier. Generic PII redaction can
         # mistake a long run of its digits for a card number, corrupting the
         # heartbeat contract. Accept only the exact trusted build format.
@@ -292,6 +291,7 @@ class ControlTelemetryAdapter:
         commit = raw_commit if isinstance(raw_commit, str) and re.fullmatch(
             r"[0-9a-f]{40}", raw_commit
         ) else "unknown"
+        build = sanitize_build_identifier(app.state.settings.build, commit)
         channel = sanitize_text(
             getattr(app.state.settings, "channel", "LOCAL"), maximum=16
         ) or "LOCAL"

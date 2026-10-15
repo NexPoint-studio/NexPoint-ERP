@@ -278,13 +278,18 @@ def test_nexa_diagnostic_events_are_isolated(client, monkeypatch):
         admin_id = session.scalar(select(User.id).where(User.email == "admin@local"))
     monitor.record(module="customers", operation="view", category="api", severity="ERROR", error_code="user_error", user_id=user_id)
     monitor.record(module="customers", operation="view", category="api", severity="ERROR", error_code="admin_error", user_id=admin_id)
+    # Other authorized events can appear under load (for example slow requests).
+    # Check isolation of the injected errors without assuming an empty monitor.
+    monitor.record(module="admin", operation="view", category="latency", severity="WARNING", error_code="slow_request", user_id=user_id)
     protect_administration(client)
     user_payload = client.post("/nexa/chat", json={"message": "erro", "screen": "/clientes/lista"})
     assert user_payload.status_code == 200
     first_ref = captured[-1]["user_id"]
     user_events = captured[-1]["tools"]["get_recent_diagnostic_events"]["events"]
-    assert len(user_events) == 1
-    assert "error_code" not in user_events[0]
+    injected_errors = [event for event in user_events if event["module"] == "customers"
+                       and event["category"] == "api" and event["severity"] == "ERROR"]
+    assert len(injected_errors) == 1
+    assert all("error_code" not in event for event in user_events)
     client.post("/logout")
     login(client, "admin@local")
     admin_response = client.post("/nexa/chat", json={"message": "erro", "screen": "/admin/auditoria"})

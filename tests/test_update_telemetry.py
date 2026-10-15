@@ -79,6 +79,37 @@ def test_heartbeat_keeps_valid_build_commit_and_rejects_other_values(app):
         assert all("private-token" not in item.payload_json for item in heartbeats)
 
 
+@pytest.mark.parametrize("prefix", ["QA-A", "QA-B", "PROD"])
+@pytest.mark.parametrize("commit", [
+    "be0742475703651b2244c41cf7e91832aa99a0a9",
+    "1234567890123456789012345678901234567890",
+])
+def test_heartbeat_build_survives_adapter_outbox_and_receiver(app, prefix, commit):
+    from control_center.sanitization import sanitize_sync_payload
+    build = f"{prefix}-{commit[:12]}"
+    app.state.settings = replace(app.state.settings, build=build, commit=commit)
+    ControlTelemetryAdapter(None, outbox_only=True).publish(app)
+    with app.state.session_factory() as session:
+        rows = session.scalars(select(OutboxItem).where(OutboxItem.event_type == "heartbeat")).all()
+        payload = next(json.loads(row.payload_json) for row in rows
+                       if json.loads(row.payload_json).get("commit") == commit)
+    assert payload["build"] == build
+    assert sanitize_sync_payload(sanitize_sync_payload(payload))["build"] == build
+
+
+def test_build_exception_does_not_preserve_untrusted_free_text():
+    from control_center.sanitization import sanitize_sync_payload
+    commit = "be0742475703651b2244c41cf7e91832aa99a0a9"
+    for value, supplied_commit in [
+        ("QA-A-be0742475703", "a" * 40),
+        ("QA-A-be0742475703", None),
+        ("QA-A-be0742475703 senha=private-value", commit),
+    ]:
+        result = sanitize_sync_payload({"build": value, "commit": supplied_commit})
+        assert "0742475703" not in result["build"]
+        assert "private-value" not in result["build"]
+
+
 @pytest.mark.parametrize("state,label", [("RESTARTING", "Validando atualização"),
     ("ROLLED_BACK", "Versão anterior recuperada"), ("FAILED", "Falhou"),
     ("ROLLBACK_REQUIRED", "Requer recuperação"), ("READY", "Pronta para instalar")])

@@ -210,6 +210,16 @@ _SYNC_OPAQUE_LIST_FIELDS = frozenset({"fingerprints", "active_risk_fingerprints"
 _SYNC_OPAQUE_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
+def sanitize_build_identifier(value: object, commit: object) -> str:
+    """Keep only canonical package IDs bound to their public Git commit."""
+    if (isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit)
+            and isinstance(value, str)
+            and re.fullmatch(r"(?:QA-[AB]|PROD)-[0-9a-f]{12}", value)
+            and value.endswith("-" + commit[:12])):
+        return value
+    return sanitize_text(value, maximum=80) or "unknown"
+
+
 def sanitize_sync_payload(value: Mapping[str, Any]) -> dict[str, JsonValue]:
     """Scrub free text while preserving validated server-generated opaque IDs.
 
@@ -227,6 +237,8 @@ def sanitize_sync_payload(value: Mapping[str, Any]) -> dict[str, JsonValue]:
     commit = value.get("commit")
     if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
         result["commit"] = commit
+    if "build" in value:
+        result["build"] = sanitize_build_identifier(value["build"], commit)
     for field in _SYNC_OPAQUE_FIELDS:
         item = value.get(field)
         if (
