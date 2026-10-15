@@ -70,6 +70,7 @@ from control_center.sanitization import (
     dumps_sanitized,
     loads_sanitized,
     pseudonymize_identifier,
+    sanitize_build_identifier,
     sanitize_mapping,
     sanitize_sync_payload,
     sanitize_text,
@@ -1184,13 +1185,14 @@ class LocalControlCenterRepository:
                         "Instalacao ja pertence a outro tenant."
                     )
                 is_demo = int(tenant_type == "DEMO")
+                _required_text(payload.get("build", "unknown"), field="build", maximum=80)
                 connection.execute("""INSERT INTO tenants(id,display_name,status,created_at,updated_at,erp_version,environment,last_seen_at,health_status,is_demo,tenant_type)
                     VALUES(?,?,'active',?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET display_name=CASE WHEN EXISTS(SELECT 1 FROM company_profile_sources WHERE tenant_id=excluded.id) THEN tenants.display_name ELSE excluded.display_name END,updated_at=excluded.updated_at,erp_version=excluded.erp_version,environment=excluded.environment,last_seen_at=excluded.last_seen_at,health_status=excluded.health_status""",
                     (tenant_id, tenant_name, _iso(now), _iso(now), version_text, environment, seen, health, is_demo, tenant_type))
                 connection.execute("""INSERT INTO installations(id,tenant_id,installation_id,version,build,environment,last_seen_at,health,platform,metadata_json,created_at,updated_at,is_demo)
                     VALUES(?,?,?,?,?,?,?,?,?,'{}',?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,build=excluded.build,environment=excluded.environment,last_seen_at=excluded.last_seen_at,health=excluded.health,updated_at=excluded.updated_at,is_demo=excluded.is_demo""",
                     (installation_id, tenant_id, installation_id, version_text,
-                     _required_text(payload.get("build", "unknown"), field="build", maximum=80), environment,
+                     sanitize_build_identifier(payload.get("build", "unknown"), payload.get("commit")), environment,
                      seen, health, "windows-local", _iso(now), _iso(now), is_demo))
             else:
                 self._require_tenant(connection, tenant_id)

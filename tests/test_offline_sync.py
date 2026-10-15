@@ -71,6 +71,31 @@ def test_ack_is_durable_and_lost_ack_retry_is_idempotent(tmp_path):
         assert connection.execute("select count(*) from sync_receipts").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize("prefix", ["QA-A", "QA-B", "PROD"])
+@pytest.mark.parametrize("commit", [
+    "be0742475703651b2244c41cf7e91832aa99a0a9",
+    "1234567890123456789012345678901234567890",
+])
+def test_heartbeat_build_survives_real_local_receiver(tmp_path, prefix, commit):
+    sessions = factory(tmp_path)
+    database = tmp_path / "center-build.sqlite3"
+    center = LocalControlCenterRepository(database)
+    build = f"{prefix}-{commit[:12]}"
+    payload = {**heartbeat_payload(), "build": build, "commit": commit}
+    with sessions() as session:
+        OutboxRepository(session).enqueue(
+            event_type="heartbeat", aggregate_type="installation",
+            aggregate_id="heartbeat_build", payload=payload,
+            idempotency_key="heartbeat:build", now=NOW,
+        )
+        session.commit()
+    result = OfflineSyncEngine(sessions, LocalSyncRemote(center)).run_once(now=NOW)
+    assert result.synced == 1
+    assert LocalControlCenterRepository(database).get_installation("installation_test").build == build
+    with sessions() as session:
+        assert session.scalar(select(OutboxItem)).status == "synced"
+
+
 def test_retry_recovery_dead_letter_and_synced_only_retention(tmp_path):
     sessions = factory(tmp_path)
     class Down:
