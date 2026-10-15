@@ -29,6 +29,21 @@ endpoints e duas suítes SQL. A regressão `test_prod_control_center.py` passou 
 
 ## Achados e triagem
 
+### Fechamento de 15/10/2026
+
+Nenhum CRITICAL/HIGH confirmado aberto na triagem consolidada. Alertas históricos
+de scanners não resolvidos continuam limitações de cobertura, não findings
+automaticamente confirmados nem controles certificados. O escopo tenant dos
+três RPCs de suporte foi reforçado na migration
+`20261015010000_support_admin_tenant_scope.sql`: 24 combinações role/tenant,
+revogação, ausência de mutação nas recusas e grants privados passaram em QA.
+Conversa/anexos SQL e 37 testes Python de Control Center/recuperação passaram.
+
+Quota acumulada de anexos continua limitação documentada; não foi introduzida
+política arbitrária de retenção/exclusão de dados. Histórico Git SD-003 não foi
+reescrito; prevenção permanece vigente. Advisory setuptools segue documentado
+em RELEASE_1.1.2.md, sem upgrade major não validado. Windows QA não foi repetido.
+
 ### MEDIUM — janela entre anexo local e outbox
 
 Foi identificada uma janela de interrupção: o sidecar confirma os bytes antes

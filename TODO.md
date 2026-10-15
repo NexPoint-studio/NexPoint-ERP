@@ -1,9 +1,10 @@
 ﻿## A Fazer
 
-- [ ] Fase 4: segurança, integridade, restore e promoção {weight:18} {sector:SETOR_SEGURANCA}
 - [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; preservar identidade e dados, cumprir gates de backup/restore antes de PROD {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
+
+- [ ] Promoção 1.1.2: backup/restore PROD, migrations, Edge, build stable, push, Control Center e preparação Nil lav {weight:18} {sector:SETOR_COORDENACAO}
 
 
 ## Concluídas
