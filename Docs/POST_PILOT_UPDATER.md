@@ -1,6 +1,7 @@
 # Updater pós-piloto
 
-Implementação local, pendente de promoção e de nova validação Windows A→B.
+Windows A→B concluído e aceito em 15/10/2026. Promoção e distribuição stable
+registradas em PROD_RELEASE_20261015.md; os requisitos abaixo descrevem o contrato.
 
 ## Distribuição
 

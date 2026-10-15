@@ -1,26 +1,10 @@
 ﻿## A Fazer
 
-- [ ] Conferir vínculo real Nil lav antes de promoção: consulta de 14/10 ainda indica nexpoint/internal; preservar identidade e dados, cumprir gates de backup/restore antes de PROD {weight:3} {sector:SETOR_COORDENACAO}
+- [ ] Render: executar Manual Deploy do main no serviço nexpoint-erp-control-center e confirmar Live/SHA {weight:1} {sector:SETOR_COORDENACAO}
+- [ ] Validar smoke do novo Control Center após confirmação do deploy {weight:2} {sector:SETOR_QA_TESTES}
+- [ ] Notebook Nil lav: executar pacote Preflight 1.1.2 e receber relatório sanitizado de backup/integridade atual {weight:2} {sector:SETOR_QA_TESTES}
+- [ ] Após gates externos, conferir canal/identidade Nil lav, liberar rollout pelo fluxo oficial e confirmar atualização/heartbeat real; não reassociar tenant sem handoff local preparado {weight:3} {sector:SETOR_COORDENACAO}
 
 ## Em andamento
 
-- [ ] Promoção 1.1.2: backup/restore PROD, migrations, Edge, build stable, push, Control Center e preparação Nil lav {weight:18} {sector:SETOR_COORDENACAO}
-
-
 ## Concluídas
-
-- [x] Corrigir sanitização de build; novos A/B QA b7b5ed5, ciclo completo na VM e 1402 testes PASS; 49 eventos synced, zero dead_letter {weight:8} {sector:SETOR_QA_TESTES}
-- [x] Windows QA: instalação limpa, ativação, Empresa, Admin Lock, Recovery, update A→B/reinício do ERP, preservação de SQLite e DPAPI {weight:14} {sector:SETOR_QA_TESTES}
-
-- [x] Builds e instaladores exclusivos QA A 1.1.0 / B 1.1.2 gerados; hashes, secret scan e boundary QA passaram {sector:SETOR_COORDENACAO}
-
-- [x] Suporte/conversa/anexos/Nexa e gestão de rollout implementados localmente; 1389 casos validados (1384 na suíte + 5 corrigidos reexecutados), 21 Edge e SQL isolado {sector:SETOR_COORDENACAO}
-
-- [x] Fase 1 pós-piloto: catálogo e recebimentos {sector:SETOR_COORDENACAO}
-  - [x] Auditar arquitetura, Git e identidade remota somente leitura {weight:4} {sector:SETOR_COORDENACAO}
-  - [x] Catálogo M:N e preços específicos preservando snapshots {weight:8} {sector:SETOR_BANCO_DADOS}
-  - [x] Taxas, acréscimo cliente e ajustes auditados {weight:8} {sector:SETOR_BACKEND}
-  - [x] Visual, fluxo e responsividade das telas e navegação {weight:5} {sector:SETOR_INTERFACE_UX}
-  - [x] Migrations, regressões, integridade, backup/restore e scans; 1290 casos validados com reexecução dos 7 corrigidos {weight:7} {sector:SETOR_QA_TESTES}
-
-- [x] Baseline 8a38978 preservada em bundle verificado em artifacts/post-pilot-20261014 {weight:1} {sector:SETOR_COORDENACAO}

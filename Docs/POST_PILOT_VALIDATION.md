@@ -1,5 +1,10 @@
 # Validação pós-piloto — 14/10/2026
 
+Atualização 15/10: o Windows QA foi concluído e aceito, com 1402/1402 PASS e
+sync completo. As pendências Windows abaixo são histórico anterior, não tarefas
+atuais. Consulte QA_WINDOWS_20261015.md e PROD_RELEASE_20261015.md para o estado
+de promoção e as ações externas restantes.
+
 ## Resultado local
 
 - Suíte Python: 1389 casos; primeira execução 1384 PASS e 5 FAIL em 1207s.
