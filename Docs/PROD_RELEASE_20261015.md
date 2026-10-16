@@ -1,5 +1,35 @@
 # Promoção pós-piloto — 15/10/2026
 
+## Estado atual após retorno do proprietário
+
+Render Live `1ef6410` confirmado pelo print do proprietário. Smoke autenticado:
+health/readiness, dashboard, empresas, chamados, versões e sistema HTTP 200;
+requisição sem CSRF rejeitada com 403 e logout 303. Não houve novo deploy.
+
+Auditoria recebida `NexPoint-NilLav-Auditoria-20261015T235717Z.json`: backup
+completo, zero erros, integridade/FK de todos os bancos e DPAPI PASS; 255 eventos
+synced, zero pendentes/falhos/dead_letter e zero ACK ausente. Há dados reais:
+5 clientes, 1 nota, 1 pagamento e 56 movimentos de caixa. Não tratar o notebook
+como instalação vazia nem substituir seu banco. Admin Lock não está configurado
+(zero registros), o que é permitido pelo contrato opcional. `activation_pending`
+coexiste com estado active; pelo contrato needs_activation, banco e credencial
+existentes preservam operação sem reativação automática.
+
+Após esses gates, somente update_channel de nil-lav-pc-01 passou de internal
+para stable, com evento de auditoria e snapshot prévio cifrado DPAPI. Tenant
+nexpoint, UUID/installation, environment/channel e credenciais permanecem iguais;
+canal das demais instalações preservado. Não foi executado handoff de tenant.
+A release 5233c45a-a9a7-4f87-bfa2-1fb3adcde8ac está published/active/100% em stable.
+
+Pendente exclusivamente no notebook: Administração → Sistema → Verificar
+atualizações → Baixar atualização → confirmar instalação. Após reinício,
+conferir 1.1.2 e dados; obter auditoria pós-update e heartbeat/sync antes do aceite
+final. A liberação remota não prova instalação concluída.
+
+Evidências privadas: live-acceptance.json, before-channel-change.dpapi e
+nil-stable-enabled.json em artifacts/release-stable-20261015. O restante deste
+documento registra a sequência anterior, incluindo a pausa inicial já encerrada.
+
 Windows QA encerrado pelo proprietário; não reexecutado. Baseline: 1402/1402
 PASS e ciclo A→B com preservação de SQLite, dados, Empresa, Admin Lock e DPAPI.
 
